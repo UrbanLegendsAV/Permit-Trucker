@@ -1,9 +1,15 @@
 import { useState, useMemo } from "react";
-import { Search, MapPin, Building, ChevronRight } from "lucide-react";
+import { Search, MapPin, Building, ChevronRight, Flag, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ConfidenceIndicator } from "./confidence-indicator";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Town } from "@shared/schema";
 
 interface TownSearchProps {
@@ -22,6 +28,35 @@ export function TownSearch({
   isLoading = false,
 }: TownSearchProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [showPioneerDialog, setShowPioneerDialog] = useState(false);
+  const [pioneerForm, setPioneerForm] = useState({ townName: "", county: "", portalUrl: "", notes: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  const handlePioneerSubmit = async () => {
+    if (!pioneerForm.townName.trim()) {
+      toast({ title: "Town name required", variant: "destructive" });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await apiRequest("POST", "/api/town-requests", {
+        state: selectedState,
+        townName: pioneerForm.townName.trim(),
+        county: pioneerForm.county.trim() || null,
+        portalUrl: pioneerForm.portalUrl.trim() || null,
+        notes: pioneerForm.notes.trim() || null,
+      });
+      toast({ title: "Request Submitted", description: "Thanks for helping expand our database!" });
+      setShowPioneerDialog(false);
+      setPioneerForm({ townName: "", county: "", portalUrl: "", notes: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/towns"] });
+    } catch (error) {
+      toast({ title: "Failed to submit", description: "Please try again later", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const filteredTowns = useMemo(() => {
     let filtered = towns.filter(t => t.state === selectedState);
@@ -80,9 +115,19 @@ export function TownSearch({
         <div className="text-center py-8" data-testid="town-search-empty">
           <MapPin className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
           <p className="text-muted-foreground">No towns found</p>
-          <p className="text-sm text-muted-foreground/70 mt-1">
-            Try adjusting your search or be a pioneer!
+          <p className="text-sm text-muted-foreground/70 mt-1 mb-4">
+            Can't find your town? Help us add it!
           </p>
+          <Button 
+            onClick={() => {
+              setPioneerForm(prev => ({ ...prev, townName: searchQuery }));
+              setShowPioneerDialog(true);
+            }}
+            data-testid="button-be-pioneer"
+          >
+            <Flag className="w-4 h-4 mr-2" />
+            Be a Pioneer
+          </Button>
         </div>
       ) : (
         <div className="space-y-2 max-h-[400px] overflow-y-auto" data-testid="town-search-results">
@@ -116,6 +161,67 @@ export function TownSearch({
           ))}
         </div>
       )}
+
+      <Dialog open={showPioneerDialog} onOpenChange={setShowPioneerDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request a New Town</DialogTitle>
+            <DialogDescription>
+              Help us expand our database! We'll review your request and add the town.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="townName">Town Name</Label>
+              <Input
+                id="townName"
+                value={pioneerForm.townName}
+                onChange={(e) => setPioneerForm(prev => ({ ...prev, townName: e.target.value }))}
+                placeholder="e.g., Bethel"
+                data-testid="input-pioneer-town"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="county">County (Optional)</Label>
+              <Input
+                id="county"
+                value={pioneerForm.county}
+                onChange={(e) => setPioneerForm(prev => ({ ...prev, county: e.target.value }))}
+                placeholder="e.g., Fairfield"
+                data-testid="input-pioneer-county"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="portalUrl">Town Website / Permit Page (Optional)</Label>
+              <Input
+                id="portalUrl"
+                value={pioneerForm.portalUrl}
+                onChange={(e) => setPioneerForm(prev => ({ ...prev, portalUrl: e.target.value }))}
+                placeholder="https://town-website.gov/permits"
+                data-testid="input-pioneer-url"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes (Optional)</Label>
+              <Textarea
+                id="notes"
+                value={pioneerForm.notes}
+                onChange={(e) => setPioneerForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Any helpful info about permit requirements..."
+                data-testid="input-pioneer-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPioneerDialog(false)} data-testid="button-pioneer-cancel">
+              Cancel
+            </Button>
+            <Button onClick={handlePioneerSubmit} disabled={isSubmitting} data-testid="button-pioneer-submit">
+              {isSubmitting ? "Submitting..." : "Submit Request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

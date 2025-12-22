@@ -1,9 +1,11 @@
-import { Check, Info, ExternalLink, AlertTriangle } from "lucide-react";
+import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import type { Town } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
+import type { Town, TownForm } from "@shared/schema";
 
 interface RequirementsChecklistProps {
   town: Town;
@@ -56,8 +58,24 @@ const requirementDetails: Record<string, { label: string; description: string; a
   },
 };
 
+const categoryLabels: Record<string, string> = {
+  temporary_permit: "Temporary Permit",
+  seasonal_permit: "Seasonal Permit",
+  yearly_permit: "Yearly/Annual Permit",
+  plan_review: "Plan Review",
+  license_renewal: "License Renewal",
+  checklist: "Checklist",
+  health_inspection: "Health Inspection",
+  fire_safety: "Fire Safety",
+  other: "Other",
+};
+
 export function RequirementsChecklist({ town, progress, onToggle }: RequirementsChecklistProps) {
-  const requirements = town.requirementsJson || {};
+  const requirements = (town.requirementsJson || {}) as Record<string, unknown>;
+  
+  const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
+    queryKey: ["/api/towns", town.id, "forms"],
+  });
   
   const items: RequirementItem[] = Object.entries(requirements)
     .filter(([key, value]) => typeof value === "boolean" && value && requirementDetails[key])
@@ -167,6 +185,57 @@ export function RequirementsChecklist({ town, progress, onToggle }: Requirements
               </div>
             )}
           </div>
+        </Card>
+      )}
+
+      {formsLoading ? (
+        <Card className="p-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading official forms...</span>
+          </div>
+        </Card>
+      ) : forms.length > 0 && (
+        <Card className="p-4" data-testid="forms-card">
+          <h4 className="font-medium mb-3 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary" />
+            Official Forms for {town.townName}
+          </h4>
+          <div className="space-y-2">
+            {forms.map((form) => (
+              <div 
+                key={form.id} 
+                className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg"
+                data-testid={`form-${form.id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{form.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="outline" className="text-xs">
+                      {categoryLabels[form.category || "other"]}
+                    </Badge>
+                    {form.isFillable && (
+                      <Badge variant="secondary" className="text-xs">Fillable</Badge>
+                    )}
+                  </div>
+                </div>
+                {form.externalUrl && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.open(form.externalUrl || "", "_blank")}
+                    data-testid={`button-download-form-${form.id}`}
+                  >
+                    <ExternalLink className="w-4 h-4 mr-1" />
+                    Open
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            Download and complete these forms, then submit to {town.townName} Health Department.
+          </p>
         </Card>
       )}
 

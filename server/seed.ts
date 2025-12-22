@@ -5,6 +5,31 @@ const ctTowns = [
   {
     state: "CT",
     county: "Fairfield",
+    townName: "Bethel",
+    permitTypes: ["yearly", "temporary", "seasonal"],
+    portalUrl: "https://bethel-ct.gov/?SEC=B6C10D79-A9D5-41BA-AB9A-934BA60CAB2D",
+    formType: "pdf_download" as const,
+    requirementsJson: {
+      coi: true,
+      background: false,
+      healthInspection: true,
+      fireInspection: true,
+      vehicleInspection: false,
+      commissaryLetter: false,
+      menuRequired: true,
+      fees: { yearly: 175, temporary: 75, seasonal: 100 },
+      notes: [
+        "CFPM certificate required for Class 2, 3, and 4",
+        "24-hour emergency contact required",
+        "Submit to Bethel Health Department",
+        "License not issued if taxes delinquent 1+ years"
+      ],
+    },
+    confidenceScore: 90,
+  },
+  {
+    state: "CT",
+    county: "Fairfield",
     townName: "Danbury",
     permitTypes: ["yearly", "temporary", "seasonal"],
     portalUrl: "https://danburyct-health.viewpointcloud.com",

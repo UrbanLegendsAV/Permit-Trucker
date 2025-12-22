@@ -9,6 +9,8 @@ import {
   insertTownSchema,
   insertPublicProfileSchema,
   insertReviewSchema,
+  insertTownFormSchema,
+  insertTownRequestSchema,
 } from "@shared/schema";
 
 // Admin middleware - requires owner or admin role
@@ -543,6 +545,110 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting review:", error);
       res.status(500).json({ message: "Failed to delete review" });
+    }
+  });
+
+  // ========== Town Forms (official municipality PDF forms) ==========
+
+  // Get forms for a specific town
+  app.get("/api/towns/:townId/forms", async (req, res) => {
+    try {
+      const forms = await storage.getTownForms(req.params.townId);
+      res.json(forms);
+    } catch (error) {
+      console.error("Error fetching town forms:", error);
+      res.status(500).json({ message: "Failed to fetch town forms" });
+    }
+  });
+
+  // Admin: Create town form
+  app.post("/api/admin/towns/:townId/forms", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parsed = insertTownFormSchema.safeParse({
+        ...req.body,
+        townId: req.params.townId,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
+      }
+      const form = await storage.createTownForm(parsed.data);
+      res.status(201).json(form);
+    } catch (error) {
+      console.error("Error creating town form:", error);
+      res.status(500).json({ message: "Failed to create town form" });
+    }
+  });
+
+  // Admin: Update town form
+  app.patch("/api/admin/town-forms/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const form = await storage.updateTownForm(req.params.id, req.body);
+      if (!form) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+      res.json(form);
+    } catch (error) {
+      console.error("Error updating town form:", error);
+      res.status(500).json({ message: "Failed to update town form" });
+    }
+  });
+
+  // Admin: Delete town form
+  app.delete("/api/admin/town-forms/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      await storage.deleteTownForm(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting town form:", error);
+      res.status(500).json({ message: "Failed to delete town form" });
+    }
+  });
+
+  // ========== Town Requests (Pioneer submissions for new towns) ==========
+
+  // Submit a request for a new town (any authenticated user)
+  app.post("/api/town-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const parsed = insertTownRequestSchema.safeParse({
+        ...req.body,
+        userId,
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
+      }
+      const request = await storage.createTownRequest(parsed.data);
+      res.status(201).json(request);
+    } catch (error) {
+      console.error("Error creating town request:", error);
+      res.status(500).json({ message: "Failed to submit town request" });
+    }
+  });
+
+  // Admin: Get all town requests
+  app.get("/api/admin/town-requests", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const requests = await storage.getTownRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching town requests:", error);
+      res.status(500).json({ message: "Failed to fetch town requests" });
+    }
+  });
+
+  // Admin: Update town request status (approve/deny)
+  app.patch("/api/admin/town-requests/:id/status", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { status } = req.body;
+      const reviewedBy = req.user.claims.sub;
+      const updated = await storage.updateTownRequestStatus(req.params.id, status, reviewedBy);
+      if (!updated) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating town request:", error);
+      res.status(500).json({ message: "Failed to update town request" });
     }
   });
 

@@ -171,6 +171,57 @@ export const configs = pgTable("configs", {
   updatedBy: varchar("updated_by"),
 });
 
+// Town forms - official PDF forms from municipalities
+export const formCategoryEnum = pgEnum("form_category", [
+  "temporary_permit",
+  "seasonal_permit",
+  "yearly_permit",
+  "plan_review",
+  "license_renewal",
+  "checklist",
+  "health_inspection",
+  "fire_safety",
+  "other"
+]);
+
+export const townForms = pgTable("town_forms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  townId: varchar("town_id").references(() => towns.id).notNull(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  category: formCategoryEnum("category").default("other"),
+  externalUrl: text("external_url"),
+  fileData: text("file_data"),
+  fileName: varchar("file_name", { length: 200 }),
+  fileType: varchar("file_type", { length: 50 }),
+  isFillable: boolean("is_fillable").default(false),
+  fieldMappings: jsonb("field_mappings").$type<Record<string, string>>(),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Pioneer town requests - for users to request new towns
+export const townRequests = pgTable("town_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  state: varchar("state", { length: 2 }).notNull(),
+  county: varchar("county", { length: 100 }),
+  townName: varchar("town_name", { length: 100 }).notNull(),
+  portalUrl: text("portal_url"),
+  notes: text("notes"),
+  status: varchar("status", { length: 20 }).default("pending"),
+  reviewedBy: varchar("reviewed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const townFormsRelations = relations(townForms, ({ one }) => ({
+  town: one(towns, {
+    fields: [townForms.townId],
+    references: [towns.id],
+  }),
+}));
+
 export const publicProfilesRelations = relations(publicProfiles, ({ one, many }) => ({
   profile: one(profiles, {
     fields: [publicProfiles.profileId],
@@ -250,3 +301,20 @@ export type Review = typeof reviews.$inferSelect;
 
 export type InsertConfig = z.infer<typeof insertConfigSchema>;
 export type Config = typeof configs.$inferSelect;
+
+export const insertTownFormSchema = createInsertSchema(townForms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTownRequestSchema = createInsertSchema(townRequests).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTownForm = z.infer<typeof insertTownFormSchema>;
+export type TownForm = typeof townForms.$inferSelect;
+
+export type InsertTownRequest = z.infer<typeof insertTownRequestSchema>;
+export type TownRequest = typeof townRequests.$inferSelect;

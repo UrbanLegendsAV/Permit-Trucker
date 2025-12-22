@@ -1,5 +1,5 @@
 import { 
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -8,6 +8,8 @@ import {
   type PublicProfile, type InsertPublicProfile,
   type Review, type InsertReview,
   type Config, type InsertConfig,
+  type TownForm, type InsertTownForm,
+  type TownRequest, type InsertTownRequest,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -60,6 +62,17 @@ export interface IStorage {
   getUserRole(userId: string): Promise<string | null>;
   setUserRole(userId: string, role: "user" | "admin" | "owner"): Promise<void>;
   getAllUsers(): Promise<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null; role: string | null }>>;
+
+  // Town Forms
+  getTownForms(townId: string): Promise<TownForm[]>;
+  createTownForm(form: InsertTownForm): Promise<TownForm>;
+  updateTownForm(id: string, form: Partial<InsertTownForm>): Promise<TownForm | undefined>;
+  deleteTownForm(id: string): Promise<void>;
+
+  // Town Requests (Pioneer submissions)
+  getTownRequests(): Promise<TownRequest[]>;
+  createTownRequest(request: InsertTownRequest): Promise<TownRequest>;
+  updateTownRequestStatus(id: string, status: string, reviewedBy?: string): Promise<TownRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -308,6 +321,48 @@ export class DatabaseStorage implements IStorage {
       lastName: users.lastName,
       role: users.role,
     }).from(users);
+  }
+
+  // Town Forms
+  async getTownForms(townId: string): Promise<TownForm[]> {
+    return db.select().from(townForms).where(eq(townForms.townId, townId)).orderBy(townForms.sortOrder);
+  }
+
+  async createTownForm(form: InsertTownForm): Promise<TownForm> {
+    const [newForm] = await db.insert(townForms).values(form).returning();
+    return newForm;
+  }
+
+  async updateTownForm(id: string, form: Partial<InsertTownForm>): Promise<TownForm | undefined> {
+    const [updated] = await db
+      .update(townForms)
+      .set({ ...form, updatedAt: new Date() })
+      .where(eq(townForms.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTownForm(id: string): Promise<void> {
+    await db.delete(townForms).where(eq(townForms.id, id));
+  }
+
+  // Town Requests (Pioneer submissions)
+  async getTownRequests(): Promise<TownRequest[]> {
+    return db.select().from(townRequests).orderBy(desc(townRequests.createdAt));
+  }
+
+  async createTownRequest(request: InsertTownRequest): Promise<TownRequest> {
+    const [newRequest] = await db.insert(townRequests).values(request).returning();
+    return newRequest;
+  }
+
+  async updateTownRequestStatus(id: string, status: string, reviewedBy?: string): Promise<TownRequest | undefined> {
+    const [updated] = await db
+      .update(townRequests)
+      .set({ status, reviewedBy })
+      .where(eq(townRequests.id, id))
+      .returning();
+    return updated;
   }
 }
 
