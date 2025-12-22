@@ -118,6 +118,62 @@ export const portalMappingsRelations = relations(portalMappings, ({ one }) => ({
   }),
 }));
 
+// Public profiles for opted-in trucks (consumer discovery)
+export const publicProfiles = pgTable("public_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  profileId: varchar("profile_id").references(() => profiles.id).notNull().unique(),
+  userId: varchar("user_id").notNull(),
+  isPublic: boolean("is_public").default(false),
+  businessName: varchar("business_name", { length: 200 }),
+  description: text("description"),
+  menuJson: jsonb("menu_json").$type<{ items: Array<{ name: string; price: number; description?: string }> }>(),
+  hours: jsonb("hours").$type<Record<string, { open: string; close: string; closed?: boolean }>>(),
+  locationLat: text("location_lat"),
+  locationLng: text("location_lng"),
+  locationAddress: text("location_address"),
+  phoneNumber: varchar("phone_number", { length: 20 }),
+  website: text("website"),
+  socialLinks: jsonb("social_links").$type<{ instagram?: string; facebook?: string; twitter?: string }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Reviews from consumers
+export const reviews = pgTable("reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicProfileId: varchar("public_profile_id").references(() => publicProfiles.id).notNull(),
+  rating: integer("rating").notNull(),
+  text: text("text"),
+  reviewerName: varchar("reviewer_name", { length: 100 }),
+  reviewerIp: varchar("reviewer_ip", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Admin configs (pricing, settings, promos)
+export const configs = pgTable("configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: varchar("updated_by"),
+});
+
+export const publicProfilesRelations = relations(publicProfiles, ({ one, many }) => ({
+  profile: one(profiles, {
+    fields: [publicProfiles.profileId],
+    references: [profiles.id],
+  }),
+  reviews: many(reviews),
+}));
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  publicProfile: one(publicProfiles, {
+    fields: [reviews.publicProfileId],
+    references: [publicProfiles.id],
+  }),
+}));
+
 export const insertProfileSchema = createInsertSchema(profiles).omit({
   id: true,
   createdAt: true,
@@ -157,3 +213,28 @@ export type Badge = typeof badges.$inferSelect;
 
 export type InsertPortalMapping = z.infer<typeof insertPortalMappingSchema>;
 export type PortalMapping = typeof portalMappings.$inferSelect;
+
+export const insertPublicProfileSchema = createInsertSchema(publicProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertReviewSchema = createInsertSchema(reviews).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertConfigSchema = createInsertSchema(configs).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertPublicProfile = z.infer<typeof insertPublicProfileSchema>;
+export type PublicProfile = typeof publicProfiles.$inferSelect;
+
+export type InsertReview = z.infer<typeof insertReviewSchema>;
+export type Review = typeof reviews.$inferSelect;
+
+export type InsertConfig = z.infer<typeof insertConfigSchema>;
+export type Config = typeof configs.$inferSelect;
