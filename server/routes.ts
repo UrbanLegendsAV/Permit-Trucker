@@ -114,6 +114,33 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/profiles/:id/documents/:docIndex", isAuthenticated, async (req, res) => {
+    try {
+      const { id, docIndex } = req.params;
+      const index = parseInt(docIndex, 10);
+      
+      const profile = await storage.getProfile(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const documents = profile.uploadsJson?.documents || [];
+      if (index < 0 || index >= documents.length) {
+        return res.status(400).json({ message: "Invalid document index" });
+      }
+      
+      documents.splice(index, 1);
+      const updatedProfile = await storage.updateProfile(id, {
+        uploadsJson: { ...profile.uploadsJson, documents }
+      });
+      
+      res.json(updatedProfile);
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      res.status(500).json({ message: "Failed to delete document" });
+    }
+  });
+
   app.get("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

@@ -41,6 +41,19 @@ export default function Dashboard() {
     },
   });
 
+  const deleteDocumentMutation = useMutation({
+    mutationFn: async ({ profileId, docIndex }: { profileId: string; docIndex: number }) => {
+      return apiRequest("DELETE", `/api/profiles/${profileId}/documents/${docIndex}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      toast({ title: "Document deleted", description: "The document has been removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete document.", variant: "destructive" });
+    },
+  });
+
   const { data: profiles = [], isLoading: profilesLoading } = useQuery<Profile[]>({
     queryKey: ["/api/profiles"],
     enabled: isAuthenticated,
@@ -128,6 +141,7 @@ export default function Dashboard() {
                     onClick={() => setLocation(`/profile/${profile.id}`)}
                     onEdit={(p) => setLocation(`/profile/${p.id}/edit`)}
                     onDelete={(id) => deleteProfileMutation.mutate(id)}
+                    onDeleteDocument={(profileId, docIndex) => deleteDocumentMutation.mutate({ profileId, docIndex })}
                   />
                 ))
               )}

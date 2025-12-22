@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,20 +28,29 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Profile } from "@shared/schema";
 
+interface DocumentType {
+  name: string;
+  url: string;
+  type?: string;
+}
+
 interface VehicleCardProps {
   profile: Profile;
   permitCount?: number;
   onClick?: () => void;
   onEdit?: (profile: Profile) => void;
   onDelete?: (profileId: string) => void;
+  onDeleteDocument?: (profileId: string, docIndex: number) => void;
 }
 
-export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelete }: VehicleCardProps) {
+export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelete, onDeleteDocument }: VehicleCardProps) {
   const [showDocuments, setShowDocuments] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [fullScreenDoc, setFullScreenDoc] = useState<DocumentType | null>(null);
+  const [docToDelete, setDocToDelete] = useState<{ doc: DocumentType; index: number } | null>(null);
   
   const VehicleIcon = profile.vehicleType === "truck" ? Truck : Caravan;
-  const documents = profile.uploadsJson?.documents || [];
+  const documents: DocumentType[] = profile.uploadsJson?.documents || [];
   const hasDocuments = documents.length > 0;
   const hasExtractedData = profile.extractedData && Object.keys(profile.extractedData).length > 0;
 
@@ -67,6 +76,31 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const handleViewDocuments = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowDocuments(true);
+  };
+
+  const handleDocClick = (doc: DocumentType) => {
+    if (doc.type?.startsWith("image/")) {
+      setFullScreenDoc(doc);
+    } else if (doc.type === "application/pdf" || doc.name.toLowerCase().endsWith(".pdf")) {
+      window.open(doc.url, "_blank");
+    } else {
+      window.open(doc.url, "_blank");
+    }
+  };
+
+  const handleDeleteDoc = (doc: DocumentType, index: number) => {
+    setDocToDelete({ doc, index });
+  };
+
+  const confirmDeleteDoc = () => {
+    if (docToDelete && onDeleteDocument) {
+      onDeleteDocument(profile.id, docToDelete.index);
+    }
+    setDocToDelete(null);
+  };
+
+  const isPdf = (doc: DocumentType) => {
+    return doc.type === "application/pdf" || doc.name.toLowerCase().endsWith(".pdf");
   };
 
   return (
@@ -188,30 +222,86 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
             {documents.map((doc, idx) => (
               <div
                 key={idx}
-                className="border rounded-lg overflow-hidden bg-muted"
+                className="border rounded-lg overflow-hidden bg-muted group relative"
                 data-testid={`document-preview-${idx}`}
               >
-                {doc.url && doc.type?.startsWith("image/") ? (
-                  <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                    <img
-                      src={doc.url}
-                      alt={doc.name}
-                      className="w-full h-32 object-cover"
-                    />
-                  </a>
-                ) : (
-                  <div className="w-full h-32 flex items-center justify-center text-muted-foreground">
-                    <FileText className="w-10 h-10" />
-                  </div>
-                )}
-                <div className="p-2 bg-background border-t">
-                  <p className="text-xs truncate" title={doc.name}>{doc.name}</p>
+                <div 
+                  className="cursor-pointer"
+                  onClick={() => handleDocClick(doc)}
+                >
+                  {doc.url && doc.type?.startsWith("image/") ? (
+                    <div className="relative">
+                      <img
+                        src={doc.url}
+                        alt={doc.name}
+                        className="w-full h-32 object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                        <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full h-32 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                      <FileText className="w-10 h-10" />
+                      {isPdf(doc) && (
+                        <span className="text-xs flex items-center gap-1">
+                          <ExternalLink className="w-3 h-3" />
+                          Tap to view
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 bg-background border-t flex items-center justify-between gap-2">
+                  <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>
+                  {onDeleteDocument && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteDoc(doc, idx);
+                      }}
+                      data-testid={`button-delete-doc-${idx}`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
           {documents.length === 0 && (
             <p className="text-center text-muted-foreground py-8">No documents uploaded</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!fullScreenDoc} onOpenChange={() => setFullScreenDoc(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 overflow-hidden">
+          <div className="relative w-full h-full flex items-center justify-center bg-black">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-2 right-2 z-10 text-white hover:bg-white/20"
+              onClick={() => setFullScreenDoc(null)}
+              data-testid="button-close-fullscreen"
+            >
+              <X className="w-6 h-6" />
+            </Button>
+            {fullScreenDoc && (
+              <img
+                src={fullScreenDoc.url}
+                alt={fullScreenDoc.name}
+                className="max-w-full max-h-[90vh] object-contain"
+              />
+            )}
+          </div>
+          {fullScreenDoc && (
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+              <p className="text-white text-sm text-center">{fullScreenDoc.name}</p>
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -230,6 +320,27 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
               onClick={handleConfirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!docToDelete} onOpenChange={() => setDocToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Document?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{docToDelete?.doc.name}". This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-doc">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDeleteDoc}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-doc"
             >
               Delete
             </AlertDialogAction>
