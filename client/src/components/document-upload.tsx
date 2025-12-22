@@ -11,20 +11,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { performOCR, isImageFile, suggestFolderFromFileName, suggestFolderFromText, type ExtractedPermitData } from "@/lib/ocr";
+import { performOCR, isImageFile, detectDocumentType, detectDocumentTypeFromFileName, type ExtractedPermitData } from "@/lib/ocr";
 import { useToast } from "@/hooks/use-toast";
 
-const FOLDER_OPTIONS = [
-  { value: "general", label: "General Documents" },
-  { value: "itinerary-permit", label: "Itinerary Permits" },
-  { value: "temp-permit", label: "Temporary Permits" },
-  { value: "yearly-permit", label: "Yearly Permits" },
-  { value: "seasonal-permit", label: "Seasonal Permits" },
-  { value: "health-dept", label: "Health Department" },
-  { value: "fire-safety", label: "Fire Safety" },
-  { value: "vehicle-registration", label: "Vehicle Registration" },
-  { value: "insurance", label: "Insurance Documents" },
-  { value: "licenses", label: "Licenses & Certifications" },
+export const DOCUMENT_CATEGORIES = [
+  { value: "menu", label: "Menu", icon: "utensils" },
+  { value: "trailer-diagram", label: "Trailer/Truck Diagram", icon: "ruler" },
+  { value: "coi", label: "Certificate of Insurance (COI)", icon: "shield" },
+  { value: "food-manager-cert", label: "Food Manager Certificate", icon: "award" },
+  { value: "vehicle-registration", label: "Vehicle Registration", icon: "car" },
+  { value: "health-permit", label: "Health Permit", icon: "heart" },
+  { value: "fire-safety", label: "Fire Safety Certificate", icon: "flame" },
+  { value: "commissary-letter", label: "Commissary Agreement", icon: "building" },
+  { value: "business-license", label: "Business License", icon: "briefcase" },
+  { value: "tax-clearance", label: "Tax Clearance", icon: "receipt" },
+  { value: "other", label: "Other Document", icon: "file" },
 ];
 
 interface UploadedFile {
@@ -59,15 +60,15 @@ export function DocumentUpload({
   const [dragActive, setDragActive] = useState(false);
   const [ocrIndex, setOcrIndex] = useState<number | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
-  const [selectedFolder, setSelectedFolder] = useState("general");
+  const [selectedCategory, setSelectedCategory] = useState("other");
   const { toast } = useToast();
 
   useEffect(() => {
     setFiles(existingFiles);
   }, [existingFiles]);
 
-  const getFolderLabel = (value: string) => {
-    return FOLDER_OPTIONS.find(f => f.value === value)?.label || value;
+  const getCategoryLabel = (value: string) => {
+    return DOCUMENT_CATEGORIES.find(f => f.value === value)?.label || value;
   };
 
   const updateFileFolder = (index: number, folder: string) => {
@@ -89,8 +90,9 @@ export function DocumentUpload({
       const file = fileList[i];
       const reader = new FileReader();
       
-      const suggestedFolder = suggestFolderFromFileName(file.name);
-      const folder = suggestedFolder !== 'general' ? suggestedFolder : selectedFolder;
+      // First try to detect from filename
+      const filenameDetection = detectDocumentTypeFromFileName(file.name);
+      const folder = filenameDetection.confidence > 70 ? filenameDetection.type : selectedCategory;
       
       await new Promise<void>((resolve) => {
         reader.onload = () => {
@@ -115,7 +117,7 @@ export function DocumentUpload({
       });
     }
 
-    const updatedFiles = [...files, ...newFiles];
+    let updatedFiles = [...files, ...newFiles];
     setFiles(updatedFiles);
     onUpload(updatedFiles);
     setIsUploading(false);
@@ -132,26 +134,33 @@ export function DocumentUpload({
             onOCRExtracted(result.extractedData);
           }
 
-          const suggestedFolder = suggestFolderFromText(result.text, fileToOCR.name);
-          if (suggestedFolder !== 'general' && result.confidence > 50) {
-            const filesCopy = [...updatedFiles];
-            if (filesCopy[fileToOCR.index]?.folder === 'general') {
-              filesCopy[fileToOCR.index] = { ...filesCopy[fileToOCR.index], folder: suggestedFolder };
-              setFiles(filesCopy);
-              onUpload(filesCopy);
+          // Detect document type from OCR text
+          const detectedType = detectDocumentType(result.text, fileToOCR.name);
+          if (detectedType.type !== 'other' && detectedType.confidence > 50) {
+            const currentFolder = updatedFiles[fileToOCR.index]?.folder;
+            if (currentFolder === 'other' || currentFolder === selectedCategory) {
+              updatedFiles = updatedFiles.map((f, idx) => 
+                idx === fileToOCR.index ? { ...f, folder: detectedType.type } : f
+              );
+              setFiles(updatedFiles);
+              onUpload(updatedFiles);
             }
           }
           
           const extractedInfo: string[] = [];
+          const detectedLabel = getCategoryLabel(detectedType.type);
+          if (detectedType.type !== 'other') {
+            extractedInfo.push(`Type: ${detectedLabel}`);
+          }
           if (result.extractedData.vin) extractedInfo.push(`VIN: ${result.extractedData.vin}`);
           if (result.extractedData.licensePlate) extractedInfo.push(`Plate: ${result.extractedData.licensePlate}`);
           if (result.extractedData.licenseNumber) extractedInfo.push(`License: ${result.extractedData.licenseNumber}`);
           if (result.extractedData.expirationDate) extractedInfo.push(`Expires: ${result.extractedData.expirationDate}`);
           
           toast({
-            title: "Document Scanned",
+            title: detectedType.type !== 'other' ? `Detected: ${detectedLabel}` : "Document Scanned",
             description: extractedInfo.length > 0 
-              ? `Extracted: ${extractedInfo.join(", ")}`
+              ? extractedInfo.join(" | ")
               : `Processed with ${Math.round(result.confidence)}% confidence.`,
           });
         } catch {
@@ -218,14 +227,14 @@ export function DocumentUpload({
         onOCRExtracted(result.extractedData);
       }
 
-      const suggestedFolder = suggestFolderFromText(result.text, file.name);
-      if (suggestedFolder !== 'general' && result.confidence > 50) {
-        const currentFolder = file.folder || 'general';
-        if (currentFolder === 'general') {
-          updateFileFolder(index, suggestedFolder);
+      const detectedType = detectDocumentType(result.text, file.name);
+      if (detectedType.type !== 'other' && detectedType.confidence > 50) {
+        const currentFolder = file.folder || 'other';
+        if (currentFolder === 'other') {
+          updateFileFolder(index, detectedType.type);
           toast({
             title: "Scan Complete",
-            description: `Document auto-organized to "${getFolderLabel(suggestedFolder)}" folder.`,
+            description: `Auto-classified as "${getCategoryLabel(detectedType.type)}".`,
           });
         } else {
           toast({
@@ -260,16 +269,16 @@ export function DocumentUpload({
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <FolderOpen className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Upload to folder:</span>
+          <span className="text-sm text-muted-foreground">Document type (auto-detected on scan):</span>
         </div>
-        <Select value={selectedFolder} onValueChange={setSelectedFolder}>
-          <SelectTrigger className="w-full" data-testid="select-folder">
+        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+          <SelectTrigger className="w-full" data-testid="select-category">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {FOLDER_OPTIONS.map((folder) => (
-              <SelectItem key={folder.value} value={folder.value} data-testid={`folder-option-${folder.value}`}>
-                {folder.label}
+            {DOCUMENT_CATEGORIES.map((cat) => (
+              <SelectItem key={cat.value} value={cat.value} data-testid={`category-option-${cat.value}`}>
+                {cat.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -329,17 +338,17 @@ export function DocumentUpload({
                   <p className="text-sm font-medium truncate">{file.name}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Select 
-                      value={file.folder || "general"} 
+                      value={file.folder || "other"} 
                       onValueChange={(value) => updateFileFolder(index, value)}
                     >
-                      <SelectTrigger className="h-6 w-auto text-xs px-2" data-testid={`select-file-folder-${index}`}>
+                      <SelectTrigger className="h-6 w-auto text-xs px-2" data-testid={`select-file-category-${index}`}>
                         <FolderOpen className="w-3 h-3 mr-1" />
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {FOLDER_OPTIONS.map((folder) => (
-                          <SelectItem key={folder.value} value={folder.value}>
-                            {folder.label}
+                        {DOCUMENT_CATEGORIES.map((cat) => (
+                          <SelectItem key={cat.value} value={cat.value}>
+                            {cat.label}
                           </SelectItem>
                         ))}
                       </SelectContent>

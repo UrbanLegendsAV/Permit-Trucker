@@ -154,40 +154,75 @@ export function isPDFFile(file: File): boolean {
          file.name.toLowerCase().endsWith('.pdf');
 }
 
-export function suggestFolderFromText(text: string, fileName?: string): string {
+export function detectDocumentType(text: string, fileName?: string): { type: string; confidence: number } {
   const combinedText = `${fileName || ''} ${text}`.toLowerCase();
   
-  if (/itinerant|itinerary|vendor.*(license|permit)|food.*vendor/i.test(combinedText)) {
-    return 'itinerary-permit';
-  }
-  if (/temporary|temp.*permit|short.*term|event.*permit/i.test(combinedText)) {
-    return 'temp-permit';
-  }
-  if (/annual|yearly|year.*permit|\d{4}.*permit/i.test(combinedText)) {
-    return 'yearly-permit';
-  }
-  if (/seasonal|summer|winter|spring|fall/i.test(combinedText)) {
-    return 'seasonal-permit';
-  }
-  if (/health.*dept|health.*department|sanitar|food.*safety|inspection/i.test(combinedText)) {
-    return 'health-dept';
-  }
-  if (/fire.*safety|fire.*marshal|propane|suppression|extinguisher/i.test(combinedText)) {
-    return 'fire-safety';
-  }
-  if (/registr|dmv|motor.*vehicle|title|vin/i.test(combinedText)) {
-    return 'vehicle-registration';
-  }
-  if (/insurance|policy|coverage|liability|cert.*of.*ins/i.test(combinedText)) {
-    return 'insurance';
-  }
-  if (/license|certificate|certification|servsafe|food.*handler/i.test(combinedText)) {
-    return 'licenses';
+  // Menu detection - food items, prices, descriptions
+  if (/menu|appetizer|entree|dessert|beverage|sandwich|burger|taco|pizza|\$\d+\.\d{2}|food.*item/i.test(combinedText)) {
+    return { type: 'menu', confidence: 85 };
   }
   
-  return 'general';
+  // Trailer/Truck diagram - dimensions, layout, equipment positions
+  if (/diagram|layout|dimension|floor.*plan|equipment.*location|sink|grill|fryer|refrigerat|freezer|propane.*tank|exhaust|ventilation|schematic/i.test(combinedText)) {
+    return { type: 'trailer-diagram', confidence: 80 };
+  }
+  
+  // Certificate of Insurance (COI)
+  if (/certificate.*insurance|cert.*of.*ins|coi|general.*liability|commercial.*auto|workers.*comp|policy.*number|insured|insurer|coverage.*limit/i.test(combinedText)) {
+    return { type: 'coi', confidence: 90 };
+  }
+  
+  // Food Manager Certificate / ServSafe
+  if (/servsafe|food.*manager|food.*handler|food.*protection|cfpm|food.*safety.*cert|manager.*cert/i.test(combinedText)) {
+    return { type: 'food-manager-cert', confidence: 90 };
+  }
+  
+  // Vehicle Registration
+  if (/registr|dmv|motor.*vehicle|title|vin|vehicle.*identification|plate.*number|department.*motor/i.test(combinedText)) {
+    return { type: 'vehicle-registration', confidence: 85 };
+  }
+  
+  // Health Permit
+  if (/health.*permit|health.*dept|health.*department|sanitar|food.*establishment|food.*service.*license|health.*inspection/i.test(combinedText)) {
+    return { type: 'health-permit', confidence: 85 };
+  }
+  
+  // Fire Safety Certificate
+  if (/fire.*safety|fire.*marshal|fire.*suppression|extinguisher|fire.*inspect|propane.*cert|ansul|hood.*system/i.test(combinedText)) {
+    return { type: 'fire-safety', confidence: 85 };
+  }
+  
+  // Commissary Letter/Agreement
+  if (/commissary|shared.*kitchen|commercial.*kitchen|food.*prep.*facility|agreement.*use|kitchen.*agreement/i.test(combinedText)) {
+    return { type: 'commissary-letter', confidence: 80 };
+  }
+  
+  // Business License
+  if (/business.*license|dba|doing.*business|trade.*name|llc|corporation|business.*registration/i.test(combinedText)) {
+    return { type: 'business-license', confidence: 80 };
+  }
+  
+  // Tax Clearance
+  if (/tax.*clear|tax.*certificate|good.*standing|revenue|dept.*revenue|tax.*compliance/i.test(combinedText)) {
+    return { type: 'tax-clearance', confidence: 80 };
+  }
+  
+  return { type: 'other', confidence: 0 };
 }
 
-export function suggestFolderFromFileName(fileName: string): string {
-  return suggestFolderFromText('', fileName);
+export function detectDocumentTypeFromFileName(fileName: string): { type: string; confidence: number } {
+  const name = fileName.toLowerCase();
+  
+  if (/menu/i.test(name)) return { type: 'menu', confidence: 95 };
+  if (/diagram|layout|floor.*plan|schematic/i.test(name)) return { type: 'trailer-diagram', confidence: 90 };
+  if (/coi|insurance|liability/i.test(name)) return { type: 'coi', confidence: 90 };
+  if (/servsafe|food.*manager|cfpm|handler/i.test(name)) return { type: 'food-manager-cert', confidence: 90 };
+  if (/registration|dmv|title|vehicle/i.test(name)) return { type: 'vehicle-registration', confidence: 85 };
+  if (/health.*permit|health.*license/i.test(name)) return { type: 'health-permit', confidence: 85 };
+  if (/fire|propane|suppression/i.test(name)) return { type: 'fire-safety', confidence: 85 };
+  if (/commissary|kitchen.*agreement/i.test(name)) return { type: 'commissary-letter', confidence: 80 };
+  if (/business.*license|llc|dba/i.test(name)) return { type: 'business-license', confidence: 80 };
+  if (/tax.*clear|good.*standing/i.test(name)) return { type: 'tax-clearance', confidence: 80 };
+  
+  return { type: 'other', confidence: 0 };
 }
