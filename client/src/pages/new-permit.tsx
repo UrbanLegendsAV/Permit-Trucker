@@ -11,6 +11,7 @@ import { TownSearch } from "@/components/town-search";
 import { RequirementsChecklist } from "@/components/requirements-checklist";
 import { SignatureCanvas } from "@/components/signature-canvas";
 import { ConfidenceIndicator } from "@/components/confidence-indicator";
+import { PermitPacket } from "@/components/permit-packet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +65,7 @@ export default function NewPermit() {
   });
 
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
+  const [showPacket, setShowPacket] = useState(false);
 
   useEffect(() => {
     if (profiles.length > 0 && !selectedProfile) {
@@ -153,6 +155,20 @@ export default function NewPermit() {
           </Button>
         </Card>
       </div>
+    );
+  }
+
+  const currentProfile = profiles.find(p => p.id === selectedProfile);
+
+  if (showPacket && newPermit.town && currentProfile && newPermit.permitType) {
+    return (
+      <PermitPacket
+        town={newPermit.town}
+        profile={currentProfile}
+        permitType={newPermit.permitType}
+        signature={newPermit.signatureData}
+        onClose={() => setShowPacket(false)}
+      />
     );
   }
 
@@ -357,7 +373,13 @@ export default function NewPermit() {
                     <p className="text-sm text-muted-foreground mb-3">
                       Generate a complete application packet for print/mail
                     </p>
-                    <Button variant="outline" className="w-full" data-testid="button-generate-pdf">
+                    <Button 
+                      variant="outline" 
+                      className="w-full" 
+                      onClick={() => setShowPacket(true)}
+                      disabled={!selectedProfile}
+                      data-testid="button-generate-pdf"
+                    >
                       Generate PDF
                       <FileText className="w-4 h-4 ml-2" />
                     </Button>
