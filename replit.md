@@ -6,8 +6,15 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 The platform uses a "pioneer" model where early users help build the knowledge base by contributing verified permit requirements for new towns, creating a crowd-sourced database of municipal permitting information.
 
-**Current Status**: Phase 2 Complete (Consumer Discovery + Admin Dashboard)
+**Current Status**: Phase 2+ Complete (Consumer Discovery + Admin Dashboard + OCR + PWA)
 See `PROGRESS.md` for detailed feature tracking.
+
+Recent additions include:
+- Public profile opt-in during onboarding (step 5)
+- Print-ready permit packet generation
+- OCR document scanning with Tesseract.js
+- Reviews moderation in admin dashboard
+- PWA manifest and service worker for offline support
 
 ## User Preferences
 
@@ -97,6 +104,7 @@ The frontend follows a mobile-first design pattern with:
 - **class-variance-authority**: Component variant management
 - **clsx/tailwind-merge**: Conditional class composition
 - **nanoid**: ID generation
+- **Tesseract.js**: Client-side OCR for document scanning
 
 ### Development
 - **Vite**: Development server and build tool

@@ -83,6 +83,35 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Town database CRUD operations
 - [x] User role assignment (owner-only)
 - [x] Configuration storage in database
+- [x] Reviews moderation queue (approve/deny/delete)
+
+### Public Profile Opt-In (Onboarding)
+- [x] New "Visibility" step (step 5) in onboarding flow
+- [x] Opt-in toggle for public profile creation
+- [x] Business name and description fields
+- [x] Automatic public profile creation when opted in
+
+### Permit Packet Generation
+- [x] Print-ready permit application packets
+- [x] Town requirements, fees, and deadlines included
+- [x] Applicant information section
+- [x] Document checklist with status indicators
+- [x] Signature block for manual signing
+- [x] Browser print dialog for PDF generation
+
+### OCR Document Scanning
+- [x] Tesseract.js integration for image scanning
+- [x] Pattern extraction for dates, licenses, VIN/plates
+- [x] Auto-fill onboarding fields from scanned documents
+- [x] Progress indicator during OCR processing
+- [x] Scan button appears on image uploads only
+
+### PWA Support
+- [x] Web app manifest with proper icons and metadata
+- [x] Service worker for offline caching
+- [x] Stale-while-revalidate strategy for static assets
+- [x] Network-first strategy for API calls with offline fallback
+- [x] Production-only service worker registration
 
 ### Database Schema Additions
 - [x] `public_profiles` table with business info
@@ -122,6 +151,10 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 | `client/src/pages/discover.tsx` | Consumer map page |
 | `client/src/pages/admin.tsx` | Admin dashboard |
 | `client/src/pages/profile.tsx` | User profile page |
+| `client/src/pages/onboarding.tsx` | Multi-step onboarding flow |
+| `client/src/components/permit-packet.tsx` | Print-ready permit packets |
+| `client/src/lib/ocr.ts` | OCR utility (Tesseract.js) |
+| `client/public/sw.js` | Service worker for PWA |
 
 ---
 
@@ -187,6 +220,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 ---
 
 ## Current Status
-**Phase 2 Complete** - Ready for testing and user feedback.
+**Phase 2+ Complete** - Core platform, consumer discovery, admin dashboard, reviews moderation, public profile opt-in, permit packets, OCR scanning, and PWA support all implemented. Ready for production deployment and user feedback.
 
 Last Updated: December 22, 2025
