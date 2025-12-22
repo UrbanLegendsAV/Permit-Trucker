@@ -2,9 +2,12 @@
 
 ## Overview
 
-PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food truck and trailer operators navigate the complex permit application process across Connecticut municipalities. The application provides town-by-town guidance, document management, requirements checklists, and a gamification system with badges and leaderboards to encourage community participation.
+PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food truck and trailer operators navigate the complex permit application process across municipalities, starting with Connecticut. The application provides town-by-town guidance, document management, requirements checklists, and a gamification system with badges to encourage community participation.
 
 The platform uses a "pioneer" model where early users help build the knowledge base by contributing verified permit requirements for new towns, creating a crowd-sourced database of municipal permitting information.
+
+**Current Status**: Phase 2 Complete (Consumer Discovery + Admin Dashboard)
+See `PROGRESS.md` for detailed feature tracking.
 
 ## User Preferences
 
@@ -21,9 +24,10 @@ Preferred communication style: Simple, everyday language.
 - **Build Tool**: Vite with React plugin
 
 The frontend follows a mobile-first design pattern with:
-- Fixed bottom navigation for primary routes (Dashboard, Permits, Badges, Profile)
+- Fixed bottom navigation for primary routes (Dashboard, Permits, Badges, Discover, Profile)
 - Sticky top header with theme toggle and notifications
 - Progressive disclosure for complex permit workflows via step-based forms
+- Vanilla Leaflet.js for consumer discovery map (replaced react-leaflet due to React version conflicts)
 
 ### Backend Architecture
 - **Runtime**: Node.js with Express
@@ -40,8 +44,11 @@ The frontend follows a mobile-first design pattern with:
   - `permits`: Permit applications with status tracking
   - `towns`: Municipal permit requirements with confidence scores
   - `badges`: Gamification achievements
+  - `public_profiles`: Opt-in public listings for consumer discovery
+  - `reviews`: Anonymous reviews with IP rate limiting
+  - `configs`: Admin-configurable settings (pricing, thresholds)
   - `portal_mappings`: Field selectors for auto-fill functionality
-  - `sessions` & `users`: Replit Auth required tables
+  - `sessions` & `users`: Replit Auth required tables (with role enum)
 
 ### Authentication
 - Replit Auth provides OAuth 2.0/OpenID Connect authentication
