@@ -1,0 +1,52 @@
+You are continuing development on PermitTruck (pivoting to TruckPermitAI – current code as of December 22, 2025). User has profile with "Brazilian BBQ Boys" vehicle (VIN 7FD1E1211N1009329) and uploaded documents, but docs not displaying yet.
+
+Core Goal: Use existing profile/uploads for AI automation.
+
+Specific Task 1 – Auto OCR & Document Display (Do this first – fixes user's issue)
+
+- On document upload (in vehicle/profile edit): Automatically run Tesseract.js OCR (existing lib/ocr.ts).
+- Extract: VIN/plate numbers, expiration dates, license numbers, fire certs if detectable.
+- Auto-populate profile fields if match (e.g., VIN → vehicle VIN).
+- Display: Thumbnails/previews of uploaded docs in profile/vehicle card (grid/list with delete).
+- Add "Re-scan" button if needed.
+- Toast: "Document processed – extracted VIN: XXXXX".
+
+Specific Task 2 – Use Profile Data in Onboarding/Permits
+
+- In onboarding (if incomplete) or new vehicle: Pre-fill from existing profile/OCR data.
+- Enhance questionnaire: If propane/grill detected (from menu/equipment), auto-prompt fire suppression questions.
+
+Specific Task 3 – Seed Real CT Town Data
+
+- In seed.ts: Update 20+ towns with real 2025 data (e.g., New Britain Green Zones, Enfield daily $10-20, reciprocal health districts, fire suppression required for cooking).
+- Add notes: Reciprocity (14+ districts), separate vendor/fire/zoning.
+
+Specific Task 4 – AI PDF Pre-Fill with Profile
+
+- In permit workflow: "Generate Filled Packet" button.
+- Use pdf-lib to fill standard CT templates (hardcode common fields: business name "Brazilian BBQ Boys", VIN from profile).
+- Download: "Town_Application_Filled.pdf".
+
+Specific Task 5 – Location Optimizer ("Spots" Tab)
+
+- Create client/src/pages/spots.tsx; add to bottom nav (MapPin icon).
+- Use Google Places: Search breweries/offices/events near user location (get via GPS or profile zip).
+- Display list/map: Venue name, rating, hours, "Predicted footfall: High (e.g., weekend brewery)".
+- Add admin config: google_api_key, optimizer_enabled.
+
+General Instructions:
+- Mobile-first; toasts for actions.
+- Use existing components (shadcn/ui cards/lists).
+- Update schema if needed (e.g., documents table add extracted_json).
+- Protect routes; TanStack Query.
+- Update PROGRESS.md.
+
+Start with Task 1 – get user's uploaded docs visible/processed today.
+
+After completion, reply with:
+- Summary/fixes
+- New files/changes
+- Setup (e.g., Google API key env)
+- Demo: Test with user's Brazilian BBQ profile
+
+Let's make your uploads show and auto-fill from them!

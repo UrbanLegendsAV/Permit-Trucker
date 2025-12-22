@@ -44,6 +44,9 @@ export default function Onboarding() {
         commissaryName: onboarding.commissaryName,
         commissaryAddress: onboarding.commissaryAddress,
         uploadsJson: { documents: onboarding.documents },
+        extractedData: Object.keys(onboarding.extractedData).length > 0 
+          ? onboarding.extractedData 
+          : null,
       });
 
       const profile = await profileResponse.json();
@@ -331,12 +334,23 @@ export default function Onboarding() {
               label="Vehicle Documents"
               enableOCR={true}
               onOCRExtracted={(data) => {
+                // Pre-fill form fields with OCR data
                 if (data.businessName && !onboarding.vehicleName) {
                   setOnboardingField("vehicleName", data.businessName);
                 }
                 if (data.vinPlate && !onboarding.vinPlate) {
                   setOnboardingField("vinPlate", data.vinPlate);
                 }
+                
+                // Accumulate OCR extracted data for saving to profile
+                setOnboardingField("extractedData", {
+                  ...onboarding.extractedData,
+                  ...(data.businessName && { businessName: data.businessName }),
+                  ...(data.vinPlate && { vin: data.vinPlate }),
+                  ...(data.licenseNumber && { licenseNumber: data.licenseNumber }),
+                  ...(data.expirationDate && { expirationDate: data.expirationDate }),
+                  ...(data.address && { rawText: data.address }),
+                });
               }}
             />
 

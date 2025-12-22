@@ -2,6 +2,16 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Profile, Permit, Town, Badge } from '@shared/schema';
 
+interface ExtractedOCRData {
+  vin?: string;
+  licensePlate?: string;
+  businessName?: string;
+  ownerName?: string;
+  expirationDate?: string;
+  licenseNumber?: string;
+  rawText?: string;
+}
+
 interface OnboardingData {
   vehicleType: 'truck' | 'trailer' | null;
   vehicleName: string;
@@ -12,6 +22,7 @@ interface OnboardingData {
   commissaryName: string;
   commissaryAddress: string;
   documents: Array<{ name: string; type: string; url: string }>;
+  extractedData: ExtractedOCRData;
   wantsPublicProfile: boolean;
   publicBusinessName: string;
   publicDescription: string;
@@ -56,6 +67,7 @@ const initialOnboarding: OnboardingData = {
   commissaryName: '',
   commissaryAddress: '',
   documents: [],
+  extractedData: {},
   wantsPublicProfile: false,
   publicBusinessName: '',
   publicDescription: '',

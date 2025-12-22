@@ -25,6 +25,15 @@ export const profiles = pgTable("profiles", {
   commissaryName: varchar("commissary_name", { length: 200 }),
   commissaryAddress: text("commissary_address"),
   uploadsJson: jsonb("uploads_json").$type<{ documents: Array<{ name: string; type: string; url: string }> }>(),
+  extractedData: jsonb("extracted_data").$type<{
+    vin?: string;
+    licensePlate?: string;
+    businessName?: string;
+    ownerName?: string;
+    expirationDate?: string;
+    licenseNumber?: string;
+    rawText?: string;
+  }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -1,4 +1,4 @@
-import { Truck, Caravan, MoreVertical, MapPin, FileText } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,9 @@ interface VehicleCardProps {
 
 export function VehicleCard({ profile, permitCount = 0, onClick }: VehicleCardProps) {
   const VehicleIcon = profile.vehicleType === "truck" ? Truck : Caravan;
+  const documents = profile.uploadsJson?.documents || [];
+  const hasDocuments = documents.length > 0;
+  const hasExtractedData = profile.extractedData && Object.keys(profile.extractedData).length > 0;
 
   return (
     <Card
@@ -39,7 +42,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick }: VehicleCardPr
             </Button>
           </div>
           
-          <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
             <Badge variant="secondary" className="text-xs">
               <FileText className="w-3 h-3 mr-1" />
               {permitCount} {permitCount === 1 ? "Permit" : "Permits"}
@@ -49,7 +52,49 @@ export function VehicleCard({ profile, permitCount = 0, onClick }: VehicleCardPr
                 {profile.menuType}
               </Badge>
             )}
+            {hasDocuments && (
+              <Badge variant="outline" className="text-xs">
+                <Image className="w-3 h-3 mr-1" />
+                {documents.length} Doc{documents.length > 1 ? "s" : ""}
+              </Badge>
+            )}
+            {hasExtractedData && (
+              <Badge variant="default" className="text-xs bg-green-600">
+                <CheckCircle className="w-3 h-3 mr-1" />
+                OCR Ready
+              </Badge>
+            )}
           </div>
+
+          {hasDocuments && (
+            <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+              {documents.slice(0, 4).map((doc, idx) => (
+                <div
+                  key={idx}
+                  className="w-12 h-12 rounded-md border bg-muted shrink-0 overflow-hidden"
+                  title={doc.name}
+                  data-testid={`doc-thumbnail-${idx}`}
+                >
+                  {doc.url && doc.type?.startsWith("image/") ? (
+                    <img
+                      src={doc.url}
+                      alt={doc.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {documents.length > 4 && (
+                <div className="w-12 h-12 rounded-md border bg-muted shrink-0 flex items-center justify-center text-xs text-muted-foreground">
+                  +{documents.length - 4}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </Card>
