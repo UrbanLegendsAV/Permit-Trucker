@@ -499,12 +499,12 @@ function FormsTab({
       <Card className="p-6">
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <h3 className="font-semibold">Manage Forms</h3>
-          <Select value={selectedTown} onValueChange={setSelectedTown}>
+          <Select value={selectedTown || "all"} onValueChange={(v) => setSelectedTown(v === "all" ? "" : v)}>
             <SelectTrigger className="w-48" data-testid="select-town-filter">
               <SelectValue placeholder="Filter by town" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Towns</SelectItem>
+              <SelectItem value="all">All Towns</SelectItem>
               {towns.map(town => (
                 <SelectItem key={town.id} value={town.id}>
                   {town.townName}, {town.state}
