@@ -21,7 +21,7 @@ interface OnboardingData {
   hasQfoCert: boolean;
   commissaryName: string;
   commissaryAddress: string;
-  documents: Array<{ name: string; type: string; url: string }>;
+  documents: Array<{ name: string; type: string; url: string; folder?: string }>;
   extractedData: ExtractedOCRData;
   wantsPublicProfile: boolean;
   publicBusinessName: string;

@@ -10,6 +10,7 @@ interface UploadedFile {
   name: string;
   type: string;
   url: string;
+  folder?: string;
 }
 
 interface DocumentUploadProps {

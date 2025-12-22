@@ -24,7 +24,7 @@ export const profiles = pgTable("profiles", {
   hasQfoCert: boolean("has_qfo_cert").default(false),
   commissaryName: varchar("commissary_name", { length: 200 }),
   commissaryAddress: text("commissary_address"),
-  uploadsJson: jsonb("uploads_json").$type<{ documents: Array<{ name: string; type: string; url: string }> }>(),
+  uploadsJson: jsonb("uploads_json").$type<{ documents: Array<{ name: string; type: string; url: string; folder?: string }> }>(),
   extractedData: jsonb("extracted_data").$type<{
     vin?: string;
     licensePlate?: string;

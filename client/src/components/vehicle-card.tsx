@@ -32,6 +32,7 @@ interface DocumentType {
   name: string;
   url: string;
   type?: string;
+  folder?: string;
 }
 
 interface VehicleCardProps {
