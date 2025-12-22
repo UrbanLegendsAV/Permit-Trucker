@@ -45,6 +45,7 @@ function AppRouter() {
       <Route path="/spots" component={Spots} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/profile/:id" component={ProfilePage} />
+      <Route path="/profile/:id/edit" component={ProfilePage} />
       <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
