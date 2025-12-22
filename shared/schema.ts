@@ -9,7 +9,7 @@ export const vehicleTypeEnum = pgEnum("vehicle_type", ["truck", "trailer"]);
 export const permitTypeEnum = pgEnum("permit_type", ["yearly", "temporary", "seasonal"]);
 export const permitStatusEnum = pgEnum("permit_status", ["draft", "pending", "approved", "expired", "rejected"]);
 export const formTypeEnum = pgEnum("form_type", ["online_portal", "pdf_download", "mail_in"]);
-export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "first_permit", "multi_town", "speed_demon", "helper"]);
+export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "explorer", "food_type", "first_permit", "multi_town", "speed_demon", "helper"]);
 export const badgeTierEnum = pgEnum("badge_tier", ["bronze", "silver", "gold"]);
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "denied"]);
 
@@ -83,6 +83,7 @@ export const badges = pgTable("badges", {
   badgeType: badgeTypeEnum("badge_type").notNull(),
   tier: badgeTierEnum("tier").default("bronze"),
   townId: varchar("town_id").references(() => towns.id),
+  foodType: varchar("food_type", { length: 100 }),
   earnedDate: timestamp("earned_date").defaultNow(),
 });
 
@@ -197,6 +198,7 @@ export const townForms = pgTable("town_forms", {
   isFillable: boolean("is_fillable").default(false),
   fieldMappings: jsonb("field_mappings").$type<Record<string, string>>(),
   sortOrder: integer("sort_order").default(0),
+  uploadedBy: varchar("uploaded_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
