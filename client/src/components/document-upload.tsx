@@ -25,6 +25,10 @@ export const DOCUMENT_CATEGORIES = [
   { value: "commissary-letter", label: "Commissary Agreement", icon: "building" },
   { value: "business-license", label: "Business License", icon: "briefcase" },
   { value: "tax-clearance", label: "Tax Clearance", icon: "receipt" },
+  { value: "permit-application", label: "Permit Application", icon: "clipboard" },
+  { value: "bond-surety", label: "Bond / Surety", icon: "lock" },
+  { value: "supplier-list", label: "Food Suppliers List", icon: "list" },
+  { value: "equipment-list", label: "Equipment List", icon: "wrench" },
   { value: "other", label: "Other Document", icon: "file" },
 ];
 

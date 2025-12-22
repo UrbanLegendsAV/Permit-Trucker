@@ -47,10 +47,10 @@ const CATEGORY_MAP: Record<string, string> = DOCUMENT_CATEGORIES.reduce((acc, ca
 
 const LEGACY_FOLDER_MAP: Record<string, string> = {
   "general": "other",
-  "itinerary-permit": "other",
-  "temp-permit": "other",
-  "yearly-permit": "other",
-  "seasonal-permit": "other",
+  "itinerary-permit": "permit-application",
+  "temp-permit": "permit-application",
+  "yearly-permit": "permit-application",
+  "seasonal-permit": "permit-application",
   "health-dept": "health-permit",
   "fire-safety": "fire-safety",
   "vehicle-registration": "vehicle-registration",

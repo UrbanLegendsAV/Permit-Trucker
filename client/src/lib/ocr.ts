@@ -207,6 +207,26 @@ export function detectDocumentType(text: string, fileName?: string): { type: str
     return { type: 'tax-clearance', confidence: 80 };
   }
   
+  // Permit Application - forms to apply for permits
+  if (/application|itinerant|vendor.*permit|food.*vendor|apply.*permit|permit.*form|town.*of|municipality/i.test(combinedText)) {
+    return { type: 'permit-application', confidence: 75 };
+  }
+  
+  // Bond / Surety
+  if (/bond|surety|guaranty|indemnity|performance.*bond|surety.*bond/i.test(combinedText)) {
+    return { type: 'bond-surety', confidence: 85 };
+  }
+  
+  // Supplier List
+  if (/supplier|vendor.*list|food.*source|purveyors|wholesale|distributor|supply.*chain/i.test(combinedText)) {
+    return { type: 'supplier-list', confidence: 80 };
+  }
+  
+  // Equipment List
+  if (/equipment.*list|inventory|appliance|cooking.*equipment|refrigeration|freezer.*list|equipment.*schedule/i.test(combinedText)) {
+    return { type: 'equipment-list', confidence: 80 };
+  }
+  
   return { type: 'other', confidence: 0 };
 }
 
@@ -223,6 +243,10 @@ export function detectDocumentTypeFromFileName(fileName: string): { type: string
   if (/commissary|kitchen.*agreement/i.test(name)) return { type: 'commissary-letter', confidence: 80 };
   if (/business.*license|llc|dba/i.test(name)) return { type: 'business-license', confidence: 80 };
   if (/tax.*clear|good.*standing/i.test(name)) return { type: 'tax-clearance', confidence: 80 };
+  if (/application|itinerant|vendor.*app|permit.*app/i.test(name)) return { type: 'permit-application', confidence: 80 };
+  if (/bond|surety/i.test(name)) return { type: 'bond-surety', confidence: 85 };
+  if (/supplier|vendor.*list|source/i.test(name)) return { type: 'supplier-list', confidence: 80 };
+  if (/equipment|inventory|appliance/i.test(name)) return { type: 'equipment-list', confidence: 80 };
   
   return { type: 'other', confidence: 0 };
 }
