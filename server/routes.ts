@@ -143,6 +143,38 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/profiles/:id/documents/:docIndex/category", isAuthenticated, async (req, res) => {
+    try {
+      const { id, docIndex } = req.params;
+      const { category } = req.body;
+      const index = parseInt(docIndex, 10);
+      
+      if (!category || typeof category !== 'string') {
+        return res.status(400).json({ message: "Category is required" });
+      }
+      
+      const profile = await storage.getProfile(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const documents = profile.uploadsJson?.documents || [];
+      if (index < 0 || index >= documents.length) {
+        return res.status(400).json({ message: "Invalid document index" });
+      }
+      
+      documents[index] = { ...documents[index], folder: category };
+      const updatedProfile = await storage.updateProfile(id, {
+        uploadsJson: { ...profile.uploadsJson, documents }
+      });
+      
+      res.json(updatedProfile);
+    } catch (error) {
+      console.error("Error updating document category:", error);
+      res.status(500).json({ message: "Failed to update document category" });
+    }
+  });
+
   app.get("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

@@ -55,6 +55,18 @@ export default function ProfilePage() {
     },
   });
 
+  const updateDocumentCategoryMutation = useMutation({
+    mutationFn: async ({ profileId, docIndex, category }: { profileId: string; docIndex: number; category: string }) => {
+      return apiRequest("PATCH", `/api/profiles/${profileId}/documents/${docIndex}/category`, { category });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update document category.", variant: "destructive" });
+    },
+  });
+
   const { data: profiles = [], isLoading: profilesLoading } = useQuery<Profile[]>({
     queryKey: ["/api/profiles"],
     enabled: isAuthenticated,
@@ -161,6 +173,7 @@ export default function ProfilePage() {
                   onEdit={(p) => setLocation(`/profile/${p.id}/edit`)}
                   onDelete={(id) => deleteProfileMutation.mutate(id)}
                   onDeleteDocument={(profileId, docIndex) => deleteDocumentMutation.mutate({ profileId, docIndex })}
+                  onUpdateDocumentCategory={(profileId, docIndex, category) => updateDocumentCategoryMutation.mutate({ profileId, docIndex, category })}
                 />
               ))}
             </div>

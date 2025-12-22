@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2 } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,19 +28,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { performOCR, detectDocumentType } from "@/lib/ocr";
 import type { Profile } from "@shared/schema";
+import { DOCUMENT_CATEGORIES } from "./document-upload";
 
-const FOLDER_OPTIONS: Record<string, string> = {
-  "general": "General Documents",
-  "itinerary-permit": "Itinerary Permits",
-  "temp-permit": "Temporary Permits",
-  "yearly-permit": "Yearly Permits",
-  "seasonal-permit": "Seasonal Permits",
-  "health-dept": "Health Department",
-  "fire-safety": "Fire Safety",
-  "vehicle-registration": "Vehicle Registration",
-  "insurance": "Insurance Documents",
-  "licenses": "Licenses & Certifications",
+const CATEGORY_MAP: Record<string, string> = DOCUMENT_CATEGORIES.reduce((acc, cat) => {
+  acc[cat.value] = cat.label;
+  return acc;
+}, {} as Record<string, string>);
+
+const LEGACY_FOLDER_MAP: Record<string, string> = {
+  "general": "other",
+  "itinerary-permit": "other",
+  "temp-permit": "other",
+  "yearly-permit": "other",
+  "seasonal-permit": "other",
+  "health-dept": "health-permit",
+  "fire-safety": "fire-safety",
+  "vehicle-registration": "vehicle-registration",
+  "insurance": "coi",
+  "licenses": "food-manager-cert",
 };
 
 interface DocumentType {
@@ -56,30 +72,93 @@ interface VehicleCardProps {
   onEdit?: (profile: Profile) => void;
   onDelete?: (profileId: string) => void;
   onDeleteDocument?: (profileId: string, docIndex: number) => void;
+  onUpdateDocumentCategory?: (profileId: string, docIndex: number, category: string) => void;
 }
 
-export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelete, onDeleteDocument }: VehicleCardProps) {
+export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelete, onDeleteDocument, onUpdateDocumentCategory }: VehicleCardProps) {
   const [showDocuments, setShowDocuments] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [fullScreenDoc, setFullScreenDoc] = useState<DocumentType | null>(null);
   const [docToDelete, setDocToDelete] = useState<{ doc: DocumentType; index: number } | null>(null);
+  const [scanningDocIndex, setScanningDocIndex] = useState<number | null>(null);
+  const [scanProgress, setScanProgress] = useState(0);
+  const { toast } = useToast();
   
   const VehicleIcon = profile.vehicleType === "truck" ? Truck : Caravan;
   const documents: DocumentType[] = profile.uploadsJson?.documents || [];
   const hasDocuments = documents.length > 0;
   const hasExtractedData = profile.extractedData && Object.keys(profile.extractedData).length > 0;
 
+  const normalizeCategory = (folder?: string): string => {
+    if (!folder) return "other";
+    if (CATEGORY_MAP[folder]) return folder;
+    return LEGACY_FOLDER_MAP[folder] || "other";
+  };
+
   const groupedDocuments = useMemo(() => {
     const groups: Record<string, { doc: DocumentType; originalIndex: number }[]> = {};
     documents.forEach((doc, idx) => {
-      const folder = doc.folder || "general";
-      if (!groups[folder]) {
-        groups[folder] = [];
+      const category = normalizeCategory(doc.folder);
+      if (!groups[category]) {
+        groups[category] = [];
       }
-      groups[folder].push({ doc, originalIndex: idx });
+      groups[category].push({ doc, originalIndex: idx });
     });
     return groups;
   }, [documents]);
+
+  const handleScanDocument = async (doc: DocumentType, docIndex: number) => {
+    if (!doc.type?.startsWith("image/")) {
+      toast({
+        title: "Unsupported Format",
+        description: "OCR scanning only works with image files.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setScanningDocIndex(docIndex);
+    setScanProgress(0);
+
+    try {
+      const result = await performOCR(doc.url, (p) => setScanProgress(p));
+      const detectedType = detectDocumentType(result.text, doc.name);
+      
+      if (detectedType.type !== 'other' && detectedType.confidence > 50) {
+        if (onUpdateDocumentCategory) {
+          onUpdateDocumentCategory(profile.id, docIndex, detectedType.type);
+        }
+        toast({
+          title: `Detected: ${CATEGORY_MAP[detectedType.type] || detectedType.type}`,
+          description: `Document categorized with ${Math.round(detectedType.confidence)}% confidence.`,
+        });
+      } else {
+        toast({
+          title: "Scan Complete",
+          description: "Could not determine document type. Please select manually.",
+        });
+      }
+    } catch {
+      toast({
+        title: "Scan Failed",
+        description: "Could not process this document.",
+        variant: "destructive",
+      });
+    } finally {
+      setScanningDocIndex(null);
+      setScanProgress(0);
+    }
+  };
+
+  const handleCategoryChange = (docIndex: number, newCategory: string) => {
+    if (onUpdateDocumentCategory) {
+      onUpdateDocumentCategory(profile.id, docIndex, newCategory);
+      toast({
+        title: "Category Updated",
+        description: `Document moved to ${CATEGORY_MAP[newCategory] || newCategory}.`,
+      });
+    }
+  };
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -335,32 +414,32 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
             <DialogTitle>Documents for {profile.vehicleName || "Vehicle"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-4">
-            {Object.entries(groupedDocuments).map(([folder, items]) => (
-              <div key={folder} className="border rounded-lg overflow-hidden">
+            {Object.entries(groupedDocuments).map(([category, items]) => (
+              <div key={category} className="border rounded-lg overflow-hidden">
                 <button
                   className="w-full flex items-center gap-2 p-3 bg-muted/50 text-left hover-elevate"
-                  onClick={() => toggleFolder(folder)}
-                  data-testid={`folder-header-${folder}`}
+                  onClick={() => toggleFolder(category)}
+                  data-testid={`folder-header-${category}`}
                 >
-                  {expandedFolders.has(folder) ? (
+                  {expandedFolders.has(category) ? (
                     <ChevronDown className="w-4 h-4" />
                   ) : (
                     <ChevronRight className="w-4 h-4" />
                   )}
                   <FolderOpen className="w-4 h-4 text-primary" />
                   <span className="font-medium text-sm flex-1">
-                    {FOLDER_OPTIONS[folder] || folder}
+                    {CATEGORY_MAP[category] || category}
                   </span>
                   <Badge variant="secondary" className="text-xs">
                     {items.length}
                   </Badge>
                 </button>
-                {expandedFolders.has(folder) && (
+                {expandedFolders.has(category) && (
                   <div className="grid grid-cols-2 gap-3 p-3 bg-background">
                     {items.map(({ doc, originalIndex }) => (
                       <div
                         key={originalIndex}
-                        className="border rounded-lg overflow-hidden bg-muted group relative"
+                        className="border rounded-lg overflow-visible bg-muted group relative"
                         data-testid={`document-preview-${originalIndex}`}
                       >
                         <div 
@@ -390,21 +469,67 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                             </div>
                           )}
                         </div>
-                        <div className="p-2 bg-background border-t flex items-center justify-between gap-1">
-                          <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>
-                          {onDeleteDocument && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteDoc(doc, originalIndex);
-                              }}
-                              data-testid={`button-delete-doc-${originalIndex}`}
+                        <div className="p-2 bg-background border-t space-y-2">
+                          <div className="flex items-center justify-between gap-1">
+                            <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {doc.type?.startsWith("image/") && scanningDocIndex !== originalIndex && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-muted-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleScanDocument(doc, originalIndex);
+                                  }}
+                                  title="Scan to detect type"
+                                  data-testid={`button-scan-doc-${originalIndex}`}
+                                >
+                                  <ScanText className="w-3 h-3" />
+                                </Button>
+                              )}
+                              {onDeleteDocument && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-muted-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteDoc(doc, originalIndex);
+                                  }}
+                                  data-testid={`button-delete-doc-${originalIndex}`}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {scanningDocIndex === originalIndex && (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>Scanning...</span>
+                                <span>{Math.round(scanProgress)}%</span>
+                              </div>
+                              <Progress value={scanProgress} className="h-1" />
+                            </div>
+                          )}
+                          {onUpdateDocumentCategory && scanningDocIndex !== originalIndex && (
+                            <Select 
+                              value={normalizeCategory(doc.folder)} 
+                              onValueChange={(val) => handleCategoryChange(originalIndex, val)}
                             >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
+                              <SelectTrigger className="h-6 text-xs" data-testid={`select-doc-category-${originalIndex}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DOCUMENT_CATEGORIES.map((cat) => (
+                                  <SelectItem key={cat.value} value={cat.value}>
+                                    {cat.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           )}
                         </div>
                       </div>
