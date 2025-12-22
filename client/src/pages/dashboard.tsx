@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Plus, ChevronRight, Trophy, FileText, Truck, ArrowRight } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { TopHeader } from "@/components/top-header";
 import { MobileNav } from "@/components/mobile-nav";
 import { Button } from "@/components/ui/button";
@@ -16,12 +18,28 @@ import type { Profile, Permit, Badge as BadgeType, Town } from "@shared/schema";
 export default function Dashboard() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       window.location.href = "/api/login";
     }
   }, [authLoading, isAuthenticated]);
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      return apiRequest("DELETE", `/api/profiles/${profileId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/permits"] });
+      toast({ title: "Vehicle deleted", description: "Your vehicle has been removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete vehicle.", variant: "destructive" });
+    },
+  });
 
   const { data: profiles = [], isLoading: profilesLoading } = useQuery<Profile[]>({
     queryKey: ["/api/profiles"],
@@ -108,6 +126,8 @@ export default function Dashboard() {
                     profile={profile}
                     permitCount={permits.filter(p => p.profileId === profile.id).length}
                     onClick={() => setLocation(`/profile/${profile.id}`)}
+                    onEdit={(p) => setLocation(`/profile/${p.id}/edit`)}
+                    onDelete={(id) => deleteProfileMutation.mutate(id)}
                   />
                 ))
               )}
