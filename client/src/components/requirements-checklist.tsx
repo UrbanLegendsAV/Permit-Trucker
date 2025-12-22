@@ -294,15 +294,26 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {form.externalUrl && (
+                  {(form.fileData || form.externalUrl) && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => window.open(form.externalUrl || "", "_blank")}
+                      onClick={() => {
+                        if (form.fileData) {
+                          const blob = new Blob(
+                            [Uint8Array.from(atob(form.fileData), c => c.charCodeAt(0))],
+                            { type: form.fileType || 'application/pdf' }
+                          );
+                          const url = URL.createObjectURL(blob);
+                          window.open(url, "_blank");
+                        } else if (form.externalUrl) {
+                          window.open(form.externalUrl, "_blank");
+                        }
+                      }}
                       data-testid={`button-download-form-${form.id}`}
                     >
                       <ExternalLink className="w-4 h-4 mr-1" />
-                      View Form
+                      {form.fileData ? "View PDF" : "View Form"}
                     </Button>
                   )}
                   {form.isFillable && profile && (
