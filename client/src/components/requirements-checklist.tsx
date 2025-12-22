@@ -74,7 +74,7 @@ export function RequirementsChecklist({ town, progress, onToggle }: Requirements
   const requirements = (town.requirementsJson || {}) as Record<string, unknown>;
   
   const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
-    queryKey: ["/api/towns", town.id, "forms"],
+    queryKey: [`/api/towns/${town.id}/forms`],
   });
   
   const items: RequirementItem[] = Object.entries(requirements)
