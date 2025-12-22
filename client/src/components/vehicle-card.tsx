@@ -82,7 +82,27 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
     if (doc.type?.startsWith("image/")) {
       setFullScreenDoc(doc);
     } else if (doc.type === "application/pdf" || doc.name.toLowerCase().endsWith(".pdf")) {
-      window.open(doc.url, "_blank");
+      // Convert base64 data URI to Blob URL for better browser support
+      try {
+        const base64Match = doc.url.match(/^data:([^;]+);base64,(.+)$/);
+        if (base64Match) {
+          const mimeType = base64Match[1];
+          const base64Data = base64Match[2];
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: mimeType });
+          const blobUrl = URL.createObjectURL(blob);
+          window.open(blobUrl, "_blank");
+        } else {
+          window.open(doc.url, "_blank");
+        }
+      } catch {
+        window.open(doc.url, "_blank");
+      }
     } else {
       window.open(doc.url, "_blank");
     }
