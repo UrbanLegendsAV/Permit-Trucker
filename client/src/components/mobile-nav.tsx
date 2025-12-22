@@ -1,7 +1,8 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, FileText, Trophy, User } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, User, MapPin } from "lucide-react";
 
 const navItems = [
+  { path: "/discover", icon: MapPin, label: "Discover" },
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/permits", icon: FileText, label: "Permits" },
   { path: "/badges", icon: Trophy, label: "Badges" },

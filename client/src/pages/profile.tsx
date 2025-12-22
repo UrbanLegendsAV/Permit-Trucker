@@ -5,11 +5,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { TopHeader } from "@/components/top-header";
 import { MobileNav } from "@/components/mobile-nav";
 import { VehicleCard, VehicleCardSkeleton } from "@/components/vehicle-card";
+import { PublicProfileSection } from "@/components/public-profile-section";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight } from "lucide-react";
 import type { Profile, Permit } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -31,6 +33,13 @@ export default function ProfilePage() {
     queryKey: ["/api/permits"],
     enabled: isAuthenticated,
   });
+
+  const { data: roleData } = useQuery<{ role: string }>({
+    queryKey: ["/api/me/role"],
+    enabled: isAuthenticated,
+  });
+
+  const isAdmin = roleData?.role === "admin" || roleData?.role === "owner";
 
   const getInitials = () => {
     if (user?.firstName && user?.lastName) {
@@ -124,6 +133,18 @@ export default function ProfilePage() {
           )}
         </section>
 
+        {profiles.length > 0 && (
+          <>
+            <Separator />
+            <section>
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                Public Profile
+              </h3>
+              <PublicProfileSection vehicleProfile={profiles[0]} />
+            </section>
+          </>
+        )}
+
         <Separator />
 
         <section className="space-y-2">
@@ -132,6 +153,21 @@ export default function ProfilePage() {
           </h3>
           
           <Card className="divide-y divide-border">
+            {isAdmin && (
+              <button
+                className="w-full flex items-center gap-3 p-4 text-left hover-elevate transition-colors"
+                onClick={() => setLocation("/admin")}
+                data-testid="button-admin-dashboard"
+              >
+                <Settings className="w-5 h-5 text-primary" />
+                <span className="flex-1">Admin Dashboard</span>
+                <Badge variant="secondary" className="text-xs">
+                  {roleData?.role}
+                </Badge>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
+            
             <button
               className="w-full flex items-center gap-3 p-4 text-left hover-elevate transition-colors"
               data-testid="button-account-settings"

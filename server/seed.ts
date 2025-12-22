@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { towns } from "@shared/schema";
+import { towns, configs } from "@shared/schema";
 
 const ctTowns = [
   {
@@ -404,20 +404,36 @@ const ctTowns = [
   },
 ];
 
+const defaultConfigs = [
+  { key: "pro_price", value: "99", description: "Pro plan monthly price in USD" },
+  { key: "basic_price", value: "0", description: "Basic plan monthly price in USD" },
+  { key: "max_vehicles", value: "5", description: "Maximum vehicles per user" },
+  { key: "pioneer_threshold", value: "60", description: "Confidence score below which users earn Pioneer badge" },
+];
+
 export async function seedTowns() {
   try {
     const existingTowns = await db.select().from(towns);
     if (existingTowns.length > 0) {
       console.log(`Towns already seeded (${existingTowns.length} towns found)`);
-      return;
+    } else {
+      console.log("Seeding CT towns...");
+      for (const town of ctTowns) {
+        await db.insert(towns).values(town);
+      }
+      console.log(`Seeded ${ctTowns.length} CT towns`);
     }
 
-    console.log("Seeding CT towns...");
-    for (const town of ctTowns) {
-      await db.insert(towns).values(town);
+    // Seed default configs
+    const existingConfigs = await db.select().from(configs);
+    if (existingConfigs.length === 0) {
+      console.log("Seeding default configs...");
+      for (const config of defaultConfigs) {
+        await db.insert(configs).values(config);
+      }
+      console.log(`Seeded ${defaultConfigs.length} default configs`);
     }
-    console.log(`Seeded ${ctTowns.length} CT towns`);
   } catch (error) {
-    console.error("Error seeding towns:", error);
+    console.error("Error seeding:", error);
   }
 }

@@ -12,7 +12,10 @@ import NewPermit from "@/pages/new-permit";
 import PermitsPage from "@/pages/permits";
 import BadgesPage from "@/pages/badges";
 import ProfilePage from "@/pages/profile";
+import Discover from "@/pages/discover";
+import Admin from "@/pages/admin";
 import NotFound from "@/pages/not-found";
+import "leaflet/dist/leaflet.css";
 
 function AppRouter() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -30,7 +33,8 @@ function AppRouter() {
 
   return (
     <Switch>
-      <Route path="/" component={isAuthenticated ? Dashboard : Landing} />
+      <Route path="/" component={isAuthenticated ? Dashboard : Discover} />
+      <Route path="/discover" component={Discover} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/new-permit" component={NewPermit} />
@@ -39,6 +43,7 @@ function AppRouter() {
       <Route path="/badges" component={BadgesPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/profile/:id" component={ProfilePage} />
+      <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
   );
