@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Truck, Caravan, ArrowLeft, ArrowRight, Check, Upload } from "lucide-react";
+import { Truck, Caravan, ArrowLeft, ArrowRight, Check, Upload, Globe, Eye, EyeOff, MapPin } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-const steps = ["Vehicle Type", "Details", "Food Info", "Documents"];
+const steps = ["Vehicle Type", "Details", "Food Info", "Documents", "Visibility"];
 
 export default function Onboarding() {
   const [, setLocation] = useLocation();
@@ -33,7 +33,7 @@ export default function Onboarding() {
 
   const createProfileMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/profiles", {
+      const profileResponse = await apiRequest("POST", "/api/profiles", {
         userId: user?.id,
         vehicleType: onboarding.vehicleType,
         vehicleName: onboarding.vehicleName,
@@ -45,13 +45,31 @@ export default function Onboarding() {
         commissaryAddress: onboarding.commissaryAddress,
         uploadsJson: { documents: onboarding.documents },
       });
+
+      const profile = await profileResponse.json();
+
+      // Create public profile if opted in
+      if (onboarding.wantsPublicProfile) {
+        await apiRequest("POST", "/api/public-profiles", {
+          profileId: profile.id,
+          isPublic: true,
+          businessName: onboarding.publicBusinessName || onboarding.vehicleName,
+          description: onboarding.publicDescription,
+        });
+      }
+
+      return profile;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public-profiles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-public-profile"] });
       resetOnboarding();
       toast({
         title: "Vehicle Added!",
-        description: "Your vehicle has been registered successfully.",
+        description: onboarding.wantsPublicProfile 
+          ? "Your vehicle is registered and visible on the Discover map!"
+          : "Your vehicle has been registered successfully.",
       });
       setLocation("/dashboard");
     },
@@ -74,6 +92,8 @@ export default function Onboarding() {
         return true;
       case 3:
         return true;
+      case 4:
+        return true; // Public profile opt-in is optional
       default:
         return false;
     }
@@ -315,6 +335,90 @@ export default function Onboarding() {
               <p className="text-sm text-muted-foreground">
                 You can add more documents later. We&apos;ll use OCR to extract information 
                 and pre-fill your permit applications.
+              </p>
+            </Card>
+          </div>
+        )}
+
+        {currentStep === 4 && (
+          <div className="space-y-6">
+            <div className="text-center mb-8">
+              <h2 className="font-display text-2xl font-bold mb-2">
+                Public Visibility
+              </h2>
+              <p className="text-muted-foreground">
+                Let customers find your food truck on our Discover map
+              </p>
+            </div>
+
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                    onboarding.wantsPublicProfile ? "bg-primary/20" : "bg-muted"
+                  }`}>
+                    {onboarding.wantsPublicProfile ? (
+                      <Eye className="w-6 h-6 text-primary" />
+                    ) : (
+                      <EyeOff className="w-6 h-6 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div>
+                    <Label className="font-medium">Show on Discover Map</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Let customers find you
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={onboarding.wantsPublicProfile}
+                  onCheckedChange={(checked) => setOnboardingField("wantsPublicProfile", checked)}
+                  data-testid="switch-public-profile"
+                />
+              </div>
+
+              {onboarding.wantsPublicProfile && (
+                <div className="space-y-4 pt-4 border-t border-border">
+                  <div className="space-y-2">
+                    <Label htmlFor="publicBusinessName">Business Name</Label>
+                    <Input
+                      id="publicBusinessName"
+                      placeholder="Your food truck name"
+                      value={onboarding.publicBusinessName || onboarding.vehicleName}
+                      onChange={(e) => setOnboardingField("publicBusinessName", e.target.value)}
+                      className="h-12"
+                      data-testid="input-public-business-name"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="publicDescription">Brief Description</Label>
+                    <Textarea
+                      id="publicDescription"
+                      placeholder="Tell customers about your food..."
+                      value={onboarding.publicDescription}
+                      onChange={(e) => setOnboardingField("publicDescription", e.target.value)}
+                      rows={3}
+                      data-testid="input-public-description"
+                    />
+                  </div>
+
+                  <Card className="p-3 bg-muted/50">
+                    <p className="text-xs text-muted-foreground flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      You can set your location and hours in your profile after registration.
+                    </p>
+                  </Card>
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-4 bg-muted/50">
+              <p className="text-sm text-muted-foreground">
+                <Globe className="w-4 h-4 inline mr-2" />
+                {onboarding.wantsPublicProfile
+                  ? "Your truck will appear on our Discover map for customers to find."
+                  : "You can enable visibility later from your profile settings."}
               </p>
             </Card>
           </div>

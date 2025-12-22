@@ -12,6 +12,9 @@ interface OnboardingData {
   commissaryName: string;
   commissaryAddress: string;
   documents: Array<{ name: string; type: string; url: string }>;
+  wantsPublicProfile: boolean;
+  publicBusinessName: string;
+  publicDescription: string;
 }
 
 interface NewPermitData {
@@ -53,6 +56,9 @@ const initialOnboarding: OnboardingData = {
   commissaryName: '',
   commissaryAddress: '',
   documents: [],
+  wantsPublicProfile: false,
+  publicBusinessName: '',
+  publicDescription: '',
 };
 
 const initialNewPermit: NewPermitData = {
