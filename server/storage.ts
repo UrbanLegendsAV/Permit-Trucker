@@ -233,6 +233,39 @@ export class DatabaseStorage implements IStorage {
     return result[0]?.count || 0;
   }
 
+  async getAllReviews(): Promise<(Review & { businessName: string | null })[]> {
+    const result = await db
+      .select({
+        id: reviews.id,
+        publicProfileId: reviews.publicProfileId,
+        rating: reviews.rating,
+        text: reviews.text,
+        reviewerName: reviews.reviewerName,
+        reviewerIp: reviews.reviewerIp,
+        status: reviews.status,
+        sentimentScore: reviews.sentimentScore,
+        createdAt: reviews.createdAt,
+        businessName: publicProfiles.businessName,
+      })
+      .from(reviews)
+      .leftJoin(publicProfiles, eq(reviews.publicProfileId, publicProfiles.id))
+      .orderBy(desc(reviews.createdAt));
+    return result;
+  }
+
+  async updateReviewStatus(reviewId: string, status: "pending" | "approved" | "denied"): Promise<Review | undefined> {
+    const [updated] = await db
+      .update(reviews)
+      .set({ status })
+      .where(eq(reviews.id, reviewId))
+      .returning();
+    return updated;
+  }
+
+  async deleteReview(reviewId: string): Promise<void> {
+    await db.delete(reviews).where(eq(reviews.id, reviewId));
+  }
+
   // Configs
   async getConfig(key: string): Promise<Config | undefined> {
     const [config] = await db.select().from(configs).where(eq(configs.key, key));

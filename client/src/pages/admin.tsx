@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Config, Town } from "@shared/schema";
+import type { Config, Town, Review } from "@shared/schema";
 
 interface UserData {
   id: string;
@@ -20,6 +20,10 @@ interface UserData {
   firstName: string | null;
   lastName: string | null;
   role: string | null;
+}
+
+interface ReviewData extends Review {
+  businessName: string | null;
 }
 
 export default function Admin() {
@@ -43,6 +47,11 @@ export default function Admin() {
 
   const { data: towns = [], isLoading: townsLoading } = useQuery<Town[]>({
     queryKey: ["/api/towns"],
+  });
+
+  const { data: adminReviews = [], isLoading: reviewsLoading } = useQuery<ReviewData[]>({
+    queryKey: ["/api/admin/reviews"],
+    enabled: roleData?.role === "admin" || roleData?.role === "owner",
   });
 
   const isAdmin = roleData?.role === "admin" || roleData?.role === "owner";
@@ -82,7 +91,7 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="pricing" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 mr-2" />
               Pricing
@@ -90,6 +99,10 @@ export default function Admin() {
             <TabsTrigger value="towns" data-testid="tab-towns">
               <MapPin className="w-4 h-4 mr-2" />
               Towns
+            </TabsTrigger>
+            <TabsTrigger value="reviews" data-testid="tab-reviews">
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Reviews
             </TabsTrigger>
             <TabsTrigger value="users" data-testid="tab-users">
               <Users className="w-4 h-4 mr-2" />
@@ -103,6 +116,10 @@ export default function Admin() {
 
           <TabsContent value="towns">
             <TownsTab towns={towns} isLoading={townsLoading} isOwner={isOwner} />
+          </TabsContent>
+
+          <TabsContent value="reviews">
+            <ReviewsTab reviews={adminReviews} isLoading={reviewsLoading} />
           </TabsContent>
 
           <TabsContent value="users">
@@ -350,6 +367,156 @@ function TownsTab({ towns, isLoading, isOwner }: { towns: Town[]; isLoading: boo
         </div>
       </Card>
     </div>
+  );
+}
+
+function ReviewsTab({ reviews, isLoading }: { reviews: ReviewData[]; isLoading: boolean }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [filter, setFilter] = useState<string>("all");
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ reviewId, status }: { reviewId: string; status: string }) => {
+      return apiRequest("PATCH", `/api/admin/reviews/${reviewId}/status`, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reviews"] });
+      toast({ title: "Review Updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update review.", variant: "destructive" });
+    },
+  });
+
+  const deleteReviewMutation = useMutation({
+    mutationFn: async (reviewId: string) => {
+      return apiRequest("DELETE", `/api/admin/reviews/${reviewId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reviews"] });
+      toast({ title: "Review Deleted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete review.", variant: "destructive" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const filteredReviews = filter === "all" 
+    ? reviews 
+    : reviews.filter(r => r.status === filter);
+
+  const pendingCount = reviews.filter(r => r.status === "pending").length;
+
+  const getStatusBadge = (status: string | null) => {
+    switch (status) {
+      case "approved":
+        return <Badge variant="secondary" className="bg-green-500/10 text-green-600 dark:text-green-400">Approved</Badge>;
+      case "denied":
+        return <Badge variant="secondary" className="bg-red-500/10 text-red-600 dark:text-red-400">Denied</Badge>;
+      default:
+        return <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">Pending</Badge>;
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <h3 className="font-semibold">Review Moderation ({reviews.length})</h3>
+        {pendingCount > 0 && (
+          <Badge variant="destructive">{pendingCount} pending</Badge>
+        )}
+        <Select value={filter} onValueChange={setFilter}>
+          <SelectTrigger className="w-32" data-testid="select-review-filter">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="denied">Denied</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-4 max-h-[500px] overflow-y-auto">
+        {filteredReviews.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">No reviews found</p>
+        ) : (
+          filteredReviews.map((review) => (
+            <div key={review.id} className="p-4 bg-muted/50 rounded-md space-y-3">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium truncate">{review.businessName || "Unknown Business"}</p>
+                    {getStatusBadge(review.status)}
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star 
+                        key={i} 
+                        className={`w-3 h-3 ${i < review.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"}`} 
+                      />
+                    ))}
+                    <span className="text-sm text-muted-foreground ml-2">
+                      by {review.reviewerName || "Anonymous"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              {review.text && (
+                <p className="text-sm text-muted-foreground">{review.text}</p>
+              )}
+
+              <div className="flex items-center gap-2 pt-2 flex-wrap">
+                {review.status !== "approved" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateStatusMutation.mutate({ reviewId: review.id, status: "approved" })}
+                    disabled={updateStatusMutation.isPending}
+                    data-testid={`button-approve-${review.id}`}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-1" />
+                    Approve
+                  </Button>
+                )}
+                {review.status !== "denied" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateStatusMutation.mutate({ reviewId: review.id, status: "denied" })}
+                    disabled={updateStatusMutation.isPending}
+                    data-testid={`button-deny-${review.id}`}
+                  >
+                    <XCircle className="w-4 h-4 mr-1" />
+                    Deny
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => deleteReviewMutation.mutate(review.id)}
+                  disabled={deleteReviewMutation.isPending}
+                  data-testid={`button-delete-review-${review.id}`}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </Card>
   );
 }
 

@@ -11,6 +11,7 @@ export const permitStatusEnum = pgEnum("permit_status", ["draft", "pending", "ap
 export const formTypeEnum = pgEnum("form_type", ["online_portal", "pdf_download", "mail_in"]);
 export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "first_permit", "multi_town", "speed_demon", "helper"]);
 export const badgeTierEnum = pgEnum("badge_tier", ["bronze", "silver", "gold"]);
+export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "denied"]);
 
 export const profiles = pgTable("profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -146,6 +147,8 @@ export const reviews = pgTable("reviews", {
   text: text("text"),
   reviewerName: varchar("reviewer_name", { length: 100 }),
   reviewerIp: varchar("reviewer_ip", { length: 45 }),
+  status: reviewStatusEnum("status").default("approved"),
+  sentimentScore: integer("sentiment_score"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
