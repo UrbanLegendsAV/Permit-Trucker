@@ -1,0 +1,40 @@
+ - Document Handling: Upload button in questionnaire/new permit → Parse (OCR for text, extract menu/equipment) → Auto-pre-fill forms/checklists.
+ - Signature: Detect fields → Prompt canvas capture + insert.
+ - Gamification: Badges for first completions (bronze/silver/gold, gallery), leaderboard on dashboard.
+ - Learning Loop: Post-submission micro-survey (COI? Background? Steps?) → Anonymized DB update + confidence boost.
+ - Location Optimizer (Pro stub): Suggest events/breweries with footfall.
+
+3. **UI/UX**
+   - Mobile-first, big taps, progress bars, icons (truck/trailer).
+   - Dark theme.
+   - Disclaimers: "Verify officially".
+   - Offline PWA manifest.
+
+4. **Supabase Schema**
+   - profiles (id, user_id, vehicle_type, name, email, phone, vin_plate, menu_type, propane boolean, uploads_json).
+   - permits (id, user_id, town_id, type, status, applied_date, expiry_date, is_pioneer boolean).
+   - towns (id, state, county, town, permit_types array, portal_url, form_type enum, requirements_json, last_verified, confidence_score).
+   - badges (id, user_id, badge_type, town_id, earned_date).
+   - portal_mappings (town_id, field_selectors json, notes).
+
+5. **Seed Data**
+   - Towns: Top 20 CT (e.g., Danbury: portal_url = "https://danburyct-health.viewpointcloud.com", requirements_json = {coi: true, background: false}).
+   - Sample badges.
+
+   6. **Knowledge & Logic**
+   - Hybrid: Curated seeding + pioneer surveys + AI fallback (browse sites for requirements).
+   - Prompt Classification: Parse user input (type/town) → DB query → Response based on confidence (high = auto; low = pioneer + research).
+   - Inter-Agency: Flag police/fire in checklists.
+
+7. **Best Practices**
+   - Clean, commented code, error handling, loading states.
+   - Privacy: Anonymized surveys, opt-in.
+   - PWA manifest/service worker.
+
+Build the complete project, all pages/components, Supabase setup in README, runnable immediately.
+
+After completion, provide README.md with:
+- How to connect Supabase.
+- Add towns guide.
+- Next steps: Location optimizer, NY expansion.
+Start building now
