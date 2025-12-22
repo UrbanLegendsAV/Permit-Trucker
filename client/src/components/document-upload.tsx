@@ -83,6 +83,7 @@ export function DocumentUpload({
 
     setIsUploading(true);
     const newFiles: UploadedFile[] = [];
+    const filesToOCR: { index: number; url: string; name: string }[] = [];
 
     for (let i = 0; i < fileList.length && files.length + newFiles.length < maxFiles; i++) {
       const file = fileList[i];
@@ -93,12 +94,21 @@ export function DocumentUpload({
       
       await new Promise<void>((resolve) => {
         reader.onload = () => {
-          newFiles.push({
+          const fileData = {
             name: file.name,
             type: file.type,
             url: reader.result as string,
             folder,
-          });
+          };
+          newFiles.push(fileData);
+          
+          if (enableOCR && file.type.startsWith("image/")) {
+            filesToOCR.push({ 
+              index: files.length + newFiles.length - 1, 
+              url: fileData.url,
+              name: file.name 
+            });
+          }
           resolve();
         };
         reader.readAsDataURL(file);
@@ -109,6 +119,52 @@ export function DocumentUpload({
     setFiles(updatedFiles);
     onUpload(updatedFiles);
     setIsUploading(false);
+
+    if (enableOCR && filesToOCR.length > 0) {
+      for (const fileToOCR of filesToOCR) {
+        setOcrIndex(fileToOCR.index);
+        setOcrProgress(0);
+        
+        try {
+          const result = await performOCR(fileToOCR.url, (p) => setOcrProgress(p));
+          
+          if (onOCRExtracted && result.extractedData) {
+            onOCRExtracted(result.extractedData);
+          }
+
+          const suggestedFolder = suggestFolderFromText(result.text, fileToOCR.name);
+          if (suggestedFolder !== 'general' && result.confidence > 50) {
+            const filesCopy = [...updatedFiles];
+            if (filesCopy[fileToOCR.index]?.folder === 'general') {
+              filesCopy[fileToOCR.index] = { ...filesCopy[fileToOCR.index], folder: suggestedFolder };
+              setFiles(filesCopy);
+              onUpload(filesCopy);
+            }
+          }
+          
+          const extractedInfo: string[] = [];
+          if (result.extractedData.vin) extractedInfo.push(`VIN: ${result.extractedData.vin}`);
+          if (result.extractedData.licensePlate) extractedInfo.push(`Plate: ${result.extractedData.licensePlate}`);
+          if (result.extractedData.licenseNumber) extractedInfo.push(`License: ${result.extractedData.licenseNumber}`);
+          if (result.extractedData.expirationDate) extractedInfo.push(`Expires: ${result.extractedData.expirationDate}`);
+          
+          toast({
+            title: "Document Scanned",
+            description: extractedInfo.length > 0 
+              ? `Extracted: ${extractedInfo.join(", ")}`
+              : `Processed with ${Math.round(result.confidence)}% confidence.`,
+          });
+        } catch {
+          toast({
+            title: "Scan Notice",
+            description: "Could not extract text from this image.",
+            variant: "default",
+          });
+        }
+      }
+      setOcrIndex(null);
+      setOcrProgress(0);
+    }
   };
 
   const removeFile = (index: number) => {

@@ -338,15 +338,17 @@ export default function Onboarding() {
                 if (data.businessName && !onboarding.vehicleName) {
                   setOnboardingField("vehicleName", data.businessName);
                 }
-                if (data.vinPlate && !onboarding.vinPlate) {
-                  setOnboardingField("vinPlate", data.vinPlate);
+                const vinOrPlate = data.vin || data.licensePlate;
+                if (vinOrPlate && !onboarding.vinPlate) {
+                  setOnboardingField("vinPlate", vinOrPlate);
                 }
                 
                 // Accumulate OCR extracted data for saving to profile
                 setOnboardingField("extractedData", {
                   ...onboarding.extractedData,
                   ...(data.businessName && { businessName: data.businessName }),
-                  ...(data.vinPlate && { vin: data.vinPlate }),
+                  ...(data.vin && { vin: data.vin }),
+                  ...(data.licensePlate && { licensePlate: data.licensePlate }),
                   ...(data.licenseNumber && { licenseNumber: data.licenseNumber }),
                   ...(data.expirationDate && { expirationDate: data.expirationDate }),
                   ...(data.address && { rawText: data.address }),

@@ -12,7 +12,8 @@ export interface ExtractedPermitData {
   expirationDate?: string;
   issuedDate?: string;
   address?: string;
-  vinPlate?: string;
+  vin?: string;
+  licensePlate?: string;
 }
 
 const datePatterns = [
@@ -54,18 +55,23 @@ function extractLicenseNumbers(text: string): string[] {
   return Array.from(new Set(licenses)).filter(l => l.length >= 5);
 }
 
-function extractVinPlate(text: string): string | undefined {
+function extractVinAndPlate(text: string): { vin?: string; licensePlate?: string } {
+  let vin: string | undefined;
+  let licensePlate: string | undefined;
+  
   for (const pattern of vinPatterns) {
     let match: RegExpExecArray | null;
     const regex = new RegExp(pattern.source, pattern.flags);
     while ((match = regex.exec(text)) !== null) {
       const value = match[1] || match[0];
-      if (value.length >= 2 && value.length <= 17) {
-        return value;
+      if (value.length === 17 && /^[A-HJ-NPR-Z0-9]{17}$/.test(value)) {
+        vin = value;
+      } else if (value.length >= 2 && value.length <= 10) {
+        licensePlate = value;
       }
     }
   }
-  return undefined;
+  return { vin, licensePlate };
 }
 
 function extractBusinessName(text: string): string | undefined {
@@ -119,6 +125,7 @@ export async function performOCR(
 
   const dates = extractDates(text);
   const licenses = extractLicenseNumbers(text);
+  const { vin, licensePlate } = extractVinAndPlate(text);
   
   const extractedData: ExtractedPermitData = {
     businessName: extractBusinessName(text),
@@ -126,7 +133,8 @@ export async function performOCR(
     expirationDate: dates.length > 0 ? dates[dates.length - 1] : undefined,
     issuedDate: dates.length > 1 ? dates[0] : undefined,
     address: extractAddress(text),
-    vinPlate: extractVinPlate(text),
+    vin,
+    licensePlate,
   };
 
   return {

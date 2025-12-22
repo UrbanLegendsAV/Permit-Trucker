@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -248,6 +249,52 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                 </Badge>
               )}
             </div>
+
+            {hasExtractedData && profile.extractedData && (
+              <div className="mt-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg" data-testid="extracted-data-preview">
+                <div className="flex items-center gap-2 mb-2">
+                  <ScanText className="w-4 h-4 text-green-600" />
+                  <span className="text-xs font-medium text-green-700 dark:text-green-400">Auto-Extracted Data</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {profile.extractedData.vin && (
+                    <div className="flex items-center gap-1" data-testid="extracted-vin">
+                      <CreditCard className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">VIN:</span>
+                      <span className="font-mono truncate">{profile.extractedData.vin}</span>
+                    </div>
+                  )}
+                  {profile.extractedData.licensePlate && (
+                    <div className="flex items-center gap-1" data-testid="extracted-plate">
+                      <CreditCard className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Plate:</span>
+                      <span className="font-mono">{profile.extractedData.licensePlate}</span>
+                    </div>
+                  )}
+                  {profile.extractedData.businessName && (
+                    <div className="flex items-center gap-1 col-span-2" data-testid="extracted-business">
+                      <Building2 className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Business:</span>
+                      <span className="truncate">{profile.extractedData.businessName}</span>
+                    </div>
+                  )}
+                  {profile.extractedData.expirationDate && (
+                    <div className="flex items-center gap-1" data-testid="extracted-expiry">
+                      <Calendar className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Expires:</span>
+                      <span>{profile.extractedData.expirationDate}</span>
+                    </div>
+                  )}
+                  {profile.extractedData.licenseNumber && (
+                    <div className="flex items-center gap-1" data-testid="extracted-license">
+                      <FileText className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">License:</span>
+                      <span className="font-mono">{profile.extractedData.licenseNumber}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {hasDocuments && (
               <div className="flex gap-2 mt-3 overflow-x-auto pb-1">

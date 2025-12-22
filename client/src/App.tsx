@@ -13,6 +13,7 @@ import PermitsPage from "@/pages/permits";
 import BadgesPage from "@/pages/badges";
 import ProfilePage from "@/pages/profile";
 import Discover from "@/pages/discover";
+import Spots from "@/pages/spots";
 import Admin from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 import "leaflet/dist/leaflet.css";
@@ -41,6 +42,7 @@ function AppRouter() {
       <Route path="/permits" component={PermitsPage} />
       <Route path="/permits/:id" component={PermitsPage} />
       <Route path="/badges" component={BadgesPage} />
+      <Route path="/spots" component={Spots} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/profile/:id" component={ProfilePage} />
       <Route path="/admin" component={Admin} />

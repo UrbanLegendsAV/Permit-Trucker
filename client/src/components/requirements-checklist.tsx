@@ -1,16 +1,18 @@
-import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2 } from "lucide-react";
+import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2, Wand2, Bot } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useQuery } from "@tanstack/react-query";
-import type { Town, TownForm } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import type { Town, TownForm, Profile } from "@shared/schema";
 
 interface RequirementsChecklistProps {
   town: Town;
   progress: Record<string, boolean>;
   onToggle: (key: string) => void;
+  profile?: Profile;
 }
 
 interface RequirementItem {
@@ -70,12 +72,58 @@ const categoryLabels: Record<string, string> = {
   other: "Other",
 };
 
-export function RequirementsChecklist({ town, progress, onToggle }: RequirementsChecklistProps) {
+export function RequirementsChecklist({ town, progress, onToggle, profile }: RequirementsChecklistProps) {
   const requirements = (town.requirementsJson || {}) as Record<string, unknown>;
+  const { toast } = useToast();
   
   const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
     queryKey: [`/api/towns/${town.id}/forms`],
   });
+
+  const handleGeneratePreFill = (form: TownForm) => {
+    if (!profile) {
+      toast({
+        title: "No Profile Selected",
+        description: "Please select a vehicle profile to pre-fill the form.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const profileData = {
+      businessName: profile.vehicleName || profile.extractedData?.businessName || "",
+      ownerName: profile.extractedData?.ownerName || "",
+      vin: profile.vinPlate || profile.extractedData?.vin || "",
+      licensePlate: profile.extractedData?.licensePlate || "",
+      menuType: profile.menuType || "",
+      commissaryName: profile.commissaryName || "",
+      commissaryAddress: profile.commissaryAddress || "",
+      hasPropane: profile.hasPropane ? "Yes" : "No",
+    };
+
+    toast({
+      title: "Pre-Fill Data Ready",
+      description: `Form data prepared for "${form.name}". PDF auto-fill coming soon!`,
+    });
+
+    console.log("Pre-fill data for form:", form.name, profileData);
+  };
+
+  const handleStartAIAssist = () => {
+    if (!town.portalUrl) {
+      toast({
+        title: "No Portal Available",
+        description: "This town doesn't have an online portal configured.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "AI Assist Coming Soon",
+      description: "AI-powered form filling will be available in a future update.",
+    });
+  };
   
   const items: RequirementItem[] = Object.entries(requirements)
     .filter(([key, value]) => typeof value === "boolean" && value && requirementDetails[key])
@@ -188,6 +236,30 @@ export function RequirementsChecklist({ town, progress, onToggle }: Requirements
         </Card>
       )}
 
+      {town.portalUrl && (
+        <Card className="p-4 border-primary/20 bg-primary/5" data-testid="ai-assist-card">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                <Bot className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">AI Portal Assistant</p>
+                <p className="text-xs text-muted-foreground">Auto-fill online portal forms</p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={handleStartAIAssist}
+              data-testid="button-ai-assist"
+            >
+              <Bot className="w-4 h-4 mr-1" />
+              Start AI Assist
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {formsLoading ? (
         <Card className="p-4">
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -201,40 +273,57 @@ export function RequirementsChecklist({ town, progress, onToggle }: Requirements
             <FileText className="w-4 h-4 text-primary" />
             Official Forms for {town.townName}
           </h4>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {forms.map((form) => (
               <div 
                 key={form.id} 
-                className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg"
+                className="p-3 bg-muted/50 rounded-lg space-y-2"
                 data-testid={`form-${form.id}`}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{form.name}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className="text-xs">
-                      {categoryLabels[form.category || "other"]}
-                    </Badge>
-                    {form.isFillable && (
-                      <Badge variant="secondary" className="text-xs">Fillable</Badge>
-                    )}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{form.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap mt-1">
+                      <Badge variant="outline" className="text-xs">
+                        {categoryLabels[form.category || "other"]}
+                      </Badge>
+                      {form.isFillable && (
+                        <Badge variant="secondary" className="text-xs">Fillable</Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-                {form.externalUrl && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => window.open(form.externalUrl || "", "_blank")}
-                    data-testid={`button-download-form-${form.id}`}
-                  >
-                    <ExternalLink className="w-4 h-4 mr-1" />
-                    Open
-                  </Button>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {form.externalUrl && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => window.open(form.externalUrl || "", "_blank")}
+                      data-testid={`button-download-form-${form.id}`}
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1" />
+                      View Form
+                    </Button>
+                  )}
+                  {form.isFillable && profile && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => handleGeneratePreFill(form)}
+                      data-testid={`button-prefill-form-${form.id}`}
+                    >
+                      <Wand2 className="w-4 h-4 mr-1" />
+                      Pre-Fill with My Data
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
           <p className="text-xs text-muted-foreground mt-3">
-            Download and complete these forms, then submit to {town.townName} Health Department.
+            {profile 
+              ? `Using data from "${profile.vehicleName || 'Your Vehicle'}" to pre-fill forms.`
+              : "Select a vehicle to enable form pre-filling with your data."}
           </p>
         </Card>
       )}

@@ -1,0 +1,55 @@
+You are continuing development on PermitTruck (pivoting to TruckPermitAI). Great job adding Bethel CT forms with links/checklists—that's solid guidance.
+
+But core vision is AI automation using user's existing profile/uploads (Brazilian BBQ Boys vehicle VIN 7FD1E1211N1009329 + uploaded docs):
+
+- Auto-process uploaded documents to extract data (VIN, plates, dates, licenses).
+- Display uploaded docs visibly in profile/vehicle.
+- Use extracted + profile data to pre-fill forms (PDFs or portals).
+- AI agent for portals with user confirmations.
+- Location optimizer for high-traffic spots.
+
+The app is NOT just linking/downloading forms—it's intelligently filling them from user's one-time inputs/uploads.
+
+Specific Task 1 – Fix Uploaded Documents Visibility & Auto OCR (Critical – user has uploads but can't see/use them)
+
+- In profile/vehicle edit/view: Show list/grid of uploaded documents with thumbnails, names, delete.
+- On upload: Automatically run Tesseract.js OCR (lib/ocr.ts).
+- Extract: VIN/plate, dates, license/fire cert text.
+- Auto-populate profile/vehicle fields if match (e.g., VIN to vehicle VIN).
+- Show extracted data preview per doc.
+- Toast: "Processed – extracted VIN/plate".
+
+Specific Task 2 – Use Profile/Extracted Data for Pre-Fills
+
+- For towns like Bethel CT: In requirements/checklist, add "Generate Pre-Filled Form" button per fillable form.
+- Use profile data (business name "Brazilian BBQ Boys", VIN, owner) to pre-fill (stub mapping for now: hardcode common fields).
+- Generate/download filled PDF.
+
+Specific Task 3 – Prep AI Browser Agent
+
+- For towns with online_portal: Add "Start AI Assist" button → opens portal_url in embedded WebView/iframe.
+- Stub: Display profile data sidebar; message "AI will pre-fill – coming soon".
+
+Specific Task 4 – Location Optimizer ("Spots" Tab)
+
+- Create client/src/pages/spots.tsx.
+- Add to bottom nav (MapPin icon, "Spots").
+- Use Google Places: Search "breweries near [town]" or "food truck friendly locations [town]".
+- List/map: Venue name, rating, "Predicted high traffic" if brewery/office.
+- Add env var google_api_key (admin config field).
+
+General Instructions:
+- Build on existing Bethel forms—enhance with pre-fills.
+- Mobile-first; shadcn/ui for doc grid.
+- Toasts/loading.
+- Update PROGRESS.md.
+
+Start with Task 1 – make user's uploaded docs visible, processed, and feeding profile.
+
+After completion, reply with:
+- Summary/changes
+- Files added/changed
+- Setup notes
+- Demo with user's Brazilian BBQ profile/uploads
+
+We're automating fills from user's data—not just linking forms. Let's get those uploads working and pre-filling Bethel apps!
