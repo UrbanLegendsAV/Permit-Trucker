@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest } from "@/lib/queryClient";
+import { MobileNav } from "@/components/mobile-nav";
 import type { PublicProfile, Review } from "@shared/schema";
 
 // Star rating component
@@ -320,10 +321,11 @@ export default function Discover() {
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : (
-          <Card className="overflow-hidden relative">
+          <Card className="relative">
             <div
               ref={mapContainerRef}
-              className="h-[500px] md:h-[600px] w-full"
+              className="h-[400px] md:h-[500px] w-full rounded-md"
+              style={{ zIndex: 0 }}
               data-testid="map-container"
             />
             
@@ -346,6 +348,8 @@ export default function Discover() {
           </Card>
         )}
       </main>
+
+      <MobileNav />
     </div>
   );
 }
