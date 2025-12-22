@@ -329,6 +329,15 @@ export default function Onboarding() {
               onUpload={(files) => setOnboardingField("documents", files)}
               existingFiles={onboarding.documents}
               label="Vehicle Documents"
+              enableOCR={true}
+              onOCRExtracted={(data) => {
+                if (data.businessName && !onboarding.vehicleName) {
+                  setOnboardingField("vehicleName", data.businessName);
+                }
+                if (data.vinPlate && !onboarding.vinPlate) {
+                  setOnboardingField("vinPlate", data.vinPlate);
+                }
+              }}
             />
 
             <Card className="p-4 bg-muted/50">
