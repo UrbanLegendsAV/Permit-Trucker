@@ -145,3 +145,41 @@ export function isPDFFile(file: File): boolean {
   return file.type === 'application/pdf' || 
          file.name.toLowerCase().endsWith('.pdf');
 }
+
+export function suggestFolderFromText(text: string, fileName?: string): string {
+  const combinedText = `${fileName || ''} ${text}`.toLowerCase();
+  
+  if (/itinerant|itinerary|vendor.*(license|permit)|food.*vendor/i.test(combinedText)) {
+    return 'itinerary-permit';
+  }
+  if (/temporary|temp.*permit|short.*term|event.*permit/i.test(combinedText)) {
+    return 'temp-permit';
+  }
+  if (/annual|yearly|year.*permit|\d{4}.*permit/i.test(combinedText)) {
+    return 'yearly-permit';
+  }
+  if (/seasonal|summer|winter|spring|fall/i.test(combinedText)) {
+    return 'seasonal-permit';
+  }
+  if (/health.*dept|health.*department|sanitar|food.*safety|inspection/i.test(combinedText)) {
+    return 'health-dept';
+  }
+  if (/fire.*safety|fire.*marshal|propane|suppression|extinguisher/i.test(combinedText)) {
+    return 'fire-safety';
+  }
+  if (/registr|dmv|motor.*vehicle|title|vin/i.test(combinedText)) {
+    return 'vehicle-registration';
+  }
+  if (/insurance|policy|coverage|liability|cert.*of.*ins/i.test(combinedText)) {
+    return 'insurance';
+  }
+  if (/license|certificate|certification|servsafe|food.*handler/i.test(combinedText)) {
+    return 'licenses';
+  }
+  
+  return 'general';
+}
+
+export function suggestFolderFromFileName(fileName: string): string {
+  return suggestFolderFromText('', fileName);
+}

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2 } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Profile } from "@shared/schema";
 
+const FOLDER_OPTIONS: Record<string, string> = {
+  "general": "General Documents",
+  "itinerary-permit": "Itinerary Permits",
+  "temp-permit": "Temporary Permits",
+  "yearly-permit": "Yearly Permits",
+  "seasonal-permit": "Seasonal Permits",
+  "health-dept": "Health Department",
+  "fire-safety": "Fire Safety",
+  "vehicle-registration": "Vehicle Registration",
+  "insurance": "Insurance Documents",
+  "licenses": "Licenses & Certifications",
+};
+
 interface DocumentType {
   name: string;
   url: string;
@@ -54,6 +67,41 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const documents: DocumentType[] = profile.uploadsJson?.documents || [];
   const hasDocuments = documents.length > 0;
   const hasExtractedData = profile.extractedData && Object.keys(profile.extractedData).length > 0;
+
+  const groupedDocuments = useMemo(() => {
+    const groups: Record<string, { doc: DocumentType; originalIndex: number }[]> = {};
+    documents.forEach((doc, idx) => {
+      const folder = doc.folder || "general";
+      if (!groups[folder]) {
+        groups[folder] = [];
+      }
+      groups[folder].push({ doc, originalIndex: idx });
+    });
+    return groups;
+  }, [documents]);
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const folderKeys = Object.keys(groupedDocuments);
+    if (folderKeys.length > 0) {
+      setExpandedFolders(prev => {
+        const newSet = new Set(prev);
+        folderKeys.forEach(key => newSet.add(key));
+        return newSet;
+      });
+    }
+  }, [groupedDocuments]);
+
+  const toggleFolder = (folder: string) => {
+    const newExpanded = new Set(expandedFolders);
+    if (newExpanded.has(folder)) {
+      newExpanded.delete(folder);
+    } else {
+      newExpanded.add(folder);
+    }
+    setExpandedFolders(newExpanded);
+  };
 
   const handleMenuClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -239,57 +287,83 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
           <DialogHeader>
             <DialogTitle>Documents for {profile.vehicleName || "Vehicle"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            {documents.map((doc, idx) => (
-              <div
-                key={idx}
-                className="border rounded-lg overflow-hidden bg-muted group relative"
-                data-testid={`document-preview-${idx}`}
-              >
-                <div 
-                  className="cursor-pointer"
-                  onClick={() => handleDocClick(doc)}
+          <div className="space-y-4 mt-4">
+            {Object.entries(groupedDocuments).map(([folder, items]) => (
+              <div key={folder} className="border rounded-lg overflow-hidden">
+                <button
+                  className="w-full flex items-center gap-2 p-3 bg-muted/50 text-left hover-elevate"
+                  onClick={() => toggleFolder(folder)}
+                  data-testid={`folder-header-${folder}`}
                 >
-                  {doc.url && doc.type?.startsWith("image/") ? (
-                    <div className="relative">
-                      <img
-                        src={doc.url}
-                        alt={doc.name}
-                        className="w-full h-32 object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                        <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    </div>
+                  {expandedFolders.has(folder) ? (
+                    <ChevronDown className="w-4 h-4" />
                   ) : (
-                    <div className="w-full h-32 flex flex-col items-center justify-center text-muted-foreground gap-2">
-                      <FileText className="w-10 h-10" />
-                      {isPdf(doc) && (
-                        <span className="text-xs flex items-center gap-1">
-                          <ExternalLink className="w-3 h-3" />
-                          Tap to view
-                        </span>
-                      )}
-                    </div>
+                    <ChevronRight className="w-4 h-4" />
                   )}
-                </div>
-                <div className="p-2 bg-background border-t flex items-center justify-between gap-2">
-                  <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>
-                  {onDeleteDocument && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteDoc(doc, idx);
-                      }}
-                      data-testid={`button-delete-doc-${idx}`}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
+                  <FolderOpen className="w-4 h-4 text-primary" />
+                  <span className="font-medium text-sm flex-1">
+                    {FOLDER_OPTIONS[folder] || folder}
+                  </span>
+                  <Badge variant="secondary" className="text-xs">
+                    {items.length}
+                  </Badge>
+                </button>
+                {expandedFolders.has(folder) && (
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-background">
+                    {items.map(({ doc, originalIndex }) => (
+                      <div
+                        key={originalIndex}
+                        className="border rounded-lg overflow-hidden bg-muted group relative"
+                        data-testid={`document-preview-${originalIndex}`}
+                      >
+                        <div 
+                          className="cursor-pointer"
+                          onClick={() => handleDocClick(doc)}
+                        >
+                          {doc.url && doc.type?.startsWith("image/") ? (
+                            <div className="relative">
+                              <img
+                                src={doc.url}
+                                alt={doc.name}
+                                className="w-full h-24 object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                                <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-full h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
+                              <FileText className="w-8 h-8" />
+                              {isPdf(doc) && (
+                                <span className="text-xs flex items-center gap-1">
+                                  <ExternalLink className="w-3 h-3" />
+                                  Tap to view
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-2 bg-background border-t flex items-center justify-between gap-1">
+                          <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>
+                          {onDeleteDocument && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteDoc(doc, originalIndex);
+                              }}
+                              data-testid={`button-delete-doc-${originalIndex}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

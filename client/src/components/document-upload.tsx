@@ -1,10 +1,31 @@
-import { useRef, useState } from "react";
-import { Upload, X, CheckCircle, Loader2, ScanText } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { Upload, X, CheckCircle, Loader2, ScanText, FolderOpen, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { performOCR, isImageFile, type ExtractedPermitData } from "@/lib/ocr";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { performOCR, isImageFile, suggestFolderFromFileName, suggestFolderFromText, type ExtractedPermitData } from "@/lib/ocr";
 import { useToast } from "@/hooks/use-toast";
+
+const FOLDER_OPTIONS = [
+  { value: "general", label: "General Documents" },
+  { value: "itinerary-permit", label: "Itinerary Permits" },
+  { value: "temp-permit", label: "Temporary Permits" },
+  { value: "yearly-permit", label: "Yearly Permits" },
+  { value: "seasonal-permit", label: "Seasonal Permits" },
+  { value: "health-dept", label: "Health Department" },
+  { value: "fire-safety", label: "Fire Safety" },
+  { value: "vehicle-registration", label: "Vehicle Registration" },
+  { value: "insurance", label: "Insurance Documents" },
+  { value: "licenses", label: "Licenses & Certifications" },
+];
 
 interface UploadedFile {
   name: string;
@@ -38,7 +59,24 @@ export function DocumentUpload({
   const [dragActive, setDragActive] = useState(false);
   const [ocrIndex, setOcrIndex] = useState<number | null>(null);
   const [ocrProgress, setOcrProgress] = useState(0);
+  const [selectedFolder, setSelectedFolder] = useState("general");
   const { toast } = useToast();
+
+  useEffect(() => {
+    setFiles(existingFiles);
+  }, [existingFiles]);
+
+  const getFolderLabel = (value: string) => {
+    return FOLDER_OPTIONS.find(f => f.value === value)?.label || value;
+  };
+
+  const updateFileFolder = (index: number, folder: string) => {
+    const updatedFiles = files.map((file, i) => 
+      i === index ? { ...file, folder } : file
+    );
+    setFiles(updatedFiles);
+    onUpload(updatedFiles);
+  };
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList) return;
@@ -50,12 +88,16 @@ export function DocumentUpload({
       const file = fileList[i];
       const reader = new FileReader();
       
+      const suggestedFolder = suggestFolderFromFileName(file.name);
+      const folder = suggestedFolder !== 'general' ? suggestedFolder : selectedFolder;
+      
       await new Promise<void>((resolve) => {
         reader.onload = () => {
           newFiles.push({
             name: file.name,
             type: file.type,
             url: reader.result as string,
+            folder,
           });
           resolve();
         };
@@ -120,10 +162,27 @@ export function DocumentUpload({
         onOCRExtracted(result.extractedData);
       }
 
-      toast({
-        title: "Scan Complete",
-        description: `Extracted text with ${Math.round(result.confidence)}% confidence.`,
-      });
+      const suggestedFolder = suggestFolderFromText(result.text, file.name);
+      if (suggestedFolder !== 'general' && result.confidence > 50) {
+        const currentFolder = file.folder || 'general';
+        if (currentFolder === 'general') {
+          updateFileFolder(index, suggestedFolder);
+          toast({
+            title: "Scan Complete",
+            description: `Document auto-organized to "${getFolderLabel(suggestedFolder)}" folder.`,
+          });
+        } else {
+          toast({
+            title: "Scan Complete",
+            description: `Extracted text with ${Math.round(result.confidence)}% confidence.`,
+          });
+        }
+      } else {
+        toast({
+          title: "Scan Complete",
+          description: `Extracted text with ${Math.round(result.confidence)}% confidence.`,
+        });
+      }
     } catch (err) {
       toast({
         title: "Scan Failed",
@@ -141,6 +200,25 @@ export function DocumentUpload({
   return (
     <div className="space-y-4">
       <label className="text-sm font-medium">{label}</label>
+      
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Upload to folder:</span>
+        </div>
+        <Select value={selectedFolder} onValueChange={setSelectedFolder}>
+          <SelectTrigger className="w-full" data-testid="select-folder">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FOLDER_OPTIONS.map((folder) => (
+              <SelectItem key={folder.value} value={folder.value} data-testid={`folder-option-${folder.value}`}>
+                {folder.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       
       <div
         className={`relative h-32 border-2 border-dashed rounded-lg transition-colors ${
@@ -193,9 +271,24 @@ export function DocumentUpload({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{file.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {file.type.split("/")[1]?.toUpperCase() || "File"}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Select 
+                      value={file.folder || "general"} 
+                      onValueChange={(value) => updateFileFolder(index, value)}
+                    >
+                      <SelectTrigger className="h-6 w-auto text-xs px-2" data-testid={`select-file-folder-${index}`}>
+                        <FolderOpen className="w-3 h-3 mr-1" />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FOLDER_OPTIONS.map((folder) => (
+                          <SelectItem key={folder.value} value={folder.value}>
+                            {folder.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 {enableOCR && isImageType(file.type) && ocrIndex !== index && (
                   <Button
