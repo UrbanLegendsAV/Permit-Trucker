@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Config, Town, Review } from "@shared/schema";
+import type { Config, Town, Review, TownForm } from "@shared/schema";
 
 interface UserData {
   id: string;
@@ -54,6 +54,11 @@ export default function Admin() {
     enabled: roleData?.role === "admin" || roleData?.role === "owner",
   });
 
+  const { data: townForms = [], isLoading: formsLoading } = useQuery<(TownForm & { townName?: string })[]>({
+    queryKey: ["/api/admin/forms"],
+    enabled: roleData?.role === "admin" || roleData?.role === "owner",
+  });
+
   const isAdmin = roleData?.role === "admin" || roleData?.role === "owner";
   const isOwner = roleData?.role === "owner";
 
@@ -91,7 +96,7 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="pricing" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 mr-2" />
               Pricing
@@ -99,6 +104,10 @@ export default function Admin() {
             <TabsTrigger value="towns" data-testid="tab-towns">
               <MapPin className="w-4 h-4 mr-2" />
               Towns
+            </TabsTrigger>
+            <TabsTrigger value="forms" data-testid="tab-forms">
+              <FileText className="w-4 h-4 mr-2" />
+              Forms
             </TabsTrigger>
             <TabsTrigger value="reviews" data-testid="tab-reviews">
               <MessageSquare className="w-4 h-4 mr-2" />
@@ -116,6 +125,10 @@ export default function Admin() {
 
           <TabsContent value="towns">
             <TownsTab towns={towns} isLoading={townsLoading} isOwner={isOwner} />
+          </TabsContent>
+
+          <TabsContent value="forms">
+            <FormsTab forms={townForms} towns={towns} isLoading={formsLoading} />
           </TabsContent>
 
           <TabsContent value="reviews">
@@ -364,6 +377,246 @@ function TownsTab({ towns, isLoading, isOwner }: { towns: Town[]; isLoading: boo
               </div>
             </div>
           ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+const formCategories = [
+  { value: "temporary_permit", label: "Temporary Permit" },
+  { value: "seasonal_permit", label: "Seasonal Permit" },
+  { value: "yearly_permit", label: "Yearly Permit" },
+  { value: "plan_review", label: "Plan Review" },
+  { value: "license_renewal", label: "License Renewal" },
+  { value: "checklist", label: "Checklist" },
+  { value: "health_inspection", label: "Health Inspection" },
+  { value: "fire_safety", label: "Fire Safety" },
+  { value: "other", label: "Other" },
+];
+
+function FormsTab({ 
+  forms, 
+  towns, 
+  isLoading 
+}: { 
+  forms: (TownForm & { townName?: string })[]; 
+  towns: Town[]; 
+  isLoading: boolean 
+}) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [selectedTown, setSelectedTown] = useState<string>("");
+  const [selectedFormId, setSelectedFormId] = useState<string>("");
+  const [uploading, setUploading] = useState(false);
+
+  const uploadPdfMutation = useMutation({
+    mutationFn: async ({ formId, fileData, fileName, fileType }: { formId: string; fileData: string; fileName: string; fileType: string }) => {
+      return apiRequest("PATCH", `/api/admin/forms/${formId}/upload`, { fileData, fileName, fileType });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/forms"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/towns"] });
+      setSelectedFormId("");
+      if (data.badge) {
+        toast({ 
+          title: "Pioneer Badge Earned!", 
+          description: `You earned the ${data.badge.townName} ${data.badge.state} Pioneer Badge for uploading the first form!`,
+        });
+      } else {
+        toast({ title: "PDF Uploaded", description: "Form PDF has been uploaded successfully." });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to upload PDF.", variant: "destructive" });
+    },
+  });
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, formId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (file.type !== 'application/pdf') {
+      toast({ title: "Error", description: "Please upload a PDF file.", variant: "destructive" });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+      
+      await uploadPdfMutation.mutateAsync({
+        formId,
+        fileData: base64,
+        fileName: file.name,
+        fileType: file.type,
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const filteredForms = selectedTown 
+    ? forms.filter(f => f.townId === selectedTown)
+    : forms;
+
+  const formsWithPdf = forms.filter(f => f.fileData).length;
+  const formsWithoutPdf = forms.filter(f => !f.fileData).length;
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <h3 className="font-semibold mb-4">Form Upload Statistics</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center p-4 bg-muted/50 rounded-md">
+            <p className="text-2xl font-bold">{forms.length}</p>
+            <p className="text-sm text-muted-foreground">Total Forms</p>
+          </div>
+          <div className="text-center p-4 bg-green-500/10 rounded-md">
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{formsWithPdf}</p>
+            <p className="text-sm text-muted-foreground">With PDF</p>
+          </div>
+          <div className="text-center p-4 bg-yellow-500/10 rounded-md">
+            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{formsWithoutPdf}</p>
+            <p className="text-sm text-muted-foreground">Need PDF</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+          <h3 className="font-semibold">Manage Forms</h3>
+          <Select value={selectedTown} onValueChange={setSelectedTown}>
+            <SelectTrigger className="w-48" data-testid="select-town-filter">
+              <SelectValue placeholder="Filter by town" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Towns</SelectItem>
+              {towns.map(town => (
+                <SelectItem key={town.id} value={town.id}>
+                  {town.townName}, {town.state}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-3 max-h-[500px] overflow-y-auto">
+          {filteredForms.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No forms found</p>
+          ) : (
+            filteredForms.map((form) => {
+              const town = towns.find(t => t.id === form.townId);
+              return (
+                <div 
+                  key={form.id} 
+                  className="p-4 bg-muted/50 rounded-md space-y-3"
+                  data-testid={`form-row-${form.id}`}
+                >
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{form.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {town?.townName}, {town?.state} | {formCategories.find(c => c.value === form.category)?.label || 'Other'}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {form.fileData ? (
+                          <Badge variant="secondary" className="bg-green-500/10 text-green-600 dark:text-green-400">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            PDF Uploaded
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+                            <Upload className="w-3 h-3 mr-1" />
+                            Needs PDF
+                          </Badge>
+                        )}
+                        {form.isFillable && (
+                          <Badge variant="outline">Fillable</Badge>
+                        )}
+                        {form.uploadedBy && (
+                          <Badge variant="outline">
+                            <Award className="w-3 h-3 mr-1" />
+                            Pioneer Uploaded
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {form.fileData ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const blob = new Blob(
+                              [Uint8Array.from(atob(form.fileData!), c => c.charCodeAt(0))],
+                              { type: form.fileType || 'application/pdf' }
+                            );
+                            window.open(URL.createObjectURL(blob), "_blank");
+                          }}
+                          data-testid={`button-view-pdf-${form.id}`}
+                        >
+                          View PDF
+                        </Button>
+                      ) : (
+                        <label>
+                          <input
+                            type="file"
+                            accept=".pdf"
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, form.id)}
+                            disabled={uploading || uploadPdfMutation.isPending}
+                            data-testid={`input-upload-pdf-${form.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            variant="default"
+                            asChild
+                            disabled={uploading || uploadPdfMutation.isPending}
+                          >
+                            <span>
+                              {uploading ? (
+                                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                              ) : (
+                                <Upload className="w-4 h-4 mr-1" />
+                              )}
+                              Upload PDF
+                            </span>
+                          </Button>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Card>
+
+      <Card className="p-4 bg-muted/30">
+        <div className="flex items-start gap-3">
+          <Award className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-sm">Pioneer Badge System</p>
+            <p className="text-xs text-muted-foreground">
+              The first user to upload a PDF form for a town earns the Pioneer Badge for that town.
+              Subsequent users who apply for permits in that town earn the Explorer Badge.
+            </p>
+          </div>
         </div>
       </Card>
     </div>

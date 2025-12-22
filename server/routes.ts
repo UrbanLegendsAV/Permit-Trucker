@@ -227,6 +227,25 @@ export async function registerRoutes(
         }
       }
       
+      // Award Explorer badge if town has uploaded PDFs (meaning someone was a Pioneer before)
+      if (permit.townId) {
+        const townForms = await storage.getTownForms(permit.townId);
+        const hasUploadedPdfs = townForms.some(f => f.fileData);
+        if (hasUploadedPdfs) {
+          const hasExplorerForTown = existingBadges.some(
+            b => b.badgeType === "explorer" && b.townId === permit.townId
+          );
+          if (!hasExplorerForTown) {
+            await storage.createBadge({
+              userId,
+              badgeType: "explorer",
+              townId: permit.townId,
+              tier: "silver",
+            });
+          }
+        }
+      }
+      
       const hasFirstPermitBadge = existingBadges.some(b => b.badgeType === "first_permit");
       if (!hasFirstPermitBadge) {
         await storage.createBadge({
@@ -234,6 +253,26 @@ export async function registerRoutes(
           badgeType: "first_permit",
           tier: "bronze",
         });
+      }
+      
+      // Award food-type badge if profile has a menuType
+      if (permit.profileId && permit.townId) {
+        const profile = await storage.getProfile(permit.profileId);
+        if (profile?.menuType) {
+          const foodType = profile.menuType.toLowerCase();
+          const hasFoodTypeBadgeForTown = existingBadges.some(
+            b => b.badgeType === "food_type" && b.townId === permit.townId && b.foodType === foodType
+          );
+          if (!hasFoodTypeBadgeForTown) {
+            await storage.createBadge({
+              userId,
+              badgeType: "food_type",
+              townId: permit.townId,
+              tier: "bronze",
+              foodType: foodType,
+            });
+          }
+        }
       }
       
       res.status(201).json(permit);
@@ -581,6 +620,72 @@ export async function registerRoutes(
   });
 
   // ========== Town Forms (official municipality PDF forms) ==========
+
+  // Admin: Get all forms with town info
+  app.get("/api/admin/forms", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const forms = await storage.getAllTownForms();
+      res.json(forms);
+    } catch (error) {
+      console.error("Error fetching all forms:", error);
+      res.status(500).json({ message: "Failed to fetch forms" });
+    }
+  });
+
+  // Admin: Upload PDF to form and award Pioneer badge
+  app.patch("/api/admin/forms/:id/upload", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { fileData, fileName, fileType } = req.body;
+      const userId = req.user.claims.sub;
+
+      if (!fileData || !fileName) {
+        return res.status(400).json({ message: "File data and file name are required" });
+      }
+
+      // Get the form to find the townId
+      const form = await storage.getTownFormById(req.params.id);
+      if (!form) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      // Check if this is the first PDF upload for this town (Pioneer badge)
+      // If ANY form for this town already has fileData, it's not the first upload
+      const townForms = await storage.getTownForms(form.townId);
+      const hasExistingPdfs = townForms.some(f => f.fileData);
+      let badge = null;
+
+      // Update the form with the uploaded PDF
+      const updatedForm = await storage.updateTownForm(req.params.id, {
+        fileData,
+        fileName,
+        fileType,
+        uploadedBy: userId,
+      });
+
+      // Award Pioneer badge if this is the first PDF for this town
+      if (!hasExistingPdfs) {
+        const town = await storage.getTownById(form.townId);
+        if (town) {
+          // Check if user already has a pioneer badge for this town
+          const existingBadge = await storage.getUserBadgeByType(userId, 'pioneer', form.townId);
+          if (!existingBadge) {
+            await storage.createBadge({
+              userId,
+              badgeType: 'pioneer',
+              townId: form.townId,
+              tier: 'gold',
+            });
+            badge = { townName: town.townName, state: town.state };
+          }
+        }
+      }
+
+      res.json({ form: updatedForm, badge });
+    } catch (error) {
+      console.error("Error uploading PDF:", error);
+      res.status(500).json({ message: "Failed to upload PDF" });
+    }
+  });
 
   // Get forms for a specific town
   app.get("/api/towns/:townId/forms", async (req, res) => {

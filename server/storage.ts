@@ -36,6 +36,7 @@ export interface IStorage {
 
   getBadges(userId: string): Promise<Badge[]>;
   createBadge(badge: InsertBadge): Promise<Badge>;
+  getUserBadgeByType(userId: string, badgeType: string, townId?: string): Promise<Badge | undefined>;
   
   getLeaderboard(): Promise<Array<{ userId: string; name: string; badgeCount: number; pioneerCount: number }>>;
 
@@ -64,10 +65,15 @@ export interface IStorage {
   getAllUsers(): Promise<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null; role: string | null }>>;
 
   // Town Forms
+  getAllTownForms(): Promise<TownForm[]>;
   getTownForms(townId: string): Promise<TownForm[]>;
+  getTownFormById(id: string): Promise<TownForm | undefined>;
   createTownForm(form: InsertTownForm): Promise<TownForm>;
   updateTownForm(id: string, form: Partial<InsertTownForm>): Promise<TownForm | undefined>;
   deleteTownForm(id: string): Promise<void>;
+  
+  // Get town by ID
+  getTownById(id: string): Promise<Town | undefined>;
 
   // Town Requests (Pioneer submissions)
   getTownRequests(): Promise<TownRequest[]>;
@@ -163,6 +169,21 @@ export class DatabaseStorage implements IStorage {
   async createBadge(badge: InsertBadge): Promise<Badge> {
     const [newBadge] = await db.insert(badges).values(badge).returning();
     return newBadge;
+  }
+
+  async getUserBadgeByType(userId: string, badgeType: string, townId?: string): Promise<Badge | undefined> {
+    if (townId) {
+      const [badge] = await db
+        .select()
+        .from(badges)
+        .where(and(eq(badges.userId, userId), eq(badges.badgeType, badgeType as any), eq(badges.townId, townId)));
+      return badge;
+    }
+    const [badge] = await db
+      .select()
+      .from(badges)
+      .where(and(eq(badges.userId, userId), eq(badges.badgeType, badgeType as any)));
+    return badge;
   }
 
   async getLeaderboard(): Promise<Array<{ userId: string; name: string; badgeCount: number; pioneerCount: number }>> {
@@ -324,8 +345,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Town Forms
+  async getAllTownForms(): Promise<TownForm[]> {
+    return db.select().from(townForms).orderBy(townForms.sortOrder);
+  }
+
   async getTownForms(townId: string): Promise<TownForm[]> {
     return db.select().from(townForms).where(eq(townForms.townId, townId)).orderBy(townForms.sortOrder);
+  }
+
+  async getTownFormById(id: string): Promise<TownForm | undefined> {
+    const [form] = await db.select().from(townForms).where(eq(townForms.id, id));
+    return form;
+  }
+
+  async getTownById(id: string): Promise<Town | undefined> {
+    const [town] = await db.select().from(towns).where(eq(towns.id, id));
+    return town;
   }
 
   async createTownForm(form: InsertTownForm): Promise<TownForm> {
