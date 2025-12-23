@@ -10,6 +10,7 @@ import Dashboard from "@/pages/dashboard";
 import Onboarding from "@/pages/onboarding";
 import NewPermit from "@/pages/new-permit";
 import PermitsPage from "@/pages/permits";
+import PermitDetailPage from "@/pages/permit-detail";
 import BadgesPage from "@/pages/badges";
 import ProfilePage from "@/pages/profile";
 import Discover from "@/pages/discover";
@@ -40,7 +41,7 @@ function AppRouter() {
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/new-permit" component={NewPermit} />
       <Route path="/permits" component={PermitsPage} />
-      <Route path="/permits/:id" component={PermitsPage} />
+      <Route path="/permits/:id" component={PermitDetailPage} />
       <Route path="/badges" component={BadgesPage} />
       <Route path="/spots" component={Spots} />
       <Route path="/profile" component={ProfilePage} />
