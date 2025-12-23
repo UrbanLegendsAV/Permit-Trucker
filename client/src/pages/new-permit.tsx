@@ -588,7 +588,7 @@ export default function NewPermit() {
         )}
       </main>
 
-      {permitStep < 3 && (
+      {permitStep < steps.length - 1 && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border safe-area-inset-bottom">
           <div className="flex gap-4 max-w-lg mx-auto">
             <Button

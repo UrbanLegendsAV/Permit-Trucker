@@ -1,9 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles, Upload, Plus } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles, Upload, Plus, Save } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -80,6 +83,7 @@ interface VehicleCardProps {
 export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelete, onDeleteDocument, onUpdateDocumentCategory }: VehicleCardProps) {
   const [showDocuments, setShowDocuments] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [fullScreenDoc, setFullScreenDoc] = useState<DocumentType | null>(null);
   const [docToDelete, setDocToDelete] = useState<{ doc: DocumentType; index: number } | null>(null);
   const [scanningDocIndex, setScanningDocIndex] = useState<number | null>(null);
@@ -89,6 +93,65 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const [uploadCategory, setUploadCategory] = useState("other");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  
+  const parsedData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object') 
+    ? profile.parsedDataLog as Record<string, Record<string, { value: string; confidence: number }>>
+    : {};
+  
+  const getFieldValue = (category: string, field: string): string => {
+    return parsedData[category]?.[field]?.value || "";
+  };
+  
+  const [editForm, setEditForm] = useState({
+    businessName: getFieldValue("business_info", "business_name") || profile.name,
+    address: getFieldValue("owner_info", "mailing_address"),
+    city: getFieldValue("owner_info", "city"),
+    state: getFieldValue("owner_info", "state") || "CT",
+    zip: getFieldValue("owner_info", "zip"),
+    phone: getFieldValue("owner_info", "phone") || getFieldValue("business_info", "phone"),
+    email: getFieldValue("owner_info", "email") || getFieldValue("business_info", "email"),
+  });
+  
+  const updateProfileMutation = useMutation({
+    mutationFn: async (data: typeof editForm) => {
+      const updatedParsedData = { ...parsedData };
+      
+      if (!updatedParsedData.owner_info) {
+        updatedParsedData.owner_info = {};
+      }
+      if (!updatedParsedData.business_info) {
+        updatedParsedData.business_info = {};
+      }
+      
+      updatedParsedData.owner_info.mailing_address = { value: data.address, confidence: 100 };
+      updatedParsedData.owner_info.city = { value: data.city, confidence: 100 };
+      updatedParsedData.owner_info.state = { value: data.state, confidence: 100 };
+      updatedParsedData.owner_info.zip = { value: data.zip, confidence: 100 };
+      updatedParsedData.owner_info.phone = { value: data.phone, confidence: 100 };
+      updatedParsedData.owner_info.email = { value: data.email, confidence: 100 };
+      updatedParsedData.business_info.business_name = { value: data.businessName, confidence: 100 };
+      
+      return apiRequest("PATCH", `/api/profiles/${profile.id}`, {
+        name: data.businessName,
+        parsedDataLog: updatedParsedData,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      setShowEditDialog(false);
+      toast({
+        title: "Profile Updated",
+        description: "Your vehicle profile has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Update Failed",
+        description: "There was an error updating your profile.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleUploadFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -292,6 +355,16 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setEditForm({
+      businessName: getFieldValue("business_info", "business_name") || profile.name,
+      address: getFieldValue("owner_info", "mailing_address"),
+      city: getFieldValue("owner_info", "city"),
+      state: getFieldValue("owner_info", "state") || "CT",
+      zip: getFieldValue("owner_info", "zip"),
+      phone: getFieldValue("owner_info", "phone") || getFieldValue("business_info", "phone"),
+      email: getFieldValue("owner_info", "email") || getFieldValue("business_info", "email"),
+    });
+    setShowEditDialog(true);
     onEdit?.(profile);
   };
 
@@ -796,6 +869,116 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Vehicle Profile</DialogTitle>
+          </DialogHeader>
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateProfileMutation.mutate(editForm);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="businessName">Business Name</Label>
+              <Input
+                id="businessName"
+                value={editForm.businessName}
+                onChange={(e) => setEditForm(f => ({ ...f, businessName: e.target.value }))}
+                data-testid="input-edit-business-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="address">Street Address</Label>
+              <Input
+                id="address"
+                value={editForm.address}
+                onChange={(e) => setEditForm(f => ({ ...f, address: e.target.value }))}
+                placeholder="e.g., 4a Scuppo Rd"
+                data-testid="input-edit-address"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={editForm.city}
+                  onChange={(e) => setEditForm(f => ({ ...f, city: e.target.value }))}
+                  placeholder="Danbury"
+                  data-testid="input-edit-city"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Input
+                  id="state"
+                  value={editForm.state}
+                  onChange={(e) => setEditForm(f => ({ ...f, state: e.target.value }))}
+                  placeholder="CT"
+                  data-testid="input-edit-state"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="zip">ZIP</Label>
+                <Input
+                  id="zip"
+                  value={editForm.zip}
+                  onChange={(e) => setEditForm(f => ({ ...f, zip: e.target.value }))}
+                  placeholder="06811"
+                  data-testid="input-edit-zip"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input
+                id="phone"
+                value={editForm.phone}
+                onChange={(e) => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="(203) 555-1234"
+                data-testid="input-edit-phone"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm(f => ({ ...f, email: e.target.value }))}
+                placeholder="email@example.com"
+                data-testid="input-edit-email"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowEditDialog(false)}
+                data-testid="button-cancel-edit"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={updateProfileMutation.isPending}
+                data-testid="button-save-edit"
+              >
+                {updateProfileMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

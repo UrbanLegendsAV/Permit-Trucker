@@ -259,12 +259,26 @@ async function fillBethelAcroForm(
   if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
     const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
     if (match) {
-      if (!streetAddress) streetAddress = match[1];
-      if (!parsedCity) parsedCity = match[2];
-      if (!parsedState) parsedState = match[3];
-      if (!parsedZip) parsedZip = match[4];
-    } else if (!streetAddress) {
-      streetAddress = mailingAddress;
+      if (!streetAddress) streetAddress = match[1].trim();
+      if (!parsedCity) parsedCity = match[2].trim();
+      if (!parsedState) parsedState = match[3].trim();
+      if (!parsedZip) parsedZip = match[4].trim();
+    } else {
+      const simpleMatch = mailingAddress.match(/^(.+?),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+      if (simpleMatch) {
+        const addressParts = simpleMatch[1].trim();
+        const lastSpaceIdx = addressParts.lastIndexOf(' ');
+        if (lastSpaceIdx > 0) {
+          if (!streetAddress) streetAddress = addressParts.substring(0, lastSpaceIdx).trim();
+          if (!parsedCity) parsedCity = addressParts.substring(lastSpaceIdx + 1).trim();
+        } else {
+          if (!parsedCity) parsedCity = addressParts;
+        }
+        if (!parsedState) parsedState = simpleMatch[2].trim();
+        if (!parsedZip) parsedZip = simpleMatch[3].trim();
+      } else if (!streetAddress) {
+        streetAddress = mailingAddress;
+      }
     }
   }
 
