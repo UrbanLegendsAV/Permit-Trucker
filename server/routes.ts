@@ -204,7 +204,7 @@ export async function registerRoutes(
       }
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const prompt = `Analyze this document and extract all form fields, questions, and their corresponding answers or values. Return the data as a clean JSON object with descriptive keys. Only return valid JSON, no markdown formatting or explanation.`;
 
