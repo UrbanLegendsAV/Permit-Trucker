@@ -185,6 +185,19 @@ export async function registerRoutes(
         return res.status(400).json({ message: "documentData and mimeType are required" });
       }
 
+      // Validate base64 format
+      if (typeof documentData !== 'string' || documentData.length === 0) {
+        return res.status(400).json({ message: "documentData must be a non-empty base64 string" });
+      }
+
+      // Validate mimeType
+      const validMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+      if (!validMimeTypes.includes(mimeType)) {
+        return res.status(400).json({ 
+          message: `Invalid mimeType. Supported types: ${validMimeTypes.join(', ')}` 
+        });
+      }
+
       const apiKey = process.env.GOOGLE_API_KEY;
       if (!apiKey) {
         return res.status(500).json({ message: "GOOGLE_API_KEY not configured" });
@@ -193,19 +206,45 @@ export async function registerRoutes(
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-      const prompt = `Identify all form questions and user answers in this document. Return them as a clean JSON object of key-value pairs. Only return valid JSON, no markdown formatting or explanation.`;
+      const prompt = `Analyze this document and extract all form fields, questions, and their corresponding answers or values. Return the data as a clean JSON object with descriptive keys. Only return valid JSON, no markdown formatting or explanation.`;
 
-      const result = await model.generateContent([
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: documentData
-          }
+      let result;
+      try {
+        result = await model.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: documentData
+                }
+              }
+            ]
+          }]
+        });
+      } catch (apiError: any) {
+        console.error("Gemini API error:", apiError);
+        return res.status(502).json({ 
+          message: "Failed to communicate with AI service",
+          error: apiError.message || "Unknown API error"
+        });
+      }
+
+      // Safely extract text from response
+      let responseText: string;
+      try {
+        const candidate = result.response.candidates?.[0];
+        if (!candidate || !candidate.content?.parts?.[0]?.text) {
+          responseText = result.response.text();
+        } else {
+          responseText = candidate.content.parts[0].text;
         }
-      ]);
-
-      const responseText = result.response.text();
+      } catch (textError) {
+        console.error("Failed to extract text from Gemini response:", textError);
+        return res.status(502).json({ message: "Invalid response from AI service" });
+      }
       
       // Parse the JSON response (handle potential markdown code blocks)
       let parsedData: Record<string, unknown>;
@@ -221,18 +260,28 @@ export async function registerRoutes(
       } catch (parseError) {
         console.error("Failed to parse Gemini response as JSON:", responseText);
         return res.status(500).json({ 
-          message: "Failed to parse document response", 
-          rawResponse: responseText 
+          message: "Failed to parse AI response as structured data", 
+          rawResponse: responseText.substring(0, 500) // Truncate for safety
         });
       }
 
-      // If profileId provided, save to profile's parsedDataLog
+      // If profileId provided, save to profile's parsedDataLog with timestamp
       if (profileId) {
         const profile = await storage.getProfile(profileId);
         if (profile) {
-          // Merge with existing parsed data or create new
-          const existingData = profile.parsedDataLog as Record<string, unknown> || {};
-          const mergedData = { ...existingData, ...parsedData };
+          // Safely handle null/undefined parsedDataLog
+          const existingData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object') 
+            ? profile.parsedDataLog as Record<string, unknown>
+            : {};
+          
+          // Add timestamp to track when data was parsed
+          const timestampedData = {
+            ...parsedData,
+            _parsedAt: new Date().toISOString()
+          };
+          
+          // Merge with existing data (new values overwrite old)
+          const mergedData = { ...existingData, ...timestampedData };
           await storage.updateProfile(profileId, { 
             parsedDataLog: mergedData 
           });
@@ -244,9 +293,12 @@ export async function registerRoutes(
         parsedData,
         message: "Document parsed successfully"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error parsing document with Gemini:", error);
-      res.status(500).json({ message: "Failed to parse document" });
+      res.status(500).json({ 
+        message: "Failed to parse document",
+        error: error.message || "Unknown error"
+      });
     }
   });
 
