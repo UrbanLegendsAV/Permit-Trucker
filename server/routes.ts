@@ -830,13 +830,26 @@ ${prompt}`;
 
       if (includeDocuments) {
         const documents = profile.uploadsJson?.documents || [];
+        // Include all required document types for permit packet
+        const requiredCategories = [
+          "menu",           // Menu with Prices
+          "trailer-diagram", // Trailer/Truck Diagram
+          "coi",            // Certificate of Insurance (Liability)
+          "insurance",      // Legacy insurance folder
+          "food-manager-cert", // Food Handler Certification
+          "cert",           // Legacy cert folder
+          "health-permit",  // State Health Department License
+          "health-dept",    // Legacy health dept folder
+          "fire-safety",    // Fire Safety Inspection
+          "vehicle-registration", // Vehicle Registration
+          "commissary-letter", // Commissary Agreement Letter
+          "business-license", // Business License
+          "permit-application", // Other permit applications
+        ];
+        
         const supportingDocs = documents.filter((doc: any) => {
           const folder = (doc.folder || "").toLowerCase();
-          return folder.includes("menu") || 
-                 folder.includes("coi") || 
-                 folder.includes("cert") ||
-                 folder.includes("insurance") ||
-                 folder.includes("food-manager");
+          return requiredCategories.some(cat => folder.includes(cat));
         });
 
         if (supportingDocs.length > 0) {
@@ -877,14 +890,26 @@ ${prompt}`;
 
       if (includeDocuments) {
         const documents = profile.uploadsJson?.documents || [];
+        // Include all required document types for permit packet
+        const requiredCategories = [
+          "menu",           // Menu with Prices
+          "trailer-diagram", // Trailer/Truck Diagram
+          "coi",            // Certificate of Insurance (Liability)
+          "insurance",      // Legacy insurance folder
+          "food-manager-cert", // Food Handler Certification
+          "cert",           // Legacy cert folder
+          "health-permit",  // State Health Department License
+          "health-dept",    // Legacy health dept folder
+          "fire-safety",    // Fire Safety Inspection
+          "vehicle-registration", // Vehicle Registration
+          "commissary-letter", // Commissary Agreement Letter
+          "business-license", // Business License
+          "permit-application", // Other permit applications
+        ];
+        
         const supportingDocs = documents.filter((doc: any) => {
           const folder = (doc.folder || "").toLowerCase();
-          return folder.includes("menu") || 
-                 folder.includes("coi") || 
-                 folder.includes("cert") ||
-                 folder.includes("insurance") ||
-                 folder.includes("food-manager") ||
-                 folder.includes("trailer-diagram");
+          return requiredCategories.some(cat => folder.includes(cat));
         });
 
         if (supportingDocs.length > 0) {

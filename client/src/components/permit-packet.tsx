@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
-import { Printer, Download, ArrowLeft, FileText, MapPin, Globe, Calendar } from "lucide-react";
+import { Printer, Download, ArrowLeft, FileText, MapPin, Globe, Calendar, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
 import type { Town, Profile } from "@shared/schema";
 
 interface PermitPacketProps {
@@ -18,8 +20,82 @@ const permitTypeLabels = {
 };
 
 export function PermitPacket({ town, profile, permitType, signature, onClose }: PermitPacketProps) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const { toast } = useToast();
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSaveAsPDF = async () => {
+    setIsGenerating(true);
+    try {
+      // Map permitType to template ID
+      const templateMap: Record<string, string> = {
+        yearly: "bethel_seasonal", // Use same form for now
+        temporary: "bethel_seasonal",
+        seasonal: "bethel_seasonal",
+      };
+      
+      const templateId = templateMap[permitType] || "bethel_seasonal";
+      
+      const response = await fetch(`/api/profiles/${profile.id}/generate-packet`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          templateId,
+          includeDocuments: true,
+          eventData: {
+            licenseType: permitType === "temporary" ? "temporary" : "seasonal",
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to generate permit packet");
+      }
+
+      // Download the PDF
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${town.townName}_permit_package.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Permit Packet Generated",
+        description: "Your complete permit packet has been downloaded with all supporting documents.",
+      });
+    } catch (error: any) {
+      console.error("Error generating permit packet:", error);
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Could not generate permit packet. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Get document counts for display
+  const documents = profile.uploadsJson?.documents || [];
+  const docCategories = {
+    "Health Permit": documents.filter(d => (d.folder || "").includes("health")).length,
+    "Food Manager Cert": documents.filter(d => (d.folder || "").includes("food-manager") || (d.folder || "").includes("cert")).length,
+    "Vehicle Registration": documents.filter(d => (d.folder || "").includes("vehicle")).length,
+    "Insurance (COI)": documents.filter(d => (d.folder || "").includes("coi") || (d.folder || "").includes("insurance")).length,
+    "Commissary Letter": documents.filter(d => (d.folder || "").includes("commissary")).length,
+    "Menu": documents.filter(d => (d.folder || "").includes("menu")).length,
+    "Fire Safety": documents.filter(d => (d.folder || "").includes("fire")).length,
+    "Trailer Diagram": documents.filter(d => (d.folder || "").includes("diagram")).length,
   };
 
   return (
@@ -35,9 +111,13 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
               <Printer className="w-4 h-4 mr-2" />
               Print
             </Button>
-            <Button onClick={handlePrint} data-testid="button-download-packet">
-              <Download className="w-4 h-4 mr-2" />
-              Save as PDF
+            <Button onClick={handleSaveAsPDF} disabled={isGenerating} data-testid="button-download-packet">
+              {isGenerating ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              {isGenerating ? "Generating..." : "Save as PDF"}
             </Button>
           </div>
         </div>
@@ -176,26 +256,26 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
             <section className="space-y-4">
               <h3 className="text-lg font-semibold border-b pb-2 flex items-center gap-2 print:border-black">
                 <Calendar className="w-5 h-5 print:hidden" />
-                Required Documents Checklist
+                Documents Included in Packet
               </h3>
               
               <div className="space-y-2 text-sm" data-testid="list-packet-checklist">
-                {[
-                  "State Health Department Food Service License",
-                  "Food Handler Certification",
-                  "Vehicle Registration",
-                  "Proof of Insurance (Liability)",
-                  "Commissary Agreement Letter",
-                  "Menu with Prices",
-                  "Fire Safety Inspection (if applicable)",
-                  "Propane/LPG Certification (if applicable)",
-                ].map((doc, index) => (
+                {Object.entries(docCategories).map(([docName, count], index) => (
                   <div key={index} className="flex items-center gap-2" data-testid={`item-checklist-${index}`}>
-                    <div className="w-4 h-4 border border-current rounded-sm print:border-black" />
-                    <span>{doc}</span>
+                    <div className={`w-4 h-4 border rounded-sm print:border-black flex items-center justify-center ${count > 0 ? 'bg-primary/20' : ''}`}>
+                      {count > 0 && <span className="text-xs text-primary font-bold">{count}</span>}
+                    </div>
+                    <span className={count > 0 ? 'font-medium' : 'text-muted-foreground'}>
+                      {docName}
+                      {count === 0 && " (not uploaded)"}
+                    </span>
                   </div>
                 ))}
               </div>
+              
+              <p className="text-xs text-muted-foreground mt-4 print:text-gray-500">
+                The "Save as PDF" button will generate a complete permit packet containing the filled application form followed by all your uploaded supporting documents.
+              </p>
             </section>
 
             <section className="space-y-4 print:break-before-page">
