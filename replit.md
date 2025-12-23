@@ -6,15 +6,16 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 The platform uses a "pioneer" model where early users help build the knowledge base by contributing verified permit requirements for new towns, creating a crowd-sourced database of municipal permitting information.
 
-**Current Status**: Phase 2+ Complete (Consumer Discovery + Admin Dashboard + OCR + PWA)
+**Current Status**: Phase 3 In Progress (TruckPermitAI - Intelligent Form Filling)
 See `PROGRESS.md` for detailed feature tracking.
 
 Recent additions include:
-- Public profile opt-in during onboarding (step 5)
-- Print-ready permit packet generation
-- OCR document scanning with Tesseract.js
-- Reviews moderation in admin dashboard
-- PWA manifest and service worker for offline support
+- AcroForm-based PDF auto-filling for Bethel 9-page form
+- Field mapping system using actual PDF form field names
+- Gemini AI document parsing with structured data extraction
+- Draft permit progress saved in Zustand store (persists on refresh)
+- Town selection visual highlighting in permit wizard
+- Auto-fill from profile data (business name, address, phone, etc.)
 
 ## User Preferences
 

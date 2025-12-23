@@ -231,8 +231,12 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 ### Smart Form Pre-Filling
 - [x] "Pre-Fill with My Data" button for fillable town forms
 - [x] Profile data mapping (business name, VIN, commissary info)
-- [ ] PDF auto-fill with pdf-lib (coming soon)
-- [ ] Download pre-filled PDFs
+- [x] PDF auto-fill with pdf-lib using AcroForm fields
+- [x] Download pre-filled PDFs
+- [x] Bethel 9-page form fully mapped (46 form fields)
+- [x] Contact info auto-fill (name, address, phone, business name)
+- [x] Checkbox auto-fill (water supply, toilet facilities, license type)
+- [x] Event section fields (location, dates, hours - from permit wizard)
 
 ### AI Portal Assistant
 - [x] "Start AI Assist" button for towns with online portals
@@ -258,7 +262,26 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 ---
 
-## Current Status
-**Phase 3 In Progress** - TruckPermitAI features being built: auto-OCR document processing, smart form pre-filling, AI portal assistant stub, and location optimizer (Spots page). Core platform fully functional with consumer discovery, admin dashboard, and PWA support.
+### Permit Wizard Improvements
+- [x] Draft progress saving (persists permit step and data on refresh)
+- [x] Town selection visual highlighting (blue ring on selected town)
+- [x] Zustand store persistence for newPermit state
+- [x] permitStep state persistence
 
-Last Updated: December 22, 2025
+### Gemini AI Integration
+- [x] Document parsing with Gemini 2.5 Flash
+- [x] Structured data extraction for profiles
+- [x] Dynamic category support (operations, menu_and_prep, safety, license_info)
+- [x] ParsedUserData TypeScript interface for type safety
+
+---
+
+## Current Status
+**Phase 3 In Progress** - TruckPermitAI features actively developed: AcroForm-based PDF auto-filling working for Bethel form with 46 fields mapped, Gemini AI document parsing, draft progress saving, and permit wizard improvements. Core platform fully functional with consumer discovery, admin dashboard, and PWA support.
+
+**Remaining Items:**
+- Event-specific fields need user input during permit wizard (location, dates, hours)
+- Additional town form templates (Newtown, etc.) need field mapping
+- AI Portal Assistant embedded WebView
+
+Last Updated: December 23, 2025
