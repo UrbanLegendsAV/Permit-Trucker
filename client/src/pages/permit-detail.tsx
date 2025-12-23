@@ -11,6 +11,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -30,6 +41,7 @@ import {
   Truck,
   Utensils,
   Package,
+  Trash2,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -100,6 +112,20 @@ export default function PermitDetailPage() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update permit.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("DELETE", `/api/permits/${permitId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/permits"] });
+      toast({ title: "Deleted", description: "Permit application deleted." });
+      setLocation("/permits");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete permit.", variant: "destructive" });
     },
   });
 
@@ -252,10 +278,38 @@ export default function PermitDetailPage() {
             </p>
           </div>
           {!isEditing ? (
-            <Button variant="outline" onClick={handleEdit} data-testid="button-edit-permit">
-              <Edit2 className="w-4 h-4 mr-2" />
-              Edit
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleEdit} data-testid="button-edit-permit">
+                <Edit2 className="w-4 h-4 mr-2" />
+                Edit
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="icon" data-testid="button-delete-permit">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Permit Application?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete this permit application and all associated data. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteMutation.mutate()}
+                      disabled={deleteMutation.isPending}
+                      className="bg-destructive text-destructive-foreground"
+                    >
+                      {deleteMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           ) : (
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleCancel} data-testid="button-cancel-edit">

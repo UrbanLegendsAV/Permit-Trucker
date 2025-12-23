@@ -337,10 +337,10 @@ export async function appendDocumentsToPdf(
   return basePdf.save();
 }
 
-export function getAvailableTemplates(): { id: string; name: string; townName: string }[] {
+export function getAvailableTemplates(): { formId: string; formName: string; townName: string }[] {
   return Object.values(FORM_TEMPLATES).map(t => ({
-    id: t.formId,
-    name: t.formName,
+    formId: t.formId,
+    formName: t.formName,
     townName: t.townName,
   }));
 }

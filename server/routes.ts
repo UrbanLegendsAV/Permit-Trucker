@@ -687,7 +687,23 @@ ${prompt}`;
 
   app.patch("/api/permits/:id", isAuthenticated, async (req, res) => {
     try {
-      const permit = await storage.updatePermit(req.params.id, req.body);
+      const updateData = { ...req.body };
+      
+      // Convert date strings to Date objects for timestamp columns
+      if (updateData.eventDate && typeof updateData.eventDate === 'string') {
+        updateData.eventDate = new Date(updateData.eventDate);
+      }
+      if (updateData.eventEndDate && typeof updateData.eventEndDate === 'string') {
+        updateData.eventEndDate = new Date(updateData.eventEndDate);
+      }
+      if (updateData.appliedDate && typeof updateData.appliedDate === 'string') {
+        updateData.appliedDate = new Date(updateData.appliedDate);
+      }
+      if (updateData.expiryDate && typeof updateData.expiryDate === 'string') {
+        updateData.expiryDate = new Date(updateData.expiryDate);
+      }
+      
+      const permit = await storage.updatePermit(req.params.id, updateData);
       if (!permit) {
         return res.status(404).json({ message: "Permit not found" });
       }
