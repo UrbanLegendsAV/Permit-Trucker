@@ -446,12 +446,27 @@ export async function registerRoutes(
 
       for (let i = 0; i < documents.length; i++) {
         const doc = documents[i];
-        if (!doc.base64 || !doc.type) continue;
+        if (!doc.type) continue;
+        
+        // Extract base64 data - either from base64 field or from url data URI
+        let base64Data = doc.base64;
+        let mimeType = doc.type;
+        
+        if (!base64Data && doc.url) {
+          // Parse data URI format: data:application/pdf;base64,ABC123...
+          const match = doc.url.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            mimeType = match[1];
+            base64Data = match[2];
+          }
+        }
+        
+        if (!base64Data) continue;
         
         documentParts.push({
           inlineData: {
-            mimeType: doc.type,
-            data: doc.base64
+            mimeType,
+            data: base64Data
           }
         });
         documentDescriptions.push(`Document ${i + 1}: ${doc.name || 'Unnamed'} (${doc.folder || 'Uncategorized'})`);
