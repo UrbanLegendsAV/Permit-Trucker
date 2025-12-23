@@ -325,7 +325,67 @@ Return ONLY valid JSON in this exact structure:
     };
 
     const newTown = await storage.createTown(townData);
+
+    if (reqs?.formUrls && reqs.formUrls.length > 0) {
+      for (const url of reqs.formUrls) {
+        const formName = this.inferFormNameFromUrl(url, townRequest.townName);
+        const category = this.inferCategoryFromUrl(url);
+        
+        try {
+          await storage.createTownForm({
+            townId: newTown.id,
+            name: formName,
+            category,
+            externalUrl: url,
+            sourceUrl: url,
+            isAiDiscovered: true,
+            isFillable: false,
+          });
+          console.log(`[TownResearch] Created form entry: ${formName} for ${townRequest.townName}`);
+        } catch (error) {
+          console.error(`[TownResearch] Failed to create form entry for ${url}:`, error);
+        }
+      }
+    }
+
     return newTown;
+  }
+
+  private inferFormNameFromUrl(url: string, townName: string): string {
+    const filename = url.split('/').pop()?.toLowerCase() || '';
+    
+    if (filename.includes('mobile') || filename.includes('mfe')) {
+      return `${townName} Mobile Food Establishment Application`;
+    }
+    if (filename.includes('temporary') || filename.includes('tfe')) {
+      return `${townName} Temporary Food Service Application`;
+    }
+    if (filename.includes('itinerant') || filename.includes('itv')) {
+      return `${townName} Itinerant Vendor Guide`;
+    }
+    if (filename.includes('seasonal')) {
+      return `${townName} Seasonal Food Permit Application`;
+    }
+    
+    return `${townName} Food Service Application`;
+  }
+
+  private inferCategoryFromUrl(url: string): "temporary_permit" | "seasonal_permit" | "yearly_permit" | "checklist" | "other" {
+    const filename = url.split('/').pop()?.toLowerCase() || '';
+    
+    if (filename.includes('temporary') || filename.includes('tfe') || filename.includes('event')) {
+      return 'temporary_permit';
+    }
+    if (filename.includes('seasonal')) {
+      return 'seasonal_permit';
+    }
+    if (filename.includes('guide') || filename.includes('requirement') || filename.includes('checklist')) {
+      return 'checklist';
+    }
+    if (filename.includes('mobile') || filename.includes('mfe') || filename.includes('yearly')) {
+      return 'yearly_permit';
+    }
+    return 'other';
   }
 
   async triggerResearchForRequest(townRequestId: string): Promise<ResearchJob> {
