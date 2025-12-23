@@ -39,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import { performOCR, detectDocumentType } from "@/lib/ocr";
 import type { Profile } from "@shared/schema";
 import { DOCUMENT_CATEGORIES } from "./document-upload";
+import { ParsedDataDisplay } from "./parsed-data-display";
 
 const CATEGORY_MAP: Record<string, string> = DOCUMENT_CATEGORIES.reduce((acc, cat) => {
   acc[cat.value] = cat.label;
@@ -372,6 +373,15 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {profile.parsedDataLog && Object.keys(profile.parsedDataLog).length > 0 && (
+              <div className="mt-3">
+                <ParsedDataDisplay 
+                  data={profile.parsedDataLog as Record<string, unknown>}
+                  showAllFields={true}
+                />
               </div>
             )}
 

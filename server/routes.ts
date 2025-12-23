@@ -206,7 +206,59 @@ export async function registerRoutes(
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `Analyze this document and extract all form fields, questions, and their corresponding answers or values. Return the data as a clean JSON object with descriptive keys. Only return valid JSON, no markdown formatting or explanation.`;
+      // Golden Questions prompt with confidence scoring
+      const prompt = `You are analyzing a food truck/vendor permit application or license document. Extract information into these specific categories with confidence scores.
+
+IMPORTANT: For each field, provide:
+- "value": The extracted value (or null if not found)
+- "confidence": "high" (clearly visible/stated), "medium" (inferred/partially visible), or "low" (guessed/unclear)
+- "source_text": The exact text snippet from the document that contains this info (or null if not found)
+
+Return ONLY valid JSON in this exact structure:
+{
+  "contact_info": {
+    "business_name": { "value": null, "confidence": "low", "source_text": null },
+    "applicant_name": { "value": null, "confidence": "low", "source_text": null },
+    "phone": { "value": null, "confidence": "low", "source_text": null },
+    "email": { "value": null, "confidence": "low", "source_text": null },
+    "mailing_address": { "value": null, "confidence": "low", "source_text": null }
+  },
+  "operations": {
+    "water_supply_type": { "value": null, "confidence": "low", "source_text": null },
+    "toilet_facilities": { "value": null, "confidence": "low", "source_text": null },
+    "sanitizer_type": { "value": null, "confidence": "low", "source_text": null },
+    "sanitizing_method": { "value": null, "confidence": "low", "source_text": null }
+  },
+  "safety": {
+    "temperature_monitoring_method": { "value": null, "confidence": "low", "source_text": null },
+    "cold_storage_method": { "value": null, "confidence": "low", "source_text": null },
+    "hot_holding_method": { "value": null, "confidence": "low", "source_text": null },
+    "waste_water_disposal": { "value": null, "confidence": "low", "source_text": null }
+  },
+  "menu_and_prep": {
+    "food_items_list": { "value": null, "confidence": "low", "source_text": null },
+    "food_source_location": { "value": null, "confidence": "low", "source_text": null },
+    "prep_location": { "value": null, "confidence": "low", "source_text": null }
+  },
+  "license_info": {
+    "license_type": { "value": null, "confidence": "low", "source_text": null },
+    "license_number": { "value": null, "confidence": "low", "source_text": null },
+    "valid_from": { "value": null, "confidence": "low", "source_text": null },
+    "valid_thru": { "value": null, "confidence": "low", "source_text": null },
+    "issuing_authority": { "value": null, "confidence": "low", "source_text": null },
+    "towns_covered": { "value": null, "confidence": "low", "source_text": null }
+  },
+  "raw_text_extract": "First 500 characters of readable text from document...",
+  "_meta": {
+    "document_type": "permit|license|application|checklist|other",
+    "fields_found": 0,
+    "high_confidence_count": 0,
+    "medium_confidence_count": 0,
+    "low_confidence_count": 0
+  }
+}
+
+Fill in values where found. Update _meta counts based on what you extracted. Return ONLY the JSON, no explanation.`;
 
       let result;
       try {
@@ -264,6 +316,43 @@ export async function registerRoutes(
           rawResponse: responseText.substring(0, 500) // Truncate for safety
         });
       }
+
+      // Validate and recalculate _meta counts to ensure accuracy
+      const validConfidenceLevels = ["high", "medium", "low"];
+      const categories = ["contact_info", "operations", "safety", "menu_and_prep", "license_info"];
+      let fieldsFound = 0;
+      let highCount = 0;
+      let mediumCount = 0;
+      let lowCount = 0;
+
+      for (const category of categories) {
+        const categoryData = parsedData[category] as Record<string, { value: unknown; confidence: string; source_text: unknown }> | undefined;
+        if (categoryData && typeof categoryData === "object") {
+          for (const [key, field] of Object.entries(categoryData)) {
+            if (field && typeof field === "object" && "value" in field) {
+              // Normalize confidence to valid values
+              if (!validConfidenceLevels.includes(field.confidence)) {
+                field.confidence = "low";
+              }
+              if (field.value !== null && field.value !== undefined && field.value !== "") {
+                fieldsFound++;
+                if (field.confidence === "high") highCount++;
+                else if (field.confidence === "medium") mediumCount++;
+                else lowCount++;
+              }
+            }
+          }
+        }
+      }
+
+      // Update or create _meta with validated counts
+      parsedData._meta = {
+        document_type: (parsedData._meta as Record<string, unknown>)?.document_type || "unknown",
+        fields_found: fieldsFound,
+        high_confidence_count: highCount,
+        medium_confidence_count: mediumCount,
+        low_confidence_count: lowCount
+      };
 
       // If profileId provided, save to profile's parsedDataLog with timestamp
       if (profileId) {

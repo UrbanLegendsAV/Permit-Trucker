@@ -16,6 +16,7 @@ import ProfilePage from "@/pages/profile";
 import Discover from "@/pages/discover";
 import Spots from "@/pages/spots";
 import Admin from "@/pages/admin";
+import AdminTestParsing from "@/pages/admin-test-parsing";
 import NotFound from "@/pages/not-found";
 import "leaflet/dist/leaflet.css";
 
@@ -48,6 +49,7 @@ function AppRouter() {
       <Route path="/profile/:id" component={ProfilePage} />
       <Route path="/profile/:id/edit" component={ProfilePage} />
       <Route path="/admin" component={Admin} />
+      <Route path="/admin/test-parsing" component={AdminTestParsing} />
       <Route component={NotFound} />
     </Switch>
   );
