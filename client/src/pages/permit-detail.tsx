@@ -29,6 +29,7 @@ import {
   AlertCircle,
   Truck,
   Utensils,
+  Package,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -48,6 +49,7 @@ export default function PermitDetailPage() {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [editedPermit, setEditedPermit] = useState<Partial<Permit>>({});
+  const [generatingTemplateId, setGeneratingTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -73,6 +75,17 @@ export default function PermitDetailPage() {
   const { data: townForms = [] } = useQuery<TownForm[]>({
     queryKey: ["/api/towns", permit?.townId, "forms"],
     enabled: isAuthenticated && !!permit?.townId,
+  });
+
+  interface PdfTemplate {
+    formId: string;
+    formName: string;
+    townName: string;
+  }
+
+  const { data: pdfTemplates = [] } = useQuery<PdfTemplate[]>({
+    queryKey: ["/api/pdf-templates"],
+    enabled: isAuthenticated,
   });
 
   const updateMutation = useMutation({
@@ -115,6 +128,55 @@ export default function PermitDetailPage() {
   const handleCancel = () => {
     setIsEditing(false);
     setEditedPermit({});
+  };
+
+  const handleGeneratePacket = async (templateId: string) => {
+    if (!permit?.profileId) {
+      toast({ 
+        title: "No Profile", 
+        description: "This permit has no vehicle profile linked. Please link a profile first.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    setGeneratingTemplateId(templateId);
+    try {
+      const response = await fetch(`/api/permits/generate/${permitId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ templateId, includeDocuments: true }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to generate permit package");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${town?.townName || "permit"}_package.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({ 
+        title: "Package Generated", 
+        description: "Your permit package has been downloaded with your information pre-filled." 
+      });
+    } catch (error: any) {
+      toast({ 
+        title: "Generation Failed", 
+        description: error.message || "Failed to generate permit package. Make sure your profile has analyzed documents.",
+        variant: "destructive" 
+      });
+    } finally {
+      setGeneratingTemplateId(null);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -447,25 +509,67 @@ export default function PermitDetailPage() {
               </CardContent>
             </Card>
 
-            {forms.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Download className="w-5 h-5" />
-                    Download Permit Packet
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Download all forms as a single packet with your information pre-filled.
-                  </p>
-                  <Button className="w-full" data-testid="button-download-packet">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Complete Packet
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Package className="w-5 h-5" />
+                  Generate Permit Packet
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Generate a pre-filled permit application with your profile information and supporting documents.
+                </p>
+                {!profile?.parsedDataLog ? (
+                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                      Your profile needs analyzed documents before generating a permit packet. 
+                      Please upload and analyze your documents first.
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      className="mt-3" 
+                      onClick={() => setLocation("/profile")}
+                    >
+                      Go to Profile
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Select a form template to generate your pre-filled application:
+                    </p>
+                    <div className="grid gap-2">
+                      {pdfTemplates.map((template) => (
+                        <Button
+                          key={template.formId}
+                          onClick={() => handleGeneratePacket(template.formId)}
+                          disabled={generatingTemplateId !== null}
+                          variant="outline"
+                          className="justify-start h-auto py-3"
+                          data-testid={`button-generate-${template.formId}`}
+                        >
+                          {generatingTemplateId === template.formId ? (
+                            <Loader2 className="w-4 h-4 mr-3 animate-spin" />
+                          ) : (
+                            <FileText className="w-4 h-4 mr-3" />
+                          )}
+                          <div className="text-left">
+                            <div className="font-medium">{template.formName}</div>
+                            <div className="text-xs text-muted-foreground">{template.townName}</div>
+                          </div>
+                        </Button>
+                      ))}
+                      {pdfTemplates.length === 0 && (
+                        <p className="text-sm text-muted-foreground py-2">
+                          No form templates available yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-4 mt-4">

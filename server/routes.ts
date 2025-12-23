@@ -13,6 +13,19 @@ import {
   insertTownRequestSchema,
 } from "@shared/schema";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
+import { 
+  fillPdfForm, 
+  appendDocumentsToPdf, 
+  getAvailableTemplates, 
+  getTemplateById,
+  type ParsedUserData 
+} from "./lib/pdf-service";
+import { z } from "zod";
+
+const generatePacketSchema = z.object({
+  templateId: z.string().min(1, "Template ID is required"),
+  includeDocuments: z.boolean().optional().default(true),
+});
 
 // Build the Golden Questions prompt with targeted extraction hints and 0-100 confidence scoring
 function buildGoldenQuestionsPrompt(): string {
@@ -692,6 +705,138 @@ ${prompt}`;
     } catch (error) {
       console.error("Error deleting permit:", error);
       res.status(500).json({ message: "Failed to delete permit" });
+    }
+  });
+
+  // ============ PDF GENERATION ============
+
+  app.get("/api/pdf-templates", isAuthenticated, async (req, res) => {
+    try {
+      const templates = getAvailableTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching PDF templates:", error);
+      res.status(500).json({ message: "Failed to fetch PDF templates" });
+    }
+  });
+
+  app.post("/api/permits/generate/:permitId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { permitId } = req.params;
+      
+      const parseResult = generatePacketSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid request", 
+          errors: parseResult.error.flatten().fieldErrors 
+        });
+      }
+      const { templateId, includeDocuments } = parseResult.data;
+
+      const permit = await storage.getPermit(permitId);
+      if (!permit) {
+        return res.status(404).json({ message: "Permit not found" });
+      }
+
+      if (!permit.profileId) {
+        return res.status(400).json({ message: "Permit has no associated profile" });
+      }
+
+      const profile = await storage.getProfile(permit.profileId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = profile.parsedDataLog as ParsedUserData | null;
+      if (!parsedData) {
+        return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
+      }
+
+      const template = getTemplateById(templateId);
+      if (!template) {
+        return res.status(400).json({ message: `Template not found: ${templateId}` });
+      }
+
+      const eventData = {
+        eventName: permit.eventName || undefined,
+        eventAddress: permit.eventAddress || undefined,
+        eventDates: permit.eventDate 
+          ? `${new Date(permit.eventDate).toLocaleDateString()}${permit.eventEndDate ? ` - ${new Date(permit.eventEndDate).toLocaleDateString()}` : ''}`
+          : undefined,
+      };
+
+      let pdfBytes = await fillPdfForm(templateId, parsedData, eventData);
+
+      if (includeDocuments) {
+        const documents = profile.uploadsJson?.documents || [];
+        const supportingDocs = documents.filter((doc: any) => {
+          const folder = (doc.folder || "").toLowerCase();
+          return folder.includes("menu") || 
+                 folder.includes("coi") || 
+                 folder.includes("cert") ||
+                 folder.includes("insurance") ||
+                 folder.includes("food-manager");
+        });
+
+        if (supportingDocs.length > 0) {
+          pdfBytes = await appendDocumentsToPdf(pdfBytes, supportingDocs);
+        }
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${template.townName}_permit_package.pdf"`);
+      res.send(Buffer.from(pdfBytes));
+    } catch (error: any) {
+      console.error("Error generating permit package:", error);
+      res.status(500).json({ message: "Failed to generate permit package", error: error.message });
+    }
+  });
+
+  app.post("/api/profiles/:profileId/generate-packet", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profileId } = req.params;
+      const { templateId, includeDocuments = true, eventData } = req.body;
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = profile.parsedDataLog as ParsedUserData | null;
+      if (!parsedData) {
+        return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
+      }
+
+      const template = getTemplateById(templateId);
+      if (!template) {
+        return res.status(400).json({ message: `Template not found: ${templateId}` });
+      }
+
+      let pdfBytes = await fillPdfForm(templateId, parsedData, eventData);
+
+      if (includeDocuments) {
+        const documents = profile.uploadsJson?.documents || [];
+        const supportingDocs = documents.filter((doc: any) => {
+          const folder = (doc.folder || "").toLowerCase();
+          return folder.includes("menu") || 
+                 folder.includes("coi") || 
+                 folder.includes("cert") ||
+                 folder.includes("insurance") ||
+                 folder.includes("food-manager") ||
+                 folder.includes("trailer-diagram");
+        });
+
+        if (supportingDocs.length > 0) {
+          pdfBytes = await appendDocumentsToPdf(pdfBytes, supportingDocs);
+        }
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${template.townName}_permit_package.pdf"`);
+      res.send(Buffer.from(pdfBytes));
+    } catch (error: any) {
+      console.error("Error generating permit packet:", error);
+      res.status(500).json({ message: "Failed to generate permit packet", error: error.message });
     }
   });
 
