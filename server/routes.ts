@@ -650,7 +650,18 @@ ${prompt}`;
   app.post("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const data = { ...req.body, userId, appliedDate: new Date() };
+      
+      // Convert date strings to Date objects
+      const eventDate = req.body.eventDate ? new Date(req.body.eventDate) : null;
+      const eventEndDate = req.body.eventEndDate ? new Date(req.body.eventEndDate) : null;
+      
+      const data = { 
+        ...req.body, 
+        userId, 
+        appliedDate: new Date(),
+        eventDate: eventDate && !isNaN(eventDate.getTime()) ? eventDate : null,
+        eventEndDate: eventEndDate && !isNaN(eventEndDate.getTime()) ? eventEndDate : null,
+      };
       const parsed = insertPermitSchema.safeParse(data);
       
       if (!parsed.success) {
