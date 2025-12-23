@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2, Wand2, Bot } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import type { Town, TownForm, Profile } from "@shared/schema";
 
 interface RequirementsChecklistProps {
@@ -75,12 +77,34 @@ const categoryLabels: Record<string, string> = {
 export function RequirementsChecklist({ town, progress, onToggle, profile }: RequirementsChecklistProps) {
   const requirements = (town.requirementsJson || {}) as Record<string, unknown>;
   const { toast } = useToast();
+  const [generatingFormId, setGeneratingFormId] = useState<string | null>(null);
   
   const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
     queryKey: [`/api/towns/${town.id}/forms`],
   });
 
-  const handleGeneratePreFill = (form: TownForm) => {
+  const getTemplateId = (form: TownForm, townName: string): string | null => {
+    const lowerTown = townName.toLowerCase();
+    const lowerName = form.name?.toLowerCase() || "";
+    const category = form.category || "";
+    
+    if (lowerTown === "bethel") {
+      if (category === "temporary_permit" || lowerName.includes("temporary") || lowerName.includes("seasonal")) {
+        return "bethel_seasonal";
+      }
+    }
+    if (lowerTown === "newtown") {
+      if (lowerName.includes("plan review") || lowerName.includes("mfe")) {
+        return "newtown_mfe";
+      }
+      if (category === "yearly_permit" || lowerName.includes("new") || lowerName.includes("renewal")) {
+        return "newtown_new_license";
+      }
+    }
+    return null;
+  };
+
+  const handleGeneratePreFill = async (form: TownForm) => {
     if (!profile) {
       toast({
         title: "No Profile Selected",
@@ -90,23 +114,52 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       return;
     }
 
-    const profileData = {
-      businessName: profile.vehicleName || profile.extractedData?.businessName || "",
-      ownerName: profile.extractedData?.ownerName || "",
-      vin: profile.vinPlate || profile.extractedData?.vin || "",
-      licensePlate: profile.extractedData?.licensePlate || "",
-      menuType: profile.menuType || "",
-      commissaryName: profile.commissaryName || "",
-      commissaryAddress: profile.commissaryAddress || "",
-      hasPropane: profile.hasPropane ? "Yes" : "No",
-    };
+    const templateId = getTemplateId(form, town.townName);
+    if (!templateId) {
+      toast({
+        title: "Template Not Available",
+        description: `Auto-fill is not yet available for "${form.name}". Use "View PDF" to download the blank form.`,
+        variant: "destructive",
+      });
+      return;
+    }
 
-    toast({
-      title: "Pre-Fill Data Ready",
-      description: `Form data prepared for "${form.name}". PDF auto-fill coming soon!`,
-    });
+    setGeneratingFormId(form.id);
+    
+    try {
+      const response = await apiRequest("POST", `/api/profiles/${profile.id}/generate-packet`, {
+        templateId,
+        includeDocuments: false,
+      });
 
-    console.log("Pre-fill data for form:", form.name, profileData);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to generate form");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${form.name?.replace(/[^a-zA-Z0-9]/g, "_") || "filled_form"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Form Generated",
+        description: `"${form.name}" has been filled with your profile data and downloaded.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Could not generate the filled form. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingFormId(null);
+    }
   };
 
   const handleStartAIAssist = () => {
@@ -316,15 +369,20 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
                       {form.fileData ? "View PDF" : "View Form"}
                     </Button>
                   )}
-                  {form.isFillable && profile && (
+                  {form.isFillable && profile && getTemplateId(form, town.townName) && (
                     <Button
                       size="sm"
                       variant="default"
                       onClick={() => handleGeneratePreFill(form)}
+                      disabled={generatingFormId !== null}
                       data-testid={`button-prefill-form-${form.id}`}
                     >
-                      <Wand2 className="w-4 h-4 mr-1" />
-                      Pre-Fill with My Data
+                      {generatingFormId === form.id ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Wand2 className="w-4 h-4 mr-1" />
+                      )}
+                      {generatingFormId === form.id ? "Generating..." : "Generate Filled Form"}
                     </Button>
                   )}
                 </div>
@@ -333,8 +391,8 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
           </div>
           <p className="text-xs text-muted-foreground mt-3">
             {profile 
-              ? `Using data from "${profile.vehicleName || 'Your Vehicle'}" to pre-fill forms.`
-              : "Select a vehicle to enable form pre-filling with your data."}
+              ? `Using data from "${profile.vehicleName || 'Your Vehicle'}" to generate filled forms. Auto-fill is available for forms showing the "Generate Filled Form" button.`
+              : "Select a vehicle to enable form auto-fill with your profile data."}
           </p>
         </Card>
       )}

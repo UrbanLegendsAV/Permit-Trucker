@@ -478,6 +478,7 @@ export default function NewPermit() {
               town={newPermit.town}
               progress={newPermit.checklistProgress}
               onToggle={toggleChecklistItem}
+              profile={currentProfile}
             />
           </div>
         )}
