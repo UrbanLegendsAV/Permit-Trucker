@@ -34,6 +34,7 @@ export const profiles = pgTable("profiles", {
     licenseNumber?: string;
     rawText?: string;
   }>(),
+  parsedDataLog: jsonb("parsed_data_log").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

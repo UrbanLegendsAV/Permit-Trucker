@@ -12,6 +12,7 @@ import {
   insertTownFormSchema,
   insertTownRequestSchema,
 } from "@shared/schema";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Admin middleware - requires owner or admin role
 const isAdmin = async (req: any, res: Response, next: NextFunction) => {
@@ -172,6 +173,80 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating document category:", error);
       res.status(500).json({ message: "Failed to update document category" });
+    }
+  });
+
+  // Gemini Vision document parsing endpoint
+  app.post("/api/documents/parse-gemini", isAuthenticated, async (req: any, res) => {
+    try {
+      const { documentData, mimeType, profileId } = req.body;
+      
+      if (!documentData || !mimeType) {
+        return res.status(400).json({ message: "documentData and mimeType are required" });
+      }
+
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ message: "GOOGLE_API_KEY not configured" });
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+      const prompt = `Identify all form questions and user answers in this document. Return them as a clean JSON object of key-value pairs. Only return valid JSON, no markdown formatting or explanation.`;
+
+      const result = await model.generateContent([
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: documentData
+          }
+        }
+      ]);
+
+      const responseText = result.response.text();
+      
+      // Parse the JSON response (handle potential markdown code blocks)
+      let parsedData: Record<string, unknown>;
+      try {
+        let jsonText = responseText;
+        // Remove markdown code blocks if present
+        if (jsonText.includes("```json")) {
+          jsonText = jsonText.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+        } else if (jsonText.includes("```")) {
+          jsonText = jsonText.replace(/```\s*/g, "");
+        }
+        parsedData = JSON.parse(jsonText.trim());
+      } catch (parseError) {
+        console.error("Failed to parse Gemini response as JSON:", responseText);
+        return res.status(500).json({ 
+          message: "Failed to parse document response", 
+          rawResponse: responseText 
+        });
+      }
+
+      // If profileId provided, save to profile's parsedDataLog
+      if (profileId) {
+        const profile = await storage.getProfile(profileId);
+        if (profile) {
+          // Merge with existing parsed data or create new
+          const existingData = profile.parsedDataLog as Record<string, unknown> || {};
+          const mergedData = { ...existingData, ...parsedData };
+          await storage.updateProfile(profileId, { 
+            parsedDataLog: mergedData 
+          });
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        parsedData,
+        message: "Document parsed successfully"
+      });
+    } catch (error) {
+      console.error("Error parsing document with Gemini:", error);
+      res.status(500).json({ message: "Failed to parse document" });
     }
   });
 
