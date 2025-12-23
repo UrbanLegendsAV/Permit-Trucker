@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles, Upload, Plus } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -85,7 +85,60 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const [scanningDocIndex, setScanningDocIndex] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [isParsingAll, setIsParsingAll] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadCategory, setUploadCategory] = useState("other");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const handleUploadFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    
+    setIsUploading(true);
+    try {
+      const newDocs: DocumentType[] = [];
+      
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        
+        newDocs.push({
+          name: file.name,
+          url: dataUrl,
+          type: file.type,
+          folder: uploadCategory,
+        });
+      }
+      
+      const currentDocs = profile.uploadsJson?.documents || [];
+      const updatedDocs = [...currentDocs, ...newDocs];
+      
+      await apiRequest("PATCH", `/api/profiles/${profile.id}`, {
+        uploadsJson: { documents: updatedDocs },
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      
+      toast({
+        title: "Documents Uploaded",
+        description: `Added ${newDocs.length} document${newDocs.length > 1 ? 's' : ''}.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "Could not upload documents.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
 
   const handleParseAllDocuments = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -336,12 +389,10 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                     <Pencil className="w-4 h-4 mr-2" />
                     Edit Vehicle
                   </DropdownMenuItem>
-                  {hasDocuments && (
-                    <DropdownMenuItem onClick={handleViewDocuments} data-testid="menu-view-documents">
-                      <FolderOpen className="w-4 h-4 mr-2" />
-                      View Documents ({documents.length})
-                    </DropdownMenuItem>
-                  )}
+                  <DropdownMenuItem onClick={handleViewDocuments} data-testid="menu-view-documents">
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    {hasDocuments ? `Documents (${documents.length})` : "Add Documents"}
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     onClick={handleDeleteClick} 
@@ -499,6 +550,51 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
           <DialogHeader>
             <DialogTitle>Documents for {profile.vehicleName || "Vehicle"}</DialogTitle>
           </DialogHeader>
+          
+          <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Plus className="w-4 h-4" />
+              Add Documents
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={uploadCategory} onValueChange={setUploadCategory}>
+                <SelectTrigger className="flex-1" data-testid="select-upload-category">
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOCUMENT_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="default"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                data-testid="button-upload-docs"
+              >
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <Upload className="w-4 h-4 mr-2" />
+                )}
+                {isUploading ? "Uploading..." : "Upload"}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                multiple
+                className="hidden"
+                onChange={(e) => handleUploadFiles(e.target.files)}
+                data-testid="input-upload-files"
+              />
+            </div>
+          </div>
+          
           <div className="space-y-4 mt-4">
             {Object.entries(groupedDocuments).map(([category, items]) => (
               <div key={category} className="border rounded-lg overflow-hidden">
