@@ -195,6 +195,40 @@ export const formCategoryEnum = pgEnum("form_category", [
   "other"
 ]);
 
+export const researchStatusEnum = pgEnum("research_status", [
+  "pending",
+  "researching",
+  "completed",
+  "failed",
+  "needs_review"
+]);
+
+export const researchJobs = pgTable("research_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  townRequestId: varchar("town_request_id").references(() => townRequests.id),
+  status: researchStatusEnum("status").default("pending"),
+  stage: varchar("stage", { length: 50 }).default("discovery"),
+  progress: integer("progress").default(0),
+  healthDeptUrl: text("health_dept_url"),
+  permitPortalUrl: text("permit_portal_url"),
+  rawHtmlSnapshot: text("raw_html_snapshot"),
+  geminiResponse: jsonb("gemini_response").$type<Record<string, unknown>>(),
+  extractedRequirements: jsonb("extracted_requirements").$type<{
+    permitTypes: string[];
+    fees: { yearly?: number; temporary?: number; seasonal?: number };
+    requirements: string[];
+    notes: string[];
+    hasDownloadableForms: boolean;
+    formUrls: string[];
+    isPortalOnly: boolean;
+  }>(),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const townForms = pgTable("town_forms", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   townId: varchar("town_id").references(() => towns.id).notNull(),
@@ -202,10 +236,12 @@ export const townForms = pgTable("town_forms", {
   description: text("description"),
   category: formCategoryEnum("category").default("other"),
   externalUrl: text("external_url"),
+  sourceUrl: text("source_url"),
   fileData: text("file_data"),
   fileName: varchar("file_name", { length: 200 }),
   fileType: varchar("file_type", { length: 50 }),
   isFillable: boolean("is_fillable").default(false),
+  isAiDiscovered: boolean("is_ai_discovered").default(false),
   fieldMappings: jsonb("field_mappings").$type<Record<string, string>>(),
   sortOrder: integer("sort_order").default(0),
   uploadedBy: varchar("uploaded_by"),
@@ -224,6 +260,9 @@ export const townRequests = pgTable("town_requests", {
   notes: text("notes"),
   status: varchar("status", { length: 20 }).default("pending"),
   reviewedBy: varchar("reviewed_by"),
+  researchJobId: varchar("research_job_id"),
+  researchStatus: varchar("research_status", { length: 20 }).default("pending"),
+  resultingTownId: varchar("resulting_town_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -330,3 +369,13 @@ export type TownForm = typeof townForms.$inferSelect;
 
 export type InsertTownRequest = z.infer<typeof insertTownRequestSchema>;
 export type TownRequest = typeof townRequests.$inferSelect;
+
+export const insertResearchJobSchema = createInsertSchema(researchJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export type InsertResearchJob = z.infer<typeof insertResearchJobSchema>;
+export type ResearchJob = typeof researchJobs.$inferSelect;

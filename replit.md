@@ -16,6 +16,7 @@ Recent additions include:
 - Draft permit progress saved in Zustand store (persists on refresh)
 - Town selection visual highlighting in permit wizard
 - Auto-fill from profile data (business name, address, phone, etc.)
+- AI-powered town research automation (auto-researches new town submissions using Gemini 2.5 Flash)
 
 ## User Preferences
 
@@ -56,6 +57,8 @@ The frontend follows a mobile-first design pattern with:
   - `reviews`: Anonymous reviews with IP rate limiting
   - `configs`: Admin-configurable settings (pricing, thresholds)
   - `portal_mappings`: Field selectors for auto-fill functionality
+  - `town_requests`: Pioneer submissions for new towns (with research tracking)
+  - `research_jobs`: AI-powered town research pipeline tracking
   - `sessions` & `users`: Replit Auth required tables (with role enum)
 
 ### Authentication

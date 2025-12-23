@@ -1,5 +1,5 @@
 import { 
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -10,6 +10,7 @@ import {
   type Config, type InsertConfig,
   type TownForm, type InsertTownForm,
   type TownRequest, type InsertTownRequest,
+  type ResearchJob, type InsertResearchJob,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -77,8 +78,17 @@ export interface IStorage {
 
   // Town Requests (Pioneer submissions)
   getTownRequests(): Promise<TownRequest[]>;
+  getTownRequest(id: string): Promise<TownRequest | undefined>;
   createTownRequest(request: InsertTownRequest): Promise<TownRequest>;
   updateTownRequestStatus(id: string, status: string, reviewedBy?: string): Promise<TownRequest | undefined>;
+  updateTownRequest(id: string, data: Partial<InsertTownRequest>): Promise<TownRequest | undefined>;
+
+  // Research Jobs
+  getResearchJob(id: string): Promise<ResearchJob | undefined>;
+  getResearchJobByTownRequest(townRequestId: string): Promise<ResearchJob | undefined>;
+  createResearchJob(job: InsertResearchJob): Promise<ResearchJob>;
+  updateResearchJob(id: string, data: Partial<InsertResearchJob>): Promise<ResearchJob | undefined>;
+  getPendingResearchJobs(): Promise<ResearchJob[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -398,6 +408,48 @@ export class DatabaseStorage implements IStorage {
       .where(eq(townRequests.id, id))
       .returning();
     return updated;
+  }
+
+  async getTownRequest(id: string): Promise<TownRequest | undefined> {
+    const [request] = await db.select().from(townRequests).where(eq(townRequests.id, id));
+    return request;
+  }
+
+  async updateTownRequest(id: string, data: Partial<InsertTownRequest>): Promise<TownRequest | undefined> {
+    const [updated] = await db
+      .update(townRequests)
+      .set(data)
+      .where(eq(townRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getResearchJob(id: string): Promise<ResearchJob | undefined> {
+    const [job] = await db.select().from(researchJobs).where(eq(researchJobs.id, id));
+    return job;
+  }
+
+  async getResearchJobByTownRequest(townRequestId: string): Promise<ResearchJob | undefined> {
+    const [job] = await db.select().from(researchJobs).where(eq(researchJobs.townRequestId, townRequestId));
+    return job;
+  }
+
+  async createResearchJob(job: InsertResearchJob): Promise<ResearchJob> {
+    const [newJob] = await db.insert(researchJobs).values(job).returning();
+    return newJob;
+  }
+
+  async updateResearchJob(id: string, data: Partial<InsertResearchJob>): Promise<ResearchJob | undefined> {
+    const [updated] = await db
+      .update(researchJobs)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(researchJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getPendingResearchJobs(): Promise<ResearchJob[]> {
+    return db.select().from(researchJobs).where(eq(researchJobs.status, "pending")).orderBy(researchJobs.createdAt);
   }
 }
 

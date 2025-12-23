@@ -20,6 +20,7 @@ import {
   getTemplateById,
   type ParsedUserData 
 } from "./lib/pdf-service";
+import { townResearchService } from "./lib/town-research-service";
 import { z } from "zod";
 
 const generatePacketSchema = z.object({
@@ -1387,6 +1388,15 @@ ${prompt}`;
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
       }
       const request = await storage.createTownRequest(parsed.data);
+      
+      // Auto-trigger AI research for the new town request
+      try {
+        const researchJob = await townResearchService.triggerResearchForRequest(request.id);
+        console.log(`[TownRequest] Auto-triggered research job ${researchJob.id} for town request ${request.id}`);
+      } catch (researchError) {
+        console.error("[TownRequest] Failed to trigger auto-research:", researchError);
+      }
+      
       res.status(201).json(request);
     } catch (error) {
       console.error("Error creating town request:", error);
@@ -1418,6 +1428,63 @@ ${prompt}`;
     } catch (error) {
       console.error("Error updating town request:", error);
       res.status(500).json({ message: "Failed to update town request" });
+    }
+  });
+
+  // ========== Research Jobs (AI-powered town research) ==========
+
+  // Admin: Manually trigger research for a town request
+  app.post("/api/admin/town-requests/:id/research", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const townRequestId = req.params.id;
+      const townRequest = await storage.getTownRequest(townRequestId);
+      
+      if (!townRequest) {
+        return res.status(404).json({ message: "Town request not found" });
+      }
+
+      // Check if there's already an active research job
+      const existingJob = await storage.getResearchJobByTownRequest(townRequestId);
+      if (existingJob && existingJob.status !== "failed") {
+        return res.status(400).json({ 
+          message: "Research already in progress or completed", 
+          job: existingJob 
+        });
+      }
+
+      const researchJob = await townResearchService.triggerResearchForRequest(townRequestId);
+      res.status(201).json({ 
+        message: "Research job started", 
+        job: researchJob 
+      });
+    } catch (error) {
+      console.error("Error triggering research:", error);
+      res.status(500).json({ message: "Failed to trigger research" });
+    }
+  });
+
+  // Admin: Get research job status for a town request
+  app.get("/api/admin/town-requests/:id/research", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const researchJob = await storage.getResearchJobByTownRequest(req.params.id);
+      if (!researchJob) {
+        return res.status(404).json({ message: "No research job found" });
+      }
+      res.json(researchJob);
+    } catch (error) {
+      console.error("Error fetching research job:", error);
+      res.status(500).json({ message: "Failed to fetch research job" });
+    }
+  });
+
+  // Admin: Get all pending research jobs
+  app.get("/api/admin/research-jobs/pending", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const jobs = await storage.getPendingResearchJobs();
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching pending research jobs:", error);
+      res.status(500).json({ message: "Failed to fetch pending research jobs" });
     }
   });
 
