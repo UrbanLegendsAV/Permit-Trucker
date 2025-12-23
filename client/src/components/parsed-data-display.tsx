@@ -1,8 +1,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { CheckCircle2, AlertCircle, HelpCircle, ChevronDown, Sparkles, Check } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CheckCircle2, AlertCircle, HelpCircle, ChevronDown, Sparkles, Check, Pencil } from "lucide-react";
 import { useState } from "react";
 
 interface ConfidenceField {
@@ -31,6 +40,7 @@ interface ParsedGoldenData {
 interface ParsedDataDisplayProps {
   data: ParsedGoldenData | null;
   onVerify?: (category: string, field: string, verified: boolean) => void;
+  onEdit?: (category: string, field: string, newValue: string) => void;
   showAllFields?: boolean;
   profileId?: string;
 }
@@ -104,13 +114,18 @@ function FieldItem({
   label, 
   field, 
   onVerify,
+  onEdit,
   showMissing = false
 }: { 
   label: string; 
   field: ConfidenceField | undefined;
   onVerify?: (verified: boolean) => void;
+  onEdit?: (newValue: string) => void;
   showMissing?: boolean;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  
   const isMissing = !field || field.value === null || field.value === undefined || field.value === "";
   
   if (isMissing && !showMissing) return null;
@@ -125,31 +140,95 @@ function FieldItem({
   const confidenceLevel = getConfidenceLevel(confidence);
   const isVerified = field?.status === "verified";
   const needsReview = isMissing || (confidenceLevel !== "high" && !isVerified);
+  
+  const handleEditClick = () => {
+    setEditValue(typeof displayValue === "string" ? displayValue : "");
+    setIsEditing(true);
+  };
+  
+  const handleSave = () => {
+    if (onEdit && editValue !== displayValue) {
+      onEdit(editValue);
+    }
+    setIsEditing(false);
+  };
 
   return (
-    <div className={`flex items-start justify-between gap-2 py-1.5 border-b border-border/50 last:border-0 ${needsReview && !isVerified ? "bg-destructive/5 -mx-2 px-2 rounded" : ""}`}>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <ConfidenceIcon confidence={confidence} status={field?.status} />
-          <span className="text-xs text-muted-foreground">{label}</span>
-          {typeof confidence === "number" && confidence > 0 && (
-            <span className="text-[10px] text-muted-foreground">({confidence}%)</span>
+    <>
+      <div className={`flex items-start justify-between gap-2 py-1.5 border-b border-border/50 last:border-0 ${needsReview && !isVerified ? "bg-destructive/5 -mx-2 px-2 rounded" : ""}`}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <ConfidenceIcon confidence={confidence} status={field?.status} />
+            <span className="text-xs text-muted-foreground">{label}</span>
+            {typeof confidence === "number" && confidence > 0 && (
+              <span className="text-[10px] text-muted-foreground">({confidence}%)</span>
+            )}
+          </div>
+          <p className={`text-sm truncate ${isMissing ? "text-muted-foreground italic" : ""}`}>{displayValue}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {onEdit && (
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="h-6 w-6"
+              onClick={handleEditClick}
+              data-testid={`button-edit-${label.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <Pencil className="w-3 h-3" />
+            </Button>
+          )}
+          {!isMissing && onVerify && (
+            <Button 
+              variant={isVerified ? "default" : "ghost"} 
+              size="icon"
+              className={`h-6 w-6 ${isVerified ? "bg-green-600 text-white" : ""}`}
+              onClick={() => onVerify(!isVerified)}
+              data-testid={`button-verify-${label.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <Check className="w-3 h-3" />
+            </Button>
           )}
         </div>
-        <p className={`text-sm truncate ${isMissing ? "text-muted-foreground italic" : ""}`}>{displayValue}</p>
       </div>
-      {!isMissing && onVerify && (
-        <Button 
-          variant={isVerified ? "default" : "ghost"} 
-          size="icon"
-          className={`h-6 w-6 ${isVerified ? "bg-green-600 text-white" : ""}`}
-          onClick={() => onVerify(!isVerified)}
-          data-testid={`button-verify-${label.toLowerCase().replace(/\s+/g, '-')}`}
-        >
-          <Check className="w-3 h-3" />
-        </Button>
-      )}
-    </div>
+      
+      <Dialog open={isEditing} onOpenChange={setIsEditing}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit {label}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-field-value">{label}</Label>
+              {displayValue && displayValue.length > 50 ? (
+                <Textarea
+                  id="edit-field-value"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  rows={4}
+                  data-testid="input-edit-field-value"
+                />
+              ) : (
+                <Input
+                  id="edit-field-value"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  data-testid="input-edit-field-value"
+                />
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsEditing(false)} data-testid="button-cancel-field-edit">
+                Cancel
+              </Button>
+              <Button onClick={handleSave} data-testid="button-save-field-edit">
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -157,11 +236,13 @@ function CategorySection({
   categoryKey,
   fields, 
   onVerify,
+  onEdit,
   showAllFields = false
 }: { 
   categoryKey: string;
   fields: Record<string, ConfidenceField> | undefined;
   onVerify?: (category: string, field: string, verified: boolean) => void;
+  onEdit?: (category: string, field: string, newValue: string) => void;
   showAllFields?: boolean;
 }) {
   const labels = FIELD_LABELS[categoryKey] || {};
@@ -195,6 +276,7 @@ function CategorySection({
             label={labels[key] || key} 
             field={field}
             onVerify={onVerify ? (verified: boolean) => onVerify(categoryKey, key, verified) : undefined}
+            onEdit={onEdit ? (newValue: string) => onEdit(categoryKey, key, newValue) : undefined}
             showMissing={showAllFields}
           />
         ))}
@@ -203,7 +285,7 @@ function CategorySection({
   );
 }
 
-export function ParsedDataDisplay({ data, onVerify, showAllFields = false }: ParsedDataDisplayProps) {
+export function ParsedDataDisplay({ data, onVerify, onEdit, showAllFields = false }: ParsedDataDisplayProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   if (!data) return null;
@@ -279,19 +361,19 @@ export function ParsedDataDisplay({ data, onVerify, showAllFields = false }: Par
         <CollapsibleContent>
           <CardContent className="pt-0 px-4 pb-4 space-y-4">
             {data.contact_info && (
-              <CategorySection categoryKey="contact_info" fields={data.contact_info} onVerify={onVerify} showAllFields={showAllFields} />
+              <CategorySection categoryKey="contact_info" fields={data.contact_info} onVerify={onVerify} onEdit={onEdit} showAllFields={showAllFields} />
             )}
             {data.license_info && (
-              <CategorySection categoryKey="license_info" fields={data.license_info} onVerify={onVerify} showAllFields={showAllFields} />
+              <CategorySection categoryKey="license_info" fields={data.license_info} onVerify={onVerify} onEdit={onEdit} showAllFields={showAllFields} />
             )}
             {data.operations && (
-              <CategorySection categoryKey="operations" fields={data.operations} onVerify={onVerify} showAllFields={showAllFields} />
+              <CategorySection categoryKey="operations" fields={data.operations} onVerify={onVerify} onEdit={onEdit} showAllFields={showAllFields} />
             )}
             {data.safety && (
-              <CategorySection categoryKey="safety" fields={data.safety} onVerify={onVerify} showAllFields={showAllFields} />
+              <CategorySection categoryKey="safety" fields={data.safety} onVerify={onVerify} onEdit={onEdit} showAllFields={showAllFields} />
             )}
             {data.menu_and_prep && (
-              <CategorySection categoryKey="menu_and_prep" fields={data.menu_and_prep} onVerify={onVerify} showAllFields={showAllFields} />
+              <CategorySection categoryKey="menu_and_prep" fields={data.menu_and_prep} onVerify={onVerify} onEdit={onEdit} showAllFields={showAllFields} />
             )}
           </CardContent>
         </CollapsibleContent>

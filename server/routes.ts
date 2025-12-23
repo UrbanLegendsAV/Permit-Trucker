@@ -578,6 +578,51 @@ ${prompt}`;
     }
   });
 
+  // Edit a specific field in parsed data
+  app.patch("/api/profiles/:id/parsed-data/edit", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { category, field, value } = req.body;
+
+      if (!category || !field) {
+        return res.status(400).json({ message: "category and field are required" });
+      }
+
+      const profile = await storage.getProfile(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object')
+        ? { ...profile.parsedDataLog as Record<string, unknown> }
+        : {};
+
+      // Ensure category exists
+      if (!parsedData[category]) {
+        parsedData[category] = {};
+      }
+
+      // Update the field's value and set confidence to 100 (manually edited)
+      const categoryData = parsedData[category] as Record<string, { value: unknown; confidence: number; source_text: unknown; status?: string }>;
+      categoryData[field] = {
+        ...(categoryData[field] || {}),
+        value: value,
+        confidence: 100,
+        source_text: "manually edited",
+        status: "verified"
+      };
+      parsedData[category] = categoryData;
+      parsedData._editedAt = new Date().toISOString();
+
+      await storage.updateProfile(id, { parsedDataLog: parsedData });
+      
+      res.json({ success: true, message: "Field updated successfully" });
+    } catch (error: any) {
+      console.error("Error editing field:", error);
+      res.status(500).json({ message: "Failed to edit field", error: error.message });
+    }
+  });
+
   app.get("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

@@ -103,7 +103,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   };
   
   const [editForm, setEditForm] = useState({
-    businessName: getFieldValue("business_info", "business_name") || profile.name,
+    businessName: getFieldValue("business_info", "business_name") || profile.vehicleName || "",
     address: getFieldValue("owner_info", "mailing_address"),
     city: getFieldValue("owner_info", "city"),
     state: getFieldValue("owner_info", "state") || "CT",
@@ -250,6 +250,27 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
     }
   };
   
+  const handleEditField = async (category: string, field: string, newValue: string) => {
+    try {
+      await apiRequest("PATCH", `/api/profiles/${profile.id}/parsed-data/edit`, {
+        category,
+        field,
+        value: newValue
+      });
+      toast({
+        title: "Field Updated",
+        description: `Successfully updated the field.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+    } catch (error: any) {
+      toast({
+        title: "Update Failed",
+        description: error.message || "Could not update field.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   const VehicleIcon = profile.vehicleType === "truck" ? Truck : Caravan;
   const documents: DocumentType[] = profile.uploadsJson?.documents || [];
   const hasDocuments = documents.length > 0;
@@ -356,7 +377,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation();
     setEditForm({
-      businessName: getFieldValue("business_info", "business_name") || profile.name,
+      businessName: getFieldValue("business_info", "business_name") || profile.vehicleName || "",
       address: getFieldValue("owner_info", "mailing_address"),
       city: getFieldValue("owner_info", "city"),
       state: getFieldValue("owner_info", "state") || "CT",
@@ -580,6 +601,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                   data={profile.parsedDataLog as Record<string, unknown>}
                   showAllFields={true}
                   onVerify={handleVerifyField}
+                  onEdit={handleEditField}
                   profileId={profile.id}
                 />
               </div>
