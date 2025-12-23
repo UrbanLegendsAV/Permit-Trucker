@@ -18,7 +18,9 @@ export interface FormTemplate {
   formName: string;
   townName: string;
   pdfPath: string;
+  useAcroForm?: boolean;
   fields: Record<string, FieldMapping>;
+  acroFieldMap?: Record<string, string>;
 }
 
 interface ParsedFieldValue {
@@ -28,8 +30,6 @@ interface ParsedFieldValue {
   source_text?: string | null;
 }
 
-// Dynamic parsed data structure - matches Gemini AI extraction output
-// Using Record type for flexibility as Gemini outputs vary
 export type ParsedUserData = {
   _meta?: Record<string, unknown>;
   _parsedAt?: string;
@@ -116,12 +116,62 @@ export type ParsedUserData = {
   };
 } & Record<string, Record<string, ParsedFieldValue | undefined> | string | Record<string, unknown> | undefined>;
 
+const BETHEL_ACRO_FIELD_MAP: Record<string, string> = {
+  "Name of Applicant": "owner_name",
+  "Address": "address",
+  "State": "state",
+  "Zip": "zip",
+  "Home Phone": "phone",
+  "Business Phone": "business_phone",
+  "Cell Phone": "cell_phone",
+  "Cell Phone_2": "cell_phone",
+  "Cell Phone_3": "cell_phone",
+  "Name EventllOrganizationl Business": "business_name",
+  "Mailing Address": "mailing_address",
+  "Town": "city",
+  "Location of Event": "event_location",
+  "Dates of Event": "event_dates",
+  "Hours of Food Service Operation": "hours_of_operation",
+  "Person in Charge": "person_in_charge",
+  "Please Describe": "water_other_description",
+  "Maintain temp": "temperature_control",
+  "Describe how food will be stored at the event minimum of 12 inches off the ground 1": "food_storage",
+  "how cooled how reheated etc Please note that preparing food ahead of time may not be allowed 1": "food_prep_description",
+  "availableused based on type of sanitizer used 1": "sanitizer_description",
+  "outdoor elements flies dust etc 1": "food_protection",
+};
+
+const BETHEL_CHECKBOX_MAP: Record<string, { dataField: string; matchValue: string }> = {
+  "Check Box1": { dataField: "license_type", matchValue: "temporary" },
+  "Check Box2": { dataField: "license_type", matchValue: "seasonal" },
+  "Check Box6": { dataField: "water_supply", matchValue: "self-contained" },
+  "Check Box7": { dataField: "water_supply", matchValue: "public" },
+  "Check Box8": { dataField: "water_supply", matchValue: "private well" },
+  "Check Box9": { dataField: "water_supply_event", matchValue: "at event" },
+  "Check Box10": { dataField: "water_supply_event", matchValue: "public" },
+  "Check Box11": { dataField: "water_supply_event", matchValue: "private well" },
+  "Check Box12": { dataField: "water_supply", matchValue: "other" },
+  "Check Box13": { dataField: "toilet_facilities", matchValue: "rest rooms" },
+  "Check Box14": { dataField: "toilet_facilities", matchValue: "portable" },
+  "Check Box15": { dataField: "food_prepared_on_site", matchValue: "yes" },
+  "Check Box16": { dataField: "food_prepared_on_site", matchValue: "no" },
+  "Check Box17": { dataField: "handwash_station", matchValue: "temporary" },
+  "Check Box18": { dataField: "handwash_station", matchValue: "permanent" },
+  "Check Box19": { dataField: "handwash_on_sketch", matchValue: "yes" },
+  "Check Box20": { dataField: "handwash_on_sketch", matchValue: "no" },
+  "Check Box21": { dataField: "fee_type", matchValue: "temporary" },
+  "Check Box22": { dataField: "fee_type", matchValue: "seasonal" },
+  "Check Box4": { dataField: "fee_type", matchValue: "non-profit-temp" },
+  "Check Box5": { dataField: "fee_type", matchValue: "non-profit-seasonal" },
+};
+
 const FORM_TEMPLATES: Record<string, FormTemplate> = {
   "newtown_mfe": {
     formId: "newtown_mfe",
     formName: "MFE License Application",
     townName: "Newtown",
     pdfPath: "attached_assets/Fillable_FOOD_SERVICE_PLAN_Review_Application_Packet_7-15-25_1766435479788.pdf",
+    useAcroForm: false,
     fields: {
       "business_name": { page: 0, x: 200, y: 680, fontSize: 11 },
       "owner_name": { page: 0, x: 200, y: 655, fontSize: 11 },
@@ -129,19 +179,6 @@ const FORM_TEMPLATES: Record<string, FormTemplate> = {
       "city_state_zip": { page: 0, x: 200, y: 605, fontSize: 11 },
       "phone": { page: 0, x: 200, y: 580, fontSize: 11 },
       "email": { page: 0, x: 200, y: 555, fontSize: 11 },
-      "trailer_info": { page: 0, x: 200, y: 530, fontSize: 11 },
-      "vin": { page: 0, x: 200, y: 505, fontSize: 11 },
-      "license_plate": { page: 0, x: 200, y: 480, fontSize: 11 },
-      "menu_items": { page: 0, x: 100, y: 350, fontSize: 10, maxWidth: 400 },
-      "water_supply_public": { page: 0, x: 105, y: 280, isCheckbox: true, checkboxValue: "public water" },
-      "water_supply_tank": { page: 0, x: 105, y: 260, isCheckbox: true, checkboxValue: "tank" },
-      "waste_water_holding": { page: 0, x: 105, y: 220, isCheckbox: true, checkboxValue: "holding tank" },
-      "waste_water_commissary": { page: 0, x: 105, y: 200, isCheckbox: true, checkboxValue: "commissary" },
-      "sanitizer_chlorine": { page: 0, x: 300, y: 280, isCheckbox: true, checkboxValue: "chlorine" },
-      "sanitizer_quat": { page: 0, x: 300, y: 260, isCheckbox: true, checkboxValue: "quaternary" },
-      "temp_monitoring": { page: 0, x: 200, y: 180, fontSize: 10 },
-      "commissary_name": { page: 0, x: 200, y: 140, fontSize: 10 },
-      "commissary_address": { page: 0, x: 200, y: 120, fontSize: 10 },
     }
   },
   "bethel_seasonal": {
@@ -149,38 +186,20 @@ const FORM_TEMPLATES: Record<string, FormTemplate> = {
     formName: "Temporary/Seasonal Food Service License",
     townName: "Bethel",
     pdfPath: "attached_assets/Fillable_TemporarySeasonal_Food_Service_License_Application_Fi_1766435479788.pdf",
-    fields: {
-      "business_name": { page: 0, x: 180, y: 695, fontSize: 11 },
-      "owner_name": { page: 0, x: 180, y: 670, fontSize: 11 },
-      "address": { page: 0, x: 180, y: 645, fontSize: 11 },
-      "city_state_zip": { page: 0, x: 180, y: 620, fontSize: 11 },
-      "phone": { page: 0, x: 180, y: 595, fontSize: 11 },
-      "email": { page: 0, x: 400, y: 595, fontSize: 11 },
-      "event_name": { page: 0, x: 180, y: 540, fontSize: 11 },
-      "event_address": { page: 0, x: 180, y: 515, fontSize: 11 },
-      "event_dates": { page: 0, x: 180, y: 490, fontSize: 11 },
-      "menu_items": { page: 0, x: 100, y: 400, fontSize: 10, maxWidth: 400 },
-      "water_supply_public": { page: 0, x: 95, y: 320, isCheckbox: true, checkboxValue: "public water" },
-      "water_supply_tank": { page: 0, x: 95, y: 300, isCheckbox: true, checkboxValue: "tank" },
-      "waste_water_holding": { page: 0, x: 95, y: 260, isCheckbox: true, checkboxValue: "holding tank" },
-      "sanitizer_type": { page: 0, x: 180, y: 220, fontSize: 10 },
-      "temp_monitoring": { page: 0, x: 180, y: 200, fontSize: 10 },
-    }
+    useAcroForm: true,
+    acroFieldMap: BETHEL_ACRO_FIELD_MAP,
+    fields: {}
   },
   "newtown_new_license": {
     formId: "newtown_new_license",
     formName: "Food License New/Change Owner/Renewal Application",
     townName: "Newtown",
     pdfPath: "attached_assets/Food_License_New-Chg_Owner-Renewal_Application_2025_Rev.7-10-2_1766435479789.pdf",
+    useAcroForm: false,
     fields: {
       "business_name": { page: 0, x: 200, y: 700, fontSize: 11 },
       "owner_name": { page: 0, x: 200, y: 675, fontSize: 11 },
       "address": { page: 0, x: 200, y: 650, fontSize: 11 },
-      "city": { page: 0, x: 200, y: 625, fontSize: 11 },
-      "state": { page: 0, x: 350, y: 625, fontSize: 11 },
-      "zip": { page: 0, x: 420, y: 625, fontSize: 11 },
-      "phone": { page: 0, x: 200, y: 600, fontSize: 11 },
-      "email": { page: 0, x: 350, y: 600, fontSize: 11 },
     }
   }
 };
@@ -206,6 +225,129 @@ function matchesCheckbox(value: string | null, checkboxValue: string): boolean {
          (normalizedCheckbox === "quaternary" && normalizedValue.includes("quat"));
 }
 
+async function fillBethelAcroForm(
+  pdfDoc: PDFDocument,
+  userData: ParsedUserData,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): Promise<void> {
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+  
+  console.log("[PDF Service] Filling Bethel AcroForm with", fields.length, "fields");
+
+  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+    for (const field of fieldNames) {
+      const value = getFieldValue(userData, category, field);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  const mailingAddress = getFromAny("contact_info", "mailing_address");
+  let parsedCity = getFromAny("contact_info", "city");
+  let parsedState = getFromAny("contact_info", "state");
+  let parsedZip = getFromAny("contact_info", "zip");
+  let streetAddress = getFromAny("contact_info", "address");
+  
+  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
+    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+    if (match) {
+      if (!streetAddress) streetAddress = match[1];
+      if (!parsedCity) parsedCity = match[2];
+      if (!parsedState) parsedState = match[3];
+      if (!parsedZip) parsedZip = match[4];
+    } else if (!streetAddress) {
+      streetAddress = mailingAddress;
+    }
+  }
+
+  const parsedLicenseType = getFromAny("license_info", "license_type");
+  const licenseType = eventData?.licenseType || 
+    (parsedLicenseType?.toLowerCase().includes("temporary") ? "temporary" : 
+     parsedLicenseType?.toLowerCase().includes("seasonal") ? "seasonal" : "seasonal");
+
+  const waterSupply = getFromAny("operations", "water_supply_type") || getFromAny("equipment_info", "water_supply") || "";
+  const toiletFacilities = getFromAny("operations", "toilet_facilities") || getFromAny("commissary_info", "toilet_facilities") || "";
+
+  const dataMap: Record<string, string | null> = {
+    "owner_name": getFromAny("contact_info", "applicant_name", "owner_name"),
+    "business_name": getFromAny("contact_info", "business_name"),
+    "address": streetAddress,
+    "mailing_address": mailingAddress || streetAddress,
+    "city": parsedCity,
+    "state": parsedState,
+    "zip": parsedZip,
+    "phone": getFromAny("contact_info", "phone"),
+    "business_phone": getFromAny("contact_info", "phone"),
+    "cell_phone": getFromAny("contact_info", "phone"),
+    "email": getFromAny("contact_info", "email"),
+    "event_name": eventData?.eventName || getFromAny("contact_info", "business_name"),
+    "event_location": eventData?.eventAddress || null,
+    "event_dates": eventData?.eventDates || null,
+    "hours_of_operation": eventData?.hoursOfOperation || null,
+    "person_in_charge": eventData?.personInCharge || getFromAny("contact_info", "applicant_name", "owner_name"),
+    "water_supply": waterSupply,
+    "water_supply_event": waterSupply,
+    "water_other_description": waterSupply.toLowerCase().includes("other") ? waterSupply : null,
+    "sanitizer_type": getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
+    "temperature_control": getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring"),
+    "food_storage": getFromAny("safety", "cold_storage_method") || "Kept in coolers with ice, minimum 12 inches off ground",
+    "sanitizer_description": getFromAny("operations", "sanitizer_type") || "Sanitizer test strips available",
+    "food_prep_description": getFromAny("menu_and_prep", "prep_location") || "",
+    "food_protection": "Food covered and protected from contamination",
+    "license_type": licenseType,
+    "toilet_facilities": toiletFacilities,
+    "handwash_station": getFromAny("equipment_info", "handwash_setup") || "temporary",
+    "handwash_on_sketch": "yes",
+    "food_prepared_on_site": "yes",
+    "fee_type": licenseType,
+  };
+
+  console.log("[PDF Service] Data map:", JSON.stringify(dataMap, null, 2));
+
+  for (const field of fields) {
+    const fieldName = field.getName();
+    const fieldType = field.constructor.name;
+
+    try {
+      if (fieldType === "PDFTextField") {
+        const textField = form.getTextField(fieldName);
+        const dataKey = BETHEL_ACRO_FIELD_MAP[fieldName];
+        
+        if (dataKey && dataMap[dataKey]) {
+          console.log(`[PDF Service] Setting text field "${fieldName}" to "${dataMap[dataKey]}"`);
+          textField.setText(dataMap[dataKey] || "");
+        }
+      } else if (fieldType === "PDFCheckBox") {
+        const checkbox = form.getCheckBox(fieldName);
+        const checkboxConfig = BETHEL_CHECKBOX_MAP[fieldName];
+        
+        if (checkboxConfig) {
+          const dataValue = dataMap[checkboxConfig.dataField];
+          if (dataValue) {
+            const shouldCheck = dataValue.toLowerCase().includes(checkboxConfig.matchValue.toLowerCase());
+            if (shouldCheck) {
+              console.log(`[PDF Service] Checking checkbox "${fieldName}" (${checkboxConfig.matchValue})`);
+              checkbox.check();
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[PDF Service] Error filling field ${fieldName}:`, err);
+    }
+  }
+
+  form.flatten();
+}
+
 export async function fillPdfForm(
   templateId: string,
   userData: ParsedUserData,
@@ -213,6 +355,9 @@ export async function fillPdfForm(
     eventName?: string;
     eventAddress?: string;
     eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
   }
 ): Promise<Uint8Array> {
   const template = FORM_TEMPLATES[templateId];
@@ -229,132 +374,71 @@ export async function fillPdfForm(
   const pdfDoc = await PDFDocument.load(existingPdfBytes);
   pdfDoc.registerFontkit(fontkit);
 
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const pages = pdfDoc.getPages();
+  console.log("[PDF Service] Filling template:", templateId);
+  console.log("[PDF Service] useAcroForm:", template.useAcroForm);
 
-  // Helper to get value from various possible field names
-  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
-    for (const field of fieldNames) {
-      const value = getFieldValue(userData, category, field);
-      if (value) return value;
-    }
-    return null;
-  };
+  if (template.useAcroForm && templateId === "bethel_seasonal") {
+    await fillBethelAcroForm(pdfDoc, userData, eventData);
+  } else {
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const pages = pdfDoc.getPages();
 
-  // Parse address components from mailing_address if individual fields don't exist
-  const mailingAddress = getFieldValue(userData, "contact_info", "mailing_address");
-  let parsedCity = getFieldValue(userData, "contact_info", "city");
-  let parsedState = getFieldValue(userData, "contact_info", "state");
-  let parsedZip = getFieldValue(userData, "contact_info", "zip");
-  let streetAddress = getFieldValue(userData, "contact_info", "address");
-  
-  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
-    // Try to parse: "126 Morningside Drive Bridgeport, CT 06606"
-    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
-    if (match) {
-      if (!streetAddress) streetAddress = match[1];
-      if (!parsedCity) parsedCity = match[2];
-      if (!parsedState) parsedState = match[3];
-      if (!parsedZip) parsedZip = match[4];
-    } else if (!streetAddress) {
-      streetAddress = mailingAddress;
-    }
-  }
-
-  // Log field extraction for debugging
-  console.log("[PDF Service] Extracting data from parsed profile...");
-  console.log("[PDF Service] Business Name:", getFromAny("contact_info", "business_name"));
-  console.log("[PDF Service] Owner/Applicant:", getFromAny("contact_info", "owner_name", "applicant_name"));
-  console.log("[PDF Service] Email:", getFromAny("contact_info", "email"));
-  console.log("[PDF Service] Phone:", getFromAny("contact_info", "phone"));
-  console.log("[PDF Service] Address:", streetAddress);
-  console.log("[PDF Service] Menu Items:", getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"));
-  
-  const fieldDataMap: Record<string, string | null> = {
-    "business_name": getFromAny("contact_info", "business_name"),
-    "owner_name": getFromAny("contact_info", "owner_name", "applicant_name"),
-    "address": streetAddress,
-    "city": parsedCity,
-    "state": parsedState,
-    "zip": parsedZip,
-    "phone": getFromAny("contact_info", "phone"),
-    "email": getFromAny("contact_info", "email"),
-    "city_state_zip": [parsedCity, parsedState, parsedZip].filter(Boolean).join(", "),
-    "trailer_info": [
-      getFromAny("vehicle_info", "trailer_year"),
-      getFromAny("vehicle_info", "trailer_make"),
-      getFromAny("vehicle_info", "trailer_model")
-    ].filter(Boolean).join(" "),
-    "vin": getFromAny("vehicle_info", "vin"),
-    "license_plate": getFromAny("license_info", "license_number", "vehicle_license_plate") || 
-                     getFromAny("vehicle_info", "license_plate"),
-    "menu_items": getFromAny("menu_and_prep", "food_items_list") || 
-                  getFromAny("food_info", "menu_items"),
-    "sanitizer_type": getFromAny("operations", "sanitizer_type") || 
-                      getFromAny("equipment_info", "sanitizer_type"),
-    "temp_monitoring": getFromAny("safety", "temperature_monitoring_method") ||
-                       getFromAny("equipment_info", "temp_monitoring"),
-    "commissary_name": getFromAny("menu_and_prep", "prep_location") ||
-                       getFromAny("commissary_info", "commissary_name"),
-    "commissary_address": getFromAny("commissary_info", "commissary_address"),
-    "event_name": eventData?.eventName || null,
-    "event_address": eventData?.eventAddress || null,
-    "event_dates": eventData?.eventDates || null,
-  };
-
-  const waterSupply = getFromAny("operations", "water_supply_type") ||
-                      getFromAny("equipment_info", "water_supply");
-  const wasteWater = getFromAny("safety", "waste_water_disposal") ||
-                     getFromAny("equipment_info", "waste_water");
-  const sanitizer = getFromAny("operations", "sanitizer_type") ||
-                    getFromAny("equipment_info", "sanitizer_type");
-
-  for (const [fieldName, mapping] of Object.entries(template.fields)) {
-    const page = pages[mapping.page];
-    if (!page) continue;
-
-    if (mapping.isCheckbox) {
-      let shouldCheck = false;
-      
-      if (fieldName.includes("water_supply")) {
-        shouldCheck = matchesCheckbox(waterSupply, mapping.checkboxValue || "");
-      } else if (fieldName.includes("waste_water")) {
-        shouldCheck = matchesCheckbox(wasteWater, mapping.checkboxValue || "");
-      } else if (fieldName.includes("sanitizer")) {
-        shouldCheck = matchesCheckbox(sanitizer, mapping.checkboxValue || "");
+    const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+      for (const field of fieldNames) {
+        const value = getFieldValue(userData, category, field);
+        if (value) return value;
       }
+      return null;
+    };
 
-      if (shouldCheck) {
-        page.drawText("X", {
-          x: mapping.x,
-          y: mapping.y,
-          size: 12,
-          font,
-          color: rgb(0, 0, 0),
-        });
+    const mailingAddress = getFieldValue(userData, "contact_info", "mailing_address");
+    let parsedCity = getFieldValue(userData, "contact_info", "city");
+    let parsedState = getFieldValue(userData, "contact_info", "state");
+    let parsedZip = getFieldValue(userData, "contact_info", "zip");
+    let streetAddress = getFieldValue(userData, "contact_info", "address");
+    
+    if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
+      const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+      if (match) {
+        if (!streetAddress) streetAddress = match[1];
+        if (!parsedCity) parsedCity = match[2];
+        if (!parsedState) parsedState = match[3];
+        if (!parsedZip) parsedZip = match[4];
+      } else if (!streetAddress) {
+        streetAddress = mailingAddress;
       }
-    } else {
-      const value = fieldDataMap[fieldName];
-      if (value) {
-        const fontSize = mapping.fontSize || 11;
-        let textToDraw = value;
-        
-        if (mapping.maxWidth) {
-          const textWidth = font.widthOfTextAtSize(value, fontSize);
-          if (textWidth > mapping.maxWidth) {
-            const charWidth = textWidth / value.length;
-            const maxChars = Math.floor(mapping.maxWidth / charWidth);
-            textToDraw = value.substring(0, maxChars - 3) + "...";
-          }
+    }
+
+    const fieldDataMap: Record<string, string | null> = {
+      "business_name": getFromAny("contact_info", "business_name"),
+      "owner_name": getFromAny("contact_info", "owner_name", "applicant_name"),
+      "address": streetAddress,
+      "city": parsedCity,
+      "state": parsedState,
+      "zip": parsedZip,
+      "phone": getFromAny("contact_info", "phone"),
+      "email": getFromAny("contact_info", "email"),
+      "city_state_zip": [parsedCity, parsedState, parsedZip].filter(Boolean).join(", "),
+    };
+
+    for (const [fieldName, mapping] of Object.entries(template.fields)) {
+      const page = pages[mapping.page];
+      if (!page) continue;
+
+      if (mapping.isCheckbox) {
+        continue;
+      } else {
+        const value = fieldDataMap[fieldName];
+        if (value) {
+          const fontSize = mapping.fontSize || 11;
+          page.drawText(value, {
+            x: mapping.x,
+            y: mapping.y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
         }
-
-        page.drawText(textToDraw, {
-          x: mapping.x,
-          y: mapping.y,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
       }
     }
   }
