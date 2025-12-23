@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, ArrowRight, Calendar, FileText, ExternalLink, Printer, Check, AlertTriangle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calendar, FileText, ExternalLink, Printer, Check, AlertTriangle, MapPin, Clock, User, Phone } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -15,10 +15,18 @@ import { PermitPacket } from "@/components/permit-packet";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Profile, Town } from "@shared/schema";
 
-const steps = ["Type", "Location", "Requirements", "Submit"];
+const getSteps = (permitType: string | null) => {
+  if (permitType === "temporary") {
+    return ["Type", "Location", "Event", "Requirements", "Submit"];
+  }
+  return ["Type", "Location", "Requirements", "Submit"];
+};
 
 const permitTypes = [
   {
@@ -85,6 +93,17 @@ export default function NewPermit() {
         checklistProgress: newPermit.checklistProgress,
         signatureData: newPermit.signatureData,
         isPioneer: (newPermit.town?.confidenceScore || 50) < 60,
+        eventName: newPermit.eventName || null,
+        eventDate: newPermit.eventDate ? new Date(newPermit.eventDate) : null,
+        eventEndDate: newPermit.eventEndDate ? new Date(newPermit.eventEndDate) : null,
+        eventAddress: newPermit.eventAddress || null,
+        eventCity: newPermit.eventCity || null,
+        eventHours: newPermit.eventHoursStart && newPermit.eventHoursEnd
+          ? [{ start: newPermit.eventHoursStart, end: newPermit.eventHoursEnd }]
+          : null,
+        eventContactName: newPermit.eventContactName || null,
+        eventContactPhone: newPermit.eventContactPhone || null,
+        notes: newPermit.notes || null,
       });
     },
     onSuccess: () => {
@@ -106,15 +125,21 @@ export default function NewPermit() {
     },
   });
 
+  const steps = getSteps(newPermit.permitType);
+  const isTemporary = newPermit.permitType === "temporary";
+  const currentStepName = steps[permitStep] || "Type";
+
   const canProceed = () => {
-    switch (permitStep) {
-      case 0:
+    switch (currentStepName) {
+      case "Type":
         return newPermit.permitType !== null;
-      case 1:
+      case "Location":
         return newPermit.townId !== null;
-      case 2:
+      case "Event":
+        return newPermit.eventDate !== '';
+      case "Requirements":
         return true;
-      case 3:
+      case "Submit":
         return true;
       default:
         return false;
@@ -191,7 +216,7 @@ export default function NewPermit() {
       </div>
 
       <main className="flex-1 px-4 pb-32 max-w-lg mx-auto w-full">
-        {permitStep === 0 && (
+        {currentStepName === "Type" && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">
@@ -257,7 +282,7 @@ export default function NewPermit() {
           </div>
         )}
 
-        {permitStep === 1 && (
+        {currentStepName === "Location" && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">
@@ -308,7 +333,137 @@ export default function NewPermit() {
           </div>
         )}
 
-        {permitStep === 2 && newPermit.town && (
+        {currentStepName === "Event" && newPermit.town && (
+          <div className="space-y-6">
+            <div className="text-center mb-8">
+              <h2 className="font-display text-2xl font-bold mb-2">
+                Event Details
+              </h2>
+              <p className="text-muted-foreground">
+                Tell us about your event or operation
+              </p>
+            </div>
+
+            <Card className="p-4 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="eventName">Event Name</Label>
+                <Input
+                  id="eventName"
+                  value={newPermit.eventName}
+                  onChange={(e) => setNewPermitField("eventName", e.target.value)}
+                  placeholder="e.g., Bethel Town Fair, Weekly Market"
+                  data-testid="input-event-name"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="eventDate">Start Date *</Label>
+                  <Input
+                    id="eventDate"
+                    type="date"
+                    value={newPermit.eventDate}
+                    onChange={(e) => setNewPermitField("eventDate", e.target.value)}
+                    data-testid="input-event-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="eventEndDate">End Date</Label>
+                  <Input
+                    id="eventEndDate"
+                    type="date"
+                    value={newPermit.eventEndDate}
+                    onChange={(e) => setNewPermitField("eventEndDate", e.target.value)}
+                    data-testid="input-event-end-date"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="eventAddress">Event Address</Label>
+                <Input
+                  id="eventAddress"
+                  value={newPermit.eventAddress}
+                  onChange={(e) => setNewPermitField("eventAddress", e.target.value)}
+                  placeholder="123 Main Street"
+                  data-testid="input-event-address"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="eventCity">City</Label>
+                <Input
+                  id="eventCity"
+                  value={newPermit.eventCity}
+                  onChange={(e) => setNewPermitField("eventCity", e.target.value)}
+                  placeholder={newPermit.town?.townName || "City"}
+                  data-testid="input-event-city"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="eventHoursStart">Start Time</Label>
+                  <Input
+                    id="eventHoursStart"
+                    type="time"
+                    value={newPermit.eventHoursStart}
+                    onChange={(e) => setNewPermitField("eventHoursStart", e.target.value)}
+                    data-testid="input-hours-start"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="eventHoursEnd">End Time</Label>
+                  <Input
+                    id="eventHoursEnd"
+                    type="time"
+                    value={newPermit.eventHoursEnd}
+                    onChange={(e) => setNewPermitField("eventHoursEnd", e.target.value)}
+                    data-testid="input-hours-end"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="eventContactName">Contact Name</Label>
+                  <Input
+                    id="eventContactName"
+                    value={newPermit.eventContactName}
+                    onChange={(e) => setNewPermitField("eventContactName", e.target.value)}
+                    placeholder="John Doe"
+                    data-testid="input-contact-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="eventContactPhone">Contact Phone</Label>
+                  <Input
+                    id="eventContactPhone"
+                    type="tel"
+                    value={newPermit.eventContactPhone}
+                    onChange={(e) => setNewPermitField("eventContactPhone", e.target.value)}
+                    placeholder="(555) 123-4567"
+                    data-testid="input-contact-phone"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Additional Notes</Label>
+                <Textarea
+                  id="notes"
+                  value={newPermit.notes}
+                  onChange={(e) => setNewPermitField("notes", e.target.value)}
+                  placeholder="Any special requirements or notes..."
+                  className="resize-none"
+                  data-testid="input-notes"
+                />
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {currentStepName === "Requirements" && newPermit.town && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">
@@ -327,7 +482,7 @@ export default function NewPermit() {
           </div>
         )}
 
-        {permitStep === 3 && newPermit.town && (
+        {currentStepName === "Submit" && newPermit.town && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">

@@ -37,6 +37,16 @@ interface NewPermitData {
   profileId: string | null;
   checklistProgress: Record<string, boolean>;
   signatureData: string | null;
+  eventName: string;
+  eventDate: string;
+  eventEndDate: string;
+  eventAddress: string;
+  eventCity: string;
+  eventHoursStart: string;
+  eventHoursEnd: string;
+  eventContactName: string;
+  eventContactPhone: string;
+  notes: string;
 }
 
 interface AppState {
@@ -82,6 +92,16 @@ const initialNewPermit: NewPermitData = {
   profileId: null,
   checklistProgress: {},
   signatureData: null,
+  eventName: '',
+  eventDate: '',
+  eventEndDate: '',
+  eventAddress: '',
+  eventCity: '',
+  eventHoursStart: '',
+  eventHoursEnd: '',
+  eventContactName: '',
+  eventContactPhone: '',
+  notes: '',
 };
 
 export const useAppStore = create<AppState>()(
