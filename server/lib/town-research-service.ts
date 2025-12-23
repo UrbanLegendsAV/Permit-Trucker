@@ -332,16 +332,21 @@ Return ONLY valid JSON in this exact structure:
         const category = this.inferCategoryFromUrl(url);
         
         try {
+          const pdfData = await this.downloadPdf(url);
+          
           await storage.createTownForm({
             townId: newTown.id,
             name: formName,
             category,
             externalUrl: url,
             sourceUrl: url,
+            fileData: pdfData?.base64 || null,
+            fileName: pdfData?.fileName || url.split('/').pop() || 'form.pdf',
+            fileType: 'application/pdf',
             isAiDiscovered: true,
             isFillable: false,
           });
-          console.log(`[TownResearch] Created form entry: ${formName} for ${townRequest.townName}`);
+          console.log(`[TownResearch] Created form entry: ${formName} for ${townRequest.townName} (PDF ${pdfData ? 'downloaded' : 'link only'})`);
         } catch (error) {
           console.error(`[TownResearch] Failed to create form entry for ${url}:`, error);
         }
@@ -349,6 +354,41 @@ Return ONLY valid JSON in this exact structure:
     }
 
     return newTown;
+  }
+
+  private async downloadPdf(url: string): Promise<{ base64: string; fileName: string } | null> {
+    try {
+      console.log(`[TownResearch] Downloading PDF from: ${url}`);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0; +https://permittruck.com)',
+          'Accept': 'application/pdf,*/*',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        console.error(`[TownResearch] Failed to download PDF: ${response.status} ${response.statusText}`);
+        return null;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('pdf') && !contentType.includes('octet-stream')) {
+        console.warn(`[TownResearch] Unexpected content type: ${contentType}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      const fileName = url.split('/').pop() || 'form.pdf';
+
+      console.log(`[TownResearch] Downloaded PDF: ${fileName} (${Math.round(arrayBuffer.byteLength / 1024)}KB)`);
+      
+      return { base64, fileName };
+    } catch (error: any) {
+      console.error(`[TownResearch] Error downloading PDF from ${url}:`, error.message);
+      return null;
+    }
   }
 
   private inferFormNameFromUrl(url: string, townName: string): string {

@@ -1488,5 +1488,52 @@ ${prompt}`;
     }
   });
 
+  // Admin: Download PDF for an existing form (if it has an external URL but no file data)
+  app.post("/api/admin/town-forms/:id/download-pdf", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const form = await storage.getTownFormById(req.params.id);
+      if (!form) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      if (!form.externalUrl) {
+        return res.status(400).json({ message: "Form has no external URL to download from" });
+      }
+
+      console.log(`[Admin] Downloading PDF for form ${form.id} from ${form.externalUrl}`);
+      
+      const response = await fetch(form.externalUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0)',
+          'Accept': 'application/pdf,*/*',
+        },
+        redirect: 'follow',
+      });
+
+      if (!response.ok) {
+        return res.status(502).json({ message: `Failed to download: ${response.status} ${response.statusText}` });
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      const fileName = form.externalUrl.split('/').pop() || 'form.pdf';
+
+      await storage.updateTownForm(form.id, {
+        fileData: base64,
+        fileName,
+        fileType: 'application/pdf',
+      });
+
+      res.json({ 
+        message: "PDF downloaded successfully", 
+        fileName,
+        sizeKB: Math.round(arrayBuffer.byteLength / 1024)
+      });
+    } catch (error) {
+      console.error("Error downloading PDF:", error);
+      res.status(500).json({ message: "Failed to download PDF" });
+    }
+  });
+
   return httpServer;
 }

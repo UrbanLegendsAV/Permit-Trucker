@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -432,6 +432,22 @@ function FormsTab({
     },
   });
 
+  const downloadPdfMutation = useMutation({
+    mutationFn: async (formId: string) => {
+      return apiRequest("POST", `/api/admin/town-forms/${formId}/download-pdf`);
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/forms"] });
+      toast({ 
+        title: "PDF Downloaded", 
+        description: `Downloaded ${data.fileName} (${data.sizeKB}KB) from external source.` 
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to download PDF from external URL.", variant: "destructive" });
+    },
+  });
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, formId: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -572,31 +588,49 @@ function FormsTab({
                           View PDF
                         </Button>
                       ) : (
-                        <label>
-                          <input
-                            type="file"
-                            accept=".pdf"
-                            className="hidden"
-                            onChange={(e) => handleFileUpload(e, form.id)}
-                            disabled={uploading || uploadPdfMutation.isPending}
-                            data-testid={`input-upload-pdf-${form.id}`}
-                          />
-                          <Button
-                            size="sm"
-                            variant="default"
-                            asChild
-                            disabled={uploading || uploadPdfMutation.isPending}
-                          >
-                            <span>
-                              {uploading ? (
+                        <div className="flex items-center gap-2">
+                          {form.externalUrl && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => downloadPdfMutation.mutate(form.id)}
+                              disabled={downloadPdfMutation.isPending}
+                              data-testid={`button-download-pdf-${form.id}`}
+                            >
+                              {downloadPdfMutation.isPending ? (
                                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                               ) : (
-                                <Upload className="w-4 h-4 mr-1" />
+                                <Download className="w-4 h-4 mr-1" />
                               )}
-                              Upload PDF
-                            </span>
-                          </Button>
-                        </label>
+                              Fetch PDF
+                            </Button>
+                          )}
+                          <label>
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={(e) => handleFileUpload(e, form.id)}
+                              disabled={uploading || uploadPdfMutation.isPending}
+                              data-testid={`input-upload-pdf-${form.id}`}
+                            />
+                            <Button
+                              size="sm"
+                              variant="default"
+                              asChild
+                              disabled={uploading || uploadPdfMutation.isPending}
+                            >
+                              <span>
+                                {uploading ? (
+                                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Upload className="w-4 h-4 mr-1" />
+                                )}
+                                Upload PDF
+                              </span>
+                            </Button>
+                          </label>
+                        </div>
                       )}
                     </div>
                   </div>
