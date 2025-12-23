@@ -313,6 +313,7 @@ export default function NewPermit() {
             <TownSearch
               towns={towns}
               selectedState={newPermit.state}
+              selectedTownId={newPermit.townId}
               onSelectTown={handleTownSelect}
               isLoading={townsLoading}
             />

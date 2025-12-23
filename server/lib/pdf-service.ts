@@ -21,50 +21,100 @@ export interface FormTemplate {
   fields: Record<string, FieldMapping>;
 }
 
-export interface ParsedUserData {
+interface ParsedFieldValue {
+  value: string | null;
+  status?: string;
+  confidence?: number;
+  source_text?: string | null;
+}
+
+// Dynamic parsed data structure - matches Gemini AI extraction output
+// Using Record type for flexibility as Gemini outputs vary
+export type ParsedUserData = {
+  _meta?: Record<string, unknown>;
+  _parsedAt?: string;
+  _parsedBy?: string;
+  raw_text_extract?: string;
   contact_info?: {
-    business_name?: { value: string | null; status?: string };
-    owner_name?: { value: string | null; status?: string };
-    email?: { value: string | null; status?: string };
-    phone?: { value: string | null; status?: string };
-    address?: { value: string | null; status?: string };
-    city?: { value: string | null; status?: string };
-    state?: { value: string | null; status?: string };
-    zip?: { value: string | null; status?: string };
+    business_name?: ParsedFieldValue;
+    owner_name?: ParsedFieldValue;
+    applicant_name?: ParsedFieldValue;
+    email?: ParsedFieldValue;
+    phone?: ParsedFieldValue;
+    address?: ParsedFieldValue;
+    mailing_address?: ParsedFieldValue;
+    city?: ParsedFieldValue;
+    state?: ParsedFieldValue;
+    zip?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
   vehicle_info?: {
-    trailer_make?: { value: string | null; status?: string };
-    trailer_model?: { value: string | null; status?: string };
-    trailer_year?: { value: string | null; status?: string };
-    vin?: { value: string | null; status?: string };
-    license_plate?: { value: string | null; status?: string };
-    dimensions?: { value: string | null; status?: string };
+    trailer_make?: ParsedFieldValue;
+    trailer_model?: ParsedFieldValue;
+    trailer_year?: ParsedFieldValue;
+    vin?: ParsedFieldValue;
+    license_plate?: ParsedFieldValue;
+    dimensions?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
+  };
+  operations?: {
+    sanitizer_type?: ParsedFieldValue;
+    sanitizing_method?: ParsedFieldValue;
+    toilet_facilities?: ParsedFieldValue;
+    water_supply_type?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
+  };
+  safety?: {
+    hot_holding_method?: ParsedFieldValue;
+    cold_storage_method?: ParsedFieldValue;
+    waste_water_disposal?: ParsedFieldValue;
+    temperature_monitoring_method?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
+  };
+  license_info?: {
+    license_type?: ParsedFieldValue;
+    license_number?: ParsedFieldValue;
+    issuing_authority?: ParsedFieldValue;
+    valid_from?: ParsedFieldValue;
+    valid_thru?: ParsedFieldValue;
+    towns_covered?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
+  };
+  menu_and_prep?: {
+    food_items_list?: ParsedFieldValue;
+    prep_location?: ParsedFieldValue;
+    food_source_location?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
   equipment_info?: {
-    sanitizer_type?: { value: string | null; status?: string };
-    temp_monitoring?: { value: string | null; status?: string };
-    water_supply?: { value: string | null; status?: string };
-    waste_water?: { value: string | null; status?: string };
-    handwash_setup?: { value: string | null; status?: string };
-    refrigeration?: { value: string | null; status?: string };
-    cooking_equipment?: { value: string | null; status?: string };
+    sanitizer_type?: ParsedFieldValue;
+    temp_monitoring?: ParsedFieldValue;
+    water_supply?: ParsedFieldValue;
+    waste_water?: ParsedFieldValue;
+    handwash_setup?: ParsedFieldValue;
+    refrigeration?: ParsedFieldValue;
+    cooking_equipment?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
   food_info?: {
-    menu_items?: { value: string | null; status?: string };
-    food_sources?: { value: string | null; status?: string };
-    prep_methods?: { value: string | null; status?: string };
+    menu_items?: ParsedFieldValue;
+    food_sources?: ParsedFieldValue;
+    prep_methods?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
   certifications?: {
-    food_manager_cert?: { value: string | null; status?: string };
-    cert_expiration?: { value: string | null; status?: string };
-    license_number?: { value: string | null; status?: string };
+    food_manager_cert?: ParsedFieldValue;
+    cert_expiration?: ParsedFieldValue;
+    license_number?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
   commissary_info?: {
-    commissary_name?: { value: string | null; status?: string };
-    commissary_address?: { value: string | null; status?: string };
-    toilet_facilities?: { value: string | null; status?: string };
+    commissary_name?: ParsedFieldValue;
+    commissary_address?: ParsedFieldValue;
+    toilet_facilities?: ParsedFieldValue;
+    [key: string]: ParsedFieldValue | undefined;
   };
-}
+} & Record<string, Record<string, ParsedFieldValue | undefined> | string | Record<string, unknown> | undefined>;
 
 const FORM_TEMPLATES: Record<string, FormTemplate> = {
   "newtown_mfe": {
@@ -182,40 +232,82 @@ export async function fillPdfForm(
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const pages = pdfDoc.getPages();
 
+  // Helper to get value from various possible field names
+  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+    for (const field of fieldNames) {
+      const value = getFieldValue(userData, category, field);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  // Parse address components from mailing_address if individual fields don't exist
+  const mailingAddress = getFieldValue(userData, "contact_info", "mailing_address");
+  let parsedCity = getFieldValue(userData, "contact_info", "city");
+  let parsedState = getFieldValue(userData, "contact_info", "state");
+  let parsedZip = getFieldValue(userData, "contact_info", "zip");
+  let streetAddress = getFieldValue(userData, "contact_info", "address");
+  
+  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
+    // Try to parse: "126 Morningside Drive Bridgeport, CT 06606"
+    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+    if (match) {
+      if (!streetAddress) streetAddress = match[1];
+      if (!parsedCity) parsedCity = match[2];
+      if (!parsedState) parsedState = match[3];
+      if (!parsedZip) parsedZip = match[4];
+    } else if (!streetAddress) {
+      streetAddress = mailingAddress;
+    }
+  }
+
+  // Log field extraction for debugging
+  console.log("[PDF Service] Extracting data from parsed profile...");
+  console.log("[PDF Service] Business Name:", getFromAny("contact_info", "business_name"));
+  console.log("[PDF Service] Owner/Applicant:", getFromAny("contact_info", "owner_name", "applicant_name"));
+  console.log("[PDF Service] Email:", getFromAny("contact_info", "email"));
+  console.log("[PDF Service] Phone:", getFromAny("contact_info", "phone"));
+  console.log("[PDF Service] Address:", streetAddress);
+  console.log("[PDF Service] Menu Items:", getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"));
+  
   const fieldDataMap: Record<string, string | null> = {
-    "business_name": getFieldValue(userData, "contact_info", "business_name"),
-    "owner_name": getFieldValue(userData, "contact_info", "owner_name"),
-    "address": getFieldValue(userData, "contact_info", "address"),
-    "city": getFieldValue(userData, "contact_info", "city"),
-    "state": getFieldValue(userData, "contact_info", "state"),
-    "zip": getFieldValue(userData, "contact_info", "zip"),
-    "phone": getFieldValue(userData, "contact_info", "phone"),
-    "email": getFieldValue(userData, "contact_info", "email"),
-    "city_state_zip": [
-      getFieldValue(userData, "contact_info", "city"),
-      getFieldValue(userData, "contact_info", "state"),
-      getFieldValue(userData, "contact_info", "zip")
-    ].filter(Boolean).join(", "),
+    "business_name": getFromAny("contact_info", "business_name"),
+    "owner_name": getFromAny("contact_info", "owner_name", "applicant_name"),
+    "address": streetAddress,
+    "city": parsedCity,
+    "state": parsedState,
+    "zip": parsedZip,
+    "phone": getFromAny("contact_info", "phone"),
+    "email": getFromAny("contact_info", "email"),
+    "city_state_zip": [parsedCity, parsedState, parsedZip].filter(Boolean).join(", "),
     "trailer_info": [
-      getFieldValue(userData, "vehicle_info", "trailer_year"),
-      getFieldValue(userData, "vehicle_info", "trailer_make"),
-      getFieldValue(userData, "vehicle_info", "trailer_model")
+      getFromAny("vehicle_info", "trailer_year"),
+      getFromAny("vehicle_info", "trailer_make"),
+      getFromAny("vehicle_info", "trailer_model")
     ].filter(Boolean).join(" "),
-    "vin": getFieldValue(userData, "vehicle_info", "vin"),
-    "license_plate": getFieldValue(userData, "vehicle_info", "license_plate"),
-    "menu_items": getFieldValue(userData, "food_info", "menu_items"),
-    "sanitizer_type": getFieldValue(userData, "equipment_info", "sanitizer_type"),
-    "temp_monitoring": getFieldValue(userData, "equipment_info", "temp_monitoring"),
-    "commissary_name": getFieldValue(userData, "commissary_info", "commissary_name"),
-    "commissary_address": getFieldValue(userData, "commissary_info", "commissary_address"),
+    "vin": getFromAny("vehicle_info", "vin"),
+    "license_plate": getFromAny("license_info", "license_number", "vehicle_license_plate") || 
+                     getFromAny("vehicle_info", "license_plate"),
+    "menu_items": getFromAny("menu_and_prep", "food_items_list") || 
+                  getFromAny("food_info", "menu_items"),
+    "sanitizer_type": getFromAny("operations", "sanitizer_type") || 
+                      getFromAny("equipment_info", "sanitizer_type"),
+    "temp_monitoring": getFromAny("safety", "temperature_monitoring_method") ||
+                       getFromAny("equipment_info", "temp_monitoring"),
+    "commissary_name": getFromAny("menu_and_prep", "prep_location") ||
+                       getFromAny("commissary_info", "commissary_name"),
+    "commissary_address": getFromAny("commissary_info", "commissary_address"),
     "event_name": eventData?.eventName || null,
     "event_address": eventData?.eventAddress || null,
     "event_dates": eventData?.eventDates || null,
   };
 
-  const waterSupply = getFieldValue(userData, "equipment_info", "water_supply");
-  const wasteWater = getFieldValue(userData, "equipment_info", "waste_water");
-  const sanitizer = getFieldValue(userData, "equipment_info", "sanitizer_type");
+  const waterSupply = getFromAny("operations", "water_supply_type") ||
+                      getFromAny("equipment_info", "water_supply");
+  const wasteWater = getFromAny("safety", "waste_water_disposal") ||
+                     getFromAny("equipment_info", "waste_water");
+  const sanitizer = getFromAny("operations", "sanitizer_type") ||
+                    getFromAny("equipment_info", "sanitizer_type");
 
   for (const [fieldName, mapping] of Object.entries(template.fields)) {
     const page = pages[mapping.page];

@@ -16,6 +16,7 @@ interface TownSearchProps {
   towns: Town[];
   selectedState?: string;
   selectedCounty?: string;
+  selectedTownId?: string | null;
   onSelectTown: (town: Town) => void;
   isLoading?: boolean;
 }
@@ -24,6 +25,7 @@ export function TownSearch({
   towns, 
   selectedState = "CT",
   selectedCounty,
+  selectedTownId,
   onSelectTown,
   isLoading = false,
 }: TownSearchProps) {
@@ -134,7 +136,11 @@ export function TownSearch({
           {filteredTowns.map((town) => (
             <Card
               key={town.id}
-              className="p-4 cursor-pointer hover-elevate transition-all"
+              className={`p-4 cursor-pointer transition-all ${
+                selectedTownId === town.id 
+                  ? "ring-2 ring-primary bg-primary/5" 
+                  : "hover-elevate"
+              }`}
               onClick={() => onSelectTown(town)}
               data-testid={`town-card-${town.id}`}
             >

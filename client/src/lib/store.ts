@@ -158,6 +158,8 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         onboarding: state.onboarding,
         currentStep: state.currentStep,
+        newPermit: state.newPermit,
+        permitStep: state.permitStep,
       }),
     }
   )
