@@ -2,13 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { CheckCircle2, AlertCircle, HelpCircle, ChevronDown, Sparkles, Edit2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, HelpCircle, ChevronDown, Sparkles, Check } from "lucide-react";
 import { useState } from "react";
 
 interface ConfidenceField {
   value: string | string[] | null;
-  confidence: "high" | "medium" | "low";
+  confidence: number | "high" | "medium" | "low";
   source_text: string | null;
+  status?: "verified" | "needs_review";
 }
 
 interface ParsedGoldenData {
@@ -29,8 +30,9 @@ interface ParsedGoldenData {
 
 interface ParsedDataDisplayProps {
   data: ParsedGoldenData | null;
-  onVerify?: (category: string, field: string) => void;
+  onVerify?: (category: string, field: string, verified: boolean) => void;
   showAllFields?: boolean;
+  profileId?: string;
 }
 
 const FIELD_LABELS: Record<string, Record<string, string>> = {
@@ -76,11 +78,23 @@ const CATEGORY_TITLES: Record<string, string> = {
   license_info: "License Info"
 };
 
-function ConfidenceIcon({ confidence }: { confidence: "high" | "medium" | "low" }) {
-  if (confidence === "high") {
+function getConfidenceLevel(confidence: number | "high" | "medium" | "low"): "high" | "medium" | "low" {
+  if (typeof confidence === "string") return confidence;
+  if (confidence >= 80) return "high";
+  if (confidence >= 50) return "medium";
+  return "low";
+}
+
+function ConfidenceIcon({ confidence, status }: { confidence: number | "high" | "medium" | "low"; status?: "verified" | "needs_review" }) {
+  const level = getConfidenceLevel(confidence);
+  
+  if (status === "verified") {
     return <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />;
   }
-  if (confidence === "medium") {
+  if (level === "high") {
+    return <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />;
+  }
+  if (level === "medium") {
     return <AlertCircle className="w-3.5 h-3.5 text-yellow-600" />;
   }
   return <HelpCircle className="w-3.5 h-3.5 text-red-500" />;
@@ -94,7 +108,7 @@ function FieldItem({
 }: { 
   label: string; 
   field: ConfidenceField | undefined;
-  onVerify?: () => void;
+  onVerify?: (verified: boolean) => void;
   showMissing?: boolean;
 }) {
   const isMissing = !field || field.value === null || field.value === undefined || field.value === "";
@@ -107,27 +121,32 @@ function FieldItem({
       ? field.value.join(", ") 
       : field?.value;
 
-  const confidence = field?.confidence || "low";
-  const needsReview = isMissing || confidence === "low";
+  const confidence = field?.confidence ?? 0;
+  const confidenceLevel = getConfidenceLevel(confidence);
+  const isVerified = field?.status === "verified";
+  const needsReview = isMissing || (confidenceLevel !== "high" && !isVerified);
 
   return (
-    <div className={`flex items-start justify-between gap-2 py-1.5 border-b border-border/50 last:border-0 ${needsReview ? "bg-destructive/5 -mx-2 px-2 rounded" : ""}`}>
+    <div className={`flex items-start justify-between gap-2 py-1.5 border-b border-border/50 last:border-0 ${needsReview && !isVerified ? "bg-destructive/5 -mx-2 px-2 rounded" : ""}`}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <ConfidenceIcon confidence={confidence} />
+          <ConfidenceIcon confidence={confidence} status={field?.status} />
           <span className="text-xs text-muted-foreground">{label}</span>
+          {typeof confidence === "number" && confidence > 0 && (
+            <span className="text-[10px] text-muted-foreground">({confidence}%)</span>
+          )}
         </div>
         <p className={`text-sm truncate ${isMissing ? "text-muted-foreground italic" : ""}`}>{displayValue}</p>
       </div>
-      {needsReview && onVerify && (
+      {!isMissing && onVerify && (
         <Button 
-          variant="ghost" 
-          size="sm" 
-          className="h-6 px-2 text-xs text-destructive"
-          onClick={onVerify}
+          variant={isVerified ? "default" : "ghost"} 
+          size="icon"
+          className={`h-6 w-6 ${isVerified ? "bg-green-600 text-white" : ""}`}
+          onClick={() => onVerify(!isVerified)}
+          data-testid={`button-verify-${label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <Edit2 className="w-3 h-3 mr-1" />
-          Verify
+          <Check className="w-3 h-3" />
         </Button>
       )}
     </div>
@@ -142,7 +161,7 @@ function CategorySection({
 }: { 
   categoryKey: string;
   fields: Record<string, ConfidenceField> | undefined;
-  onVerify?: (category: string, field: string) => void;
+  onVerify?: (category: string, field: string, verified: boolean) => void;
   showAllFields?: boolean;
 }) {
   const labels = FIELD_LABELS[categoryKey] || {};
@@ -153,15 +172,19 @@ function CategorySection({
   const hasAnyValue = Object.values(fields).some(f => f?.value !== null && f?.value !== undefined);
   if (!hasAnyValue && !showAllFields) return null;
 
-  const lowConfCount = Object.values(fields).filter(f => f?.confidence === "low" || !f?.value).length;
+  const needsReviewCount = Object.values(fields).filter(f => {
+    if (!f?.value) return true;
+    const level = getConfidenceLevel(f.confidence);
+    return level !== "high" && f.status !== "verified";
+  }).length;
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{title}</h4>
-        {lowConfCount > 0 && (
+        {needsReviewCount > 0 && (
           <Badge variant="outline" className="text-xs border-red-500 text-red-500">
-            {lowConfCount} needs review
+            {needsReviewCount} needs review
           </Badge>
         )}
       </div>
@@ -171,7 +194,7 @@ function CategorySection({
             key={key} 
             label={labels[key] || key} 
             field={field}
-            onVerify={onVerify ? () => onVerify(categoryKey, key) : undefined}
+            onVerify={onVerify ? (verified: boolean) => onVerify(categoryKey, key, verified) : undefined}
             showMissing={showAllFields}
           />
         ))}

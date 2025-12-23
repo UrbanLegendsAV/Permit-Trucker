@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2 } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,7 +84,55 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const [docToDelete, setDocToDelete] = useState<{ doc: DocumentType; index: number } | null>(null);
   const [scanningDocIndex, setScanningDocIndex] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
+  const [isParsingAll, setIsParsingAll] = useState(false);
   const { toast } = useToast();
+
+  const handleParseAllDocuments = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsParsingAll(true);
+    try {
+      const response = await apiRequest("POST", `/api/profiles/${profile.id}/parse-all-documents`);
+      const data = await response.json();
+      if (data.success) {
+        toast({
+          title: "Documents Analyzed",
+          description: `Extracted data from ${data.documentsAnalyzed} documents.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      } else {
+        throw new Error(data.message || "Failed to parse documents");
+      }
+    } catch (error: any) {
+      toast({
+        title: "Analysis Failed",
+        description: error.message || "Could not analyze documents.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsingAll(false);
+    }
+  };
+
+  const handleVerifyField = async (category: string, field: string, verified: boolean) => {
+    try {
+      await apiRequest("PATCH", `/api/profiles/${profile.id}/parsed-data/verify`, {
+        category,
+        field,
+        verified
+      });
+      toast({
+        title: verified ? "Field Verified" : "Marked for Review",
+        description: `Updated field status successfully.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+    } catch (error: any) {
+      toast({
+        title: "Update Failed",
+        description: error.message || "Could not update field status.",
+        variant: "destructive",
+      });
+    }
+  };
   
   const VehicleIcon = profile.vehicleType === "truck" ? Truck : Caravan;
   const documents: DocumentType[] = profile.uploadsJson?.documents || [];
@@ -376,11 +425,38 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
               </div>
             )}
 
+            {hasDocuments && (
+              <div className="mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleParseAllDocuments}
+                  disabled={isParsingAll}
+                  className="w-full"
+                  data-testid="button-parse-all-documents"
+                >
+                  {isParsingAll ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Analyzing {documents.length} Documents...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      AI Analyze All Documents
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
             {profile.parsedDataLog && Object.keys(profile.parsedDataLog).length > 0 && (
               <div className="mt-3">
                 <ParsedDataDisplay 
                   data={profile.parsedDataLog as Record<string, unknown>}
                   showAllFields={true}
+                  onVerify={handleVerifyField}
+                  profileId={profile.id}
                 />
               </div>
             )}

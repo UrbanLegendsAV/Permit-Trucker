@@ -12,7 +12,164 @@ import {
   insertTownFormSchema,
   insertTownRequestSchema,
 } from "@shared/schema";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
+
+// Build the Golden Questions prompt with targeted extraction hints and 0-100 confidence scoring
+function buildGoldenQuestionsPrompt(): string {
+  return `You are analyzing food truck/vendor permit application documents. Extract information into these specific categories with NUMERIC confidence scores (0-100).
+
+IMPORTANT EXTRACTION HINTS - Look for these specific keywords:
+- SANITIZER TYPE: Look for "Chlorine", "Bleach", "Quaternary", "Quat", "Test Strips", "Sanitizing solution"
+- TEMP MONITORING: Look for "Metal Stem Thermometer", "Digital Probe", "Temperature Logs", "Temp Log"
+- WATER SUPPLY: Look for "Public Water", "Municipal Water", "Private Well", "Potable Water", "Fresh Water Tank"
+- WASTE WATER: Look for "Holding Tank", "Gray Water Tank", "Commissary Disposal", "Grease Trap", "Waste Tank"
+- MENU ITEMS: Look for food item lists, "Menu", "Food Items Prepared", "Products Sold"
+- TOILET FACILITIES: Look for "Public Restroom", "Portable Toilet", "Restroom Agreement"
+
+For each field, provide:
+- "value": The extracted value (or null if not found)
+- "confidence": A NUMBER 0-100 (100 = clearly visible/exact match, 80+ = found with minor inference, 50-79 = partial/inferred, <50 = guessed/unclear)
+- "source_text": The exact text snippet from the document that contains this info (or null if not found)
+- "status": "verified" if confidence >= 80, otherwise "needs_review"
+
+Return ONLY valid JSON in this exact structure:
+{
+  "contact_info": {
+    "business_name": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "applicant_name": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "phone": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "email": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "mailing_address": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" }
+  },
+  "operations": {
+    "water_supply_type": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "toilet_facilities": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "sanitizer_type": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "sanitizing_method": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" }
+  },
+  "safety": {
+    "temperature_monitoring_method": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "cold_storage_method": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "hot_holding_method": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "waste_water_disposal": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" }
+  },
+  "menu_and_prep": {
+    "food_items_list": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "food_source_location": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "prep_location": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" }
+  },
+  "license_info": {
+    "license_type": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "license_number": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "valid_from": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "valid_thru": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "issuing_authority": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" },
+    "towns_covered": { "value": null, "confidence": 0, "source_text": null, "status": "needs_review" }
+  },
+  "raw_text_extract": "First 500 characters of readable text from document...",
+  "_meta": {
+    "document_type": "permit|license|application|checklist|food_supply|plan_review|other",
+    "fields_found": 0,
+    "high_confidence_count": 0,
+    "medium_confidence_count": 0,
+    "low_confidence_count": 0
+  }
+}
+
+Fill in values where found. For confidence: 80-100 = high, 50-79 = medium, 0-49 = low. Return ONLY the JSON, no explanation.`;
+}
+
+// Parse and normalize Gemini response with confidence threshold logic
+function parseAndNormalizeGeminiResponse(result: GenerateContentResult): Record<string, unknown> | null {
+  let responseText: string;
+  try {
+    const candidate = result.response.candidates?.[0];
+    if (!candidate || !candidate.content?.parts?.[0]?.text) {
+      responseText = result.response.text();
+    } else {
+      responseText = candidate.content.parts[0].text;
+    }
+  } catch (textError) {
+    console.error("Failed to extract text from Gemini response:", textError);
+    return null;
+  }
+
+  let parsedData: Record<string, unknown>;
+  try {
+    let jsonText = responseText;
+    if (jsonText.includes("```json")) {
+      jsonText = jsonText.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+    } else if (jsonText.includes("```")) {
+      jsonText = jsonText.replace(/```\s*/g, "");
+    }
+    parsedData = JSON.parse(jsonText.trim());
+  } catch (parseError) {
+    console.error("Failed to parse Gemini response as JSON:", responseText);
+    return null;
+  }
+
+  // Normalize confidence scores and calculate meta counts
+  const categories = ["contact_info", "operations", "safety", "menu_and_prep", "license_info"];
+  let fieldsFound = 0;
+  let highCount = 0;
+  let mediumCount = 0;
+  let lowCount = 0;
+
+  for (const category of categories) {
+    const categoryData = parsedData[category] as Record<string, { value: unknown; confidence: number | string; source_text: unknown; status?: string }> | undefined;
+    if (categoryData && typeof categoryData === "object") {
+      for (const [key, field] of Object.entries(categoryData)) {
+        if (field && typeof field === "object" && "value" in field) {
+          // Convert string confidence to number if needed
+          let conf = typeof field.confidence === "string" 
+            ? (field.confidence === "high" ? 90 : field.confidence === "medium" ? 65 : 30)
+            : (typeof field.confidence === "number" ? field.confidence : 0);
+          
+          field.confidence = conf;
+          
+          // Auto-set status based on confidence threshold
+          if (field.value !== null && field.value !== undefined && field.value !== "") {
+            field.status = conf >= 80 ? "verified" : "needs_review";
+            fieldsFound++;
+            if (conf >= 80) highCount++;
+            else if (conf >= 50) mediumCount++;
+            else lowCount++;
+          } else {
+            field.status = "needs_review";
+          }
+        }
+      }
+    }
+  }
+
+  parsedData._meta = {
+    document_type: (parsedData._meta as Record<string, unknown>)?.document_type || "unknown",
+    fields_found: fieldsFound,
+    high_confidence_count: highCount,
+    medium_confidence_count: mediumCount,
+    low_confidence_count: lowCount
+  };
+
+  return parsedData;
+}
+
+// Save parsed data to profile
+async function saveParsedDataToProfile(profileId: string, parsedData: Record<string, unknown>): Promise<void> {
+  const profile = await storage.getProfile(profileId);
+  if (profile) {
+    const existingData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object') 
+      ? profile.parsedDataLog as Record<string, unknown>
+      : {};
+    
+    const timestampedData = {
+      ...parsedData,
+      _parsedAt: new Date().toISOString()
+    };
+    
+    const mergedData = { ...existingData, ...timestampedData };
+    await storage.updateProfile(profileId, { parsedDataLog: mergedData });
+  }
+}
 
 // Admin middleware - requires owner or admin role
 const isAdmin = async (req: any, res: Response, next: NextFunction) => {
@@ -176,7 +333,7 @@ export async function registerRoutes(
     }
   });
 
-  // Gemini Vision document parsing endpoint
+  // Gemini Vision document parsing endpoint (single document)
   app.post("/api/documents/parse-gemini", isAuthenticated, async (req: any, res) => {
     try {
       const { documentData, mimeType, profileId } = req.body;
@@ -206,59 +363,8 @@ export async function registerRoutes(
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      // Golden Questions prompt with confidence scoring
-      const prompt = `You are analyzing a food truck/vendor permit application or license document. Extract information into these specific categories with confidence scores.
-
-IMPORTANT: For each field, provide:
-- "value": The extracted value (or null if not found)
-- "confidence": "high" (clearly visible/stated), "medium" (inferred/partially visible), or "low" (guessed/unclear)
-- "source_text": The exact text snippet from the document that contains this info (or null if not found)
-
-Return ONLY valid JSON in this exact structure:
-{
-  "contact_info": {
-    "business_name": { "value": null, "confidence": "low", "source_text": null },
-    "applicant_name": { "value": null, "confidence": "low", "source_text": null },
-    "phone": { "value": null, "confidence": "low", "source_text": null },
-    "email": { "value": null, "confidence": "low", "source_text": null },
-    "mailing_address": { "value": null, "confidence": "low", "source_text": null }
-  },
-  "operations": {
-    "water_supply_type": { "value": null, "confidence": "low", "source_text": null },
-    "toilet_facilities": { "value": null, "confidence": "low", "source_text": null },
-    "sanitizer_type": { "value": null, "confidence": "low", "source_text": null },
-    "sanitizing_method": { "value": null, "confidence": "low", "source_text": null }
-  },
-  "safety": {
-    "temperature_monitoring_method": { "value": null, "confidence": "low", "source_text": null },
-    "cold_storage_method": { "value": null, "confidence": "low", "source_text": null },
-    "hot_holding_method": { "value": null, "confidence": "low", "source_text": null },
-    "waste_water_disposal": { "value": null, "confidence": "low", "source_text": null }
-  },
-  "menu_and_prep": {
-    "food_items_list": { "value": null, "confidence": "low", "source_text": null },
-    "food_source_location": { "value": null, "confidence": "low", "source_text": null },
-    "prep_location": { "value": null, "confidence": "low", "source_text": null }
-  },
-  "license_info": {
-    "license_type": { "value": null, "confidence": "low", "source_text": null },
-    "license_number": { "value": null, "confidence": "low", "source_text": null },
-    "valid_from": { "value": null, "confidence": "low", "source_text": null },
-    "valid_thru": { "value": null, "confidence": "low", "source_text": null },
-    "issuing_authority": { "value": null, "confidence": "low", "source_text": null },
-    "towns_covered": { "value": null, "confidence": "low", "source_text": null }
-  },
-  "raw_text_extract": "First 500 characters of readable text from document...",
-  "_meta": {
-    "document_type": "permit|license|application|checklist|other",
-    "fields_found": 0,
-    "high_confidence_count": 0,
-    "medium_confidence_count": 0,
-    "low_confidence_count": 0
-  }
-}
-
-Fill in values where found. Update _meta counts based on what you extracted. Return ONLY the JSON, no explanation.`;
+      // Golden Questions prompt with 0-100 confidence scoring and targeted hints
+      const prompt = buildGoldenQuestionsPrompt();
 
       let result;
       try {
@@ -284,97 +390,14 @@ Fill in values where found. Update _meta counts based on what you extracted. Ret
         });
       }
 
-      // Safely extract text from response
-      let responseText: string;
-      try {
-        const candidate = result.response.candidates?.[0];
-        if (!candidate || !candidate.content?.parts?.[0]?.text) {
-          responseText = result.response.text();
-        } else {
-          responseText = candidate.content.parts[0].text;
-        }
-      } catch (textError) {
-        console.error("Failed to extract text from Gemini response:", textError);
-        return res.status(502).json({ message: "Invalid response from AI service" });
+      const parsedData = parseAndNormalizeGeminiResponse(result);
+      if (!parsedData) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
       }
-      
-      // Parse the JSON response (handle potential markdown code blocks)
-      let parsedData: Record<string, unknown>;
-      try {
-        let jsonText = responseText;
-        // Remove markdown code blocks if present
-        if (jsonText.includes("```json")) {
-          jsonText = jsonText.replace(/```json\s*/g, "").replace(/```\s*/g, "");
-        } else if (jsonText.includes("```")) {
-          jsonText = jsonText.replace(/```\s*/g, "");
-        }
-        parsedData = JSON.parse(jsonText.trim());
-      } catch (parseError) {
-        console.error("Failed to parse Gemini response as JSON:", responseText);
-        return res.status(500).json({ 
-          message: "Failed to parse AI response as structured data", 
-          rawResponse: responseText.substring(0, 500) // Truncate for safety
-        });
-      }
-
-      // Validate and recalculate _meta counts to ensure accuracy
-      const validConfidenceLevels = ["high", "medium", "low"];
-      const categories = ["contact_info", "operations", "safety", "menu_and_prep", "license_info"];
-      let fieldsFound = 0;
-      let highCount = 0;
-      let mediumCount = 0;
-      let lowCount = 0;
-
-      for (const category of categories) {
-        const categoryData = parsedData[category] as Record<string, { value: unknown; confidence: string; source_text: unknown }> | undefined;
-        if (categoryData && typeof categoryData === "object") {
-          for (const [key, field] of Object.entries(categoryData)) {
-            if (field && typeof field === "object" && "value" in field) {
-              // Normalize confidence to valid values
-              if (!validConfidenceLevels.includes(field.confidence)) {
-                field.confidence = "low";
-              }
-              if (field.value !== null && field.value !== undefined && field.value !== "") {
-                fieldsFound++;
-                if (field.confidence === "high") highCount++;
-                else if (field.confidence === "medium") mediumCount++;
-                else lowCount++;
-              }
-            }
-          }
-        }
-      }
-
-      // Update or create _meta with validated counts
-      parsedData._meta = {
-        document_type: (parsedData._meta as Record<string, unknown>)?.document_type || "unknown",
-        fields_found: fieldsFound,
-        high_confidence_count: highCount,
-        medium_confidence_count: mediumCount,
-        low_confidence_count: lowCount
-      };
 
       // If profileId provided, save to profile's parsedDataLog with timestamp
       if (profileId) {
-        const profile = await storage.getProfile(profileId);
-        if (profile) {
-          // Safely handle null/undefined parsedDataLog
-          const existingData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object') 
-            ? profile.parsedDataLog as Record<string, unknown>
-            : {};
-          
-          // Add timestamp to track when data was parsed
-          const timestampedData = {
-            ...parsedData,
-            _parsedAt: new Date().toISOString()
-          };
-          
-          // Merge with existing data (new values overwrite old)
-          const mergedData = { ...existingData, ...timestampedData };
-          await storage.updateProfile(profileId, { 
-            parsedDataLog: mergedData 
-          });
-        }
+        await saveParsedDataToProfile(profileId, parsedData);
       }
 
       res.json({ 
@@ -388,6 +411,142 @@ Fill in values where found. Update _meta counts based on what you extracted. Ret
         message: "Failed to parse document",
         error: error.message || "Unknown error"
       });
+    }
+  });
+
+  // Multi-document parsing - analyzes ALL documents for a profile together
+  app.post("/api/profiles/:id/parse-all-documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const profile = await storage.getProfile(id);
+      
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const documents = profile.uploadsJson?.documents || [];
+      if (documents.length === 0) {
+        return res.status(400).json({ message: "No documents found for this profile" });
+      }
+
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ message: "GOOGLE_API_KEY not configured" });
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      // Build prompt with targeted hints
+      const prompt = buildGoldenQuestionsPrompt();
+
+      // Prepare all document parts for multi-document analysis
+      const documentParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+      const documentDescriptions: string[] = [];
+
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        if (!doc.base64 || !doc.type) continue;
+        
+        documentParts.push({
+          inlineData: {
+            mimeType: doc.type,
+            data: doc.base64
+          }
+        });
+        documentDescriptions.push(`Document ${i + 1}: ${doc.name || 'Unnamed'} (${doc.folder || 'Uncategorized'})`);
+      }
+
+      if (documentParts.length === 0) {
+        return res.status(400).json({ message: "No valid document data found" });
+      }
+
+      // Create multi-document context prompt
+      const multiDocPrompt = `You are analyzing ${documentParts.length} documents for a food truck/vendor permit application. 
+IMPORTANT: Search across ALL provided documents to find the answers. Information may be split across different documents (License, Plan Review, Food Supply list, etc.).
+
+Documents provided:
+${documentDescriptions.join('\n')}
+
+${prompt}`;
+
+      let result;
+      try {
+        result = await model.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: multiDocPrompt },
+              ...documentParts
+            ]
+          }]
+        });
+      } catch (apiError: any) {
+        console.error("Gemini API error:", apiError);
+        return res.status(502).json({ 
+          message: "Failed to communicate with AI service",
+          error: apiError.message || "Unknown API error"
+        });
+      }
+
+      const parsedData = parseAndNormalizeGeminiResponse(result);
+      if (!parsedData) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
+      }
+
+      // Save to profile
+      await saveParsedDataToProfile(id, parsedData);
+
+      res.json({ 
+        success: true, 
+        parsedData,
+        documentsAnalyzed: documentParts.length,
+        message: `Successfully analyzed ${documentParts.length} documents`
+      });
+    } catch (error: any) {
+      console.error("Error parsing all documents:", error);
+      res.status(500).json({ 
+        message: "Failed to parse documents",
+        error: error.message || "Unknown error"
+      });
+    }
+  });
+
+  // Verify a specific field in parsed data
+  app.patch("/api/profiles/:id/parsed-data/verify", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { category, field, verified } = req.body;
+
+      if (!category || !field) {
+        return res.status(400).json({ message: "category and field are required" });
+      }
+
+      const profile = await storage.getProfile(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object')
+        ? { ...profile.parsedDataLog as Record<string, unknown> }
+        : {};
+
+      // Update the field's verified status
+      const categoryData = parsedData[category] as Record<string, { value: unknown; confidence: number; source_text: unknown; status?: string }> | undefined;
+      if (categoryData && categoryData[field]) {
+        categoryData[field].status = verified ? "verified" : "needs_review";
+        parsedData[category] = categoryData;
+        parsedData._verifiedAt = new Date().toISOString();
+
+        await storage.updateProfile(id, { parsedDataLog: parsedData });
+        
+        res.json({ success: true, message: "Field verification updated" });
+      } else {
+        res.status(400).json({ message: "Field not found in parsed data" });
+      }
+    } catch (error: any) {
+      console.error("Error verifying field:", error);
+      res.status(500).json({ message: "Failed to verify field", error: error.message });
     }
   });
 
