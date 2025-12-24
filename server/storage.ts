@@ -102,14 +102,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProfile(profile: InsertProfile): Promise<Profile> {
-    const [newProfile] = await db.insert(profiles).values(profile).returning();
+    const [newProfile] = await db.insert(profiles).values(profile as any).returning();
     return newProfile;
   }
 
   async updateProfile(id: string, profile: Partial<InsertProfile>): Promise<Profile | undefined> {
     const [updated] = await db
       .update(profiles)
-      .set({ ...profile, updatedAt: new Date() })
+      .set({ ...profile, updatedAt: new Date() } as any)
       .where(eq(profiles.id, id))
       .returning();
     return updated;
@@ -129,14 +129,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPermit(permit: InsertPermit): Promise<Permit> {
-    const [newPermit] = await db.insert(permits).values(permit).returning();
+    const [newPermit] = await db.insert(permits).values(permit as any).returning();
     return newPermit;
   }
 
   async updatePermit(id: string, permit: Partial<InsertPermit>): Promise<Permit | undefined> {
     const [updated] = await db
       .update(permits)
-      .set({ ...permit, updatedAt: new Date() })
+      .set({ ...permit, updatedAt: new Date() } as any)
       .where(eq(permits.id, id))
       .returning();
     return updated;
@@ -159,14 +159,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTown(town: InsertTown): Promise<Town> {
-    const [newTown] = await db.insert(towns).values(town).returning();
+    const [newTown] = await db.insert(towns).values(town as any).returning();
     return newTown;
   }
 
   async updateTown(id: string, town: Partial<InsertTown>): Promise<Town | undefined> {
     const [updated] = await db
       .update(towns)
-      .set({ ...town, lastVerified: new Date() })
+      .set({ ...town, lastVerified: new Date() } as any)
       .where(eq(towns.id, id))
       .returning();
     return updated;
@@ -230,9 +230,14 @@ export class DatabaseStorage implements IStorage {
     await db.delete(towns).where(eq(towns.id, id));
   }
 
-  // Public profiles
+  // Public profiles - excludes demo data (userId starting with "demo-")
   async getPublicProfiles(): Promise<PublicProfile[]> {
-    return db.select().from(publicProfiles).where(eq(publicProfiles.isPublic, true));
+    return db.select().from(publicProfiles).where(
+      and(
+        eq(publicProfiles.isPublic, true),
+        sql`${publicProfiles.userId} NOT LIKE 'demo-%'`
+      )
+    );
   }
 
   async getPublicProfile(profileId: string): Promise<PublicProfile | undefined> {
@@ -246,14 +251,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPublicProfile(profile: InsertPublicProfile): Promise<PublicProfile> {
-    const [newProfile] = await db.insert(publicProfiles).values(profile).returning();
+    const [newProfile] = await db.insert(publicProfiles).values(profile as any).returning();
     return newProfile;
   }
 
   async updatePublicProfile(profileId: string, data: Partial<InsertPublicProfile>): Promise<PublicProfile | undefined> {
     const [updated] = await db
       .update(publicProfiles)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, updatedAt: new Date() } as any)
       .where(eq(publicProfiles.profileId, profileId))
       .returning();
     return updated;
@@ -435,14 +440,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createResearchJob(job: InsertResearchJob): Promise<ResearchJob> {
-    const [newJob] = await db.insert(researchJobs).values(job).returning();
+    const [newJob] = await db.insert(researchJobs).values(job as any).returning();
     return newJob;
   }
 
   async updateResearchJob(id: string, data: Partial<InsertResearchJob>): Promise<ResearchJob | undefined> {
     const [updated] = await db
       .update(researchJobs)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, updatedAt: new Date() } as any)
       .where(eq(researchJobs.id, id))
       .returning();
     return updated;

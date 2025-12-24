@@ -21,6 +21,8 @@ import {
   type ParsedUserData 
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
+import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
+import { sanitizeHtml } from "./lib/sanitize";
 import { z } from "zod";
 
 const generatePacketSchema = z.object({
@@ -348,7 +350,7 @@ export async function registerRoutes(
   });
 
   // Gemini Vision document parsing endpoint (single document)
-  app.post("/api/documents/parse-gemini", isAuthenticated, async (req: any, res) => {
+  app.post("/api/documents/parse-gemini", isAuthenticated, documentParseRateLimiter, async (req: any, res) => {
     try {
       const { documentData, mimeType, profileId } = req.body;
       
@@ -429,7 +431,7 @@ export async function registerRoutes(
   });
 
   // Multi-document parsing - analyzes ALL documents for a profile together
-  app.post("/api/profiles/:id/parse-all-documents", isAuthenticated, async (req: any, res) => {
+  app.post("/api/profiles/:id/parse-all-documents", isAuthenticated, documentParseRateLimiter, async (req: any, res) => {
     try {
       const { id } = req.params;
       const profile = await storage.getProfile(id);
@@ -1084,8 +1086,15 @@ ${prompt}`;
         return res.status(429).json({ message: "Too many reviews. Please try again later." });
       }
       
-      const data = { ...req.body, reviewerIp: clientIp };
-      const parsed = insertReviewSchema.safeParse(data);
+      // Sanitize user input to prevent XSS
+      const sanitizedBody = {
+        ...req.body,
+        text: sanitizeHtml(req.body.text),
+        reviewerName: sanitizeHtml(req.body.reviewerName),
+        reviewerIp: clientIp,
+      };
+      
+      const parsed = insertReviewSchema.safeParse(sanitizedBody);
       
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
@@ -1434,7 +1443,7 @@ ${prompt}`;
   // ========== Research Jobs (AI-powered town research) ==========
 
   // Admin: Manually trigger research for a town request
-  app.post("/api/admin/town-requests/:id/research", isAuthenticated, isAdmin, async (req, res) => {
+  app.post("/api/admin/town-requests/:id/research", isAuthenticated, isAdmin, researchRateLimiter, async (req, res) => {
     try {
       const townRequestId = req.params.id;
       const townRequest = await storage.getTownRequest(townRequestId);

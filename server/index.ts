@@ -4,6 +4,29 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedTowns } from "./seed";
 
+function validateEnvironment() {
+  const requiredEnvVars = ["GOOGLE_API_KEY"];
+  const missing: string[] = [];
+  
+  for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+      missing.push(envVar);
+    }
+  }
+  
+  if (missing.length > 0) {
+    console.error("========================================");
+    console.error("CRITICAL: MISSING REQUIRED API KEYS");
+    console.error("========================================");
+    console.error(`The following environment variables are not set: ${missing.join(", ")}`);
+    console.error("AI features (document parsing, town research) will not work.");
+    console.error("Please set these in the Secrets tab.");
+    console.error("========================================");
+  }
+}
+
+validateEnvironment();
+
 const app = express();
 const httpServer = createServer(app);
 
