@@ -9,6 +9,8 @@ export const vehicleTypeEnum = pgEnum("vehicle_type", ["truck", "trailer"]);
 export const permitTypeEnum = pgEnum("permit_type", ["yearly", "temporary", "seasonal"]);
 export const permitStatusEnum = pgEnum("permit_status", ["draft", "pending", "approved", "expired", "rejected"]);
 export const formTypeEnum = pgEnum("form_type", ["online_portal", "pdf_download", "mail_in"]);
+export const submissionMethodEnum = pgEnum("submission_method", ["online_only", "email_dropoff", "mail_dropoff", "in_person", "drop_box"]);
+export const portalProviderEnum = pgEnum("portal_provider", ["viewpoint_opengov", "citysquared", "accela", "cityview", "manual_pdf", "other"]);
 export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "explorer", "food_type", "first_permit", "multi_town", "speed_demon", "helper"]);
 export const badgeTierEnum = pgEnum("badge_tier", ["bronze", "silver", "gold"]);
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "denied"]);
@@ -47,6 +49,10 @@ export const towns = pgTable("towns", {
   permitTypes: text("permit_types").array(),
   portalUrl: text("portal_url"),
   formType: formTypeEnum("form_type").default("pdf_download"),
+  submissionMethod: submissionMethodEnum("submission_method"),
+  portalProvider: portalProviderEnum("portal_provider"),
+  portalProviderLabel: varchar("portal_provider_label", { length: 100 }),
+  healthDistrictName: varchar("health_district_name", { length: 200 }),
   requirementsJson: jsonb("requirements_json").$type<{
     coi: boolean;
     background: boolean;
