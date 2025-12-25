@@ -14,6 +14,8 @@ export const portalProviderEnum = pgEnum("portal_provider", ["viewpoint_opengov"
 export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "explorer", "food_type", "first_permit", "multi_town", "speed_demon", "helper"]);
 export const badgeTierEnum = pgEnum("badge_tier", ["bronze", "silver", "gold"]);
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "denied"]);
+export const submissionStatusEnum = pgEnum("submission_status", ["draft", "pending_review", "ready_to_submit", "submitted", "failed", "completed"]);
+export const submissionTypeEnum = pgEnum("submission_type", ["pdf_fill", "portal_automation", "manual"]);
 
 export const profiles = pgTable("profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -385,3 +387,206 @@ export const insertResearchJobSchema = createInsertSchema(researchJobs).omit({
 
 export type InsertResearchJob = z.infer<typeof insertResearchJobSchema>;
 export type ResearchJob = typeof researchJobs.$inferSelect;
+
+// Master Data Vault - Single source of truth for all permit application data
+export const dataVaults = pgTable("data_vaults", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  
+  // Business Information
+  businessName: varchar("business_name", { length: 200 }),
+  tradeName: varchar("trade_name", { length: 200 }),
+  ownerName: varchar("owner_name", { length: 200 }),
+  ownerTitle: varchar("owner_title", { length: 100 }),
+  ein: varchar("ein", { length: 20 }),
+  
+  // Contact Information
+  phone: varchar("phone", { length: 20 }),
+  altPhone: varchar("alt_phone", { length: 20 }),
+  email: varchar("email", { length: 200 }),
+  
+  // Mailing Address
+  mailingStreet: varchar("mailing_street", { length: 200 }),
+  mailingCity: varchar("mailing_city", { length: 100 }),
+  mailingState: varchar("mailing_state", { length: 2 }),
+  mailingZip: varchar("mailing_zip", { length: 10 }),
+  
+  // Business/Physical Address
+  businessStreet: varchar("business_street", { length: 200 }),
+  businessCity: varchar("business_city", { length: 100 }),
+  businessState: varchar("business_state", { length: 2 }),
+  businessZip: varchar("business_zip", { length: 10 }),
+  
+  // Vehicle Information
+  vehicleType: vehicleTypeEnum("vehicle_type"),
+  vehicleMake: varchar("vehicle_make", { length: 100 }),
+  vehicleModel: varchar("vehicle_model", { length: 100 }),
+  vehicleYear: varchar("vehicle_year", { length: 4 }),
+  vehicleLicensePlate: varchar("vehicle_license_plate", { length: 20 }),
+  vehicleVin: varchar("vehicle_vin", { length: 50 }),
+  vehicleLength: varchar("vehicle_length", { length: 20 }),
+  vehicleWidth: varchar("vehicle_width", { length: 20 }),
+  
+  // Operations & Equipment
+  waterSupplyType: varchar("water_supply_type", { length: 50 }), // public, private, bottled
+  waterTankCapacity: varchar("water_tank_capacity", { length: 50 }),
+  wastewaterTankCapacity: varchar("wastewater_tank_capacity", { length: 50 }),
+  hasPropane: boolean("has_propane").default(false),
+  propaneDetails: text("propane_details"),
+  hasFireExtinguisher: boolean("has_fire_extinguisher").default(true),
+  hasThreeCompartmentSink: boolean("has_three_compartment_sink").default(false),
+  hasHandwashSink: boolean("has_handwash_sink").default(true),
+  hasHotHoldingEquipment: boolean("has_hot_holding_equipment").default(false),
+  hotHoldingMethod: text("hot_holding_method"),
+  hasColdHoldingEquipment: boolean("has_cold_holding_equipment").default(false),
+  coldHoldingMethod: text("cold_holding_method"),
+  sanitizerType: varchar("sanitizer_type", { length: 100 }),
+  
+  // Commissary Information
+  commissaryName: varchar("commissary_name", { length: 200 }),
+  commissaryAddress: text("commissary_address"),
+  commissaryPhone: varchar("commissary_phone", { length: 20 }),
+  commissaryContactName: varchar("commissary_contact_name", { length: 200 }),
+  commissaryAgreementExpiry: timestamp("commissary_agreement_expiry"),
+  
+  // Prep & Food Info
+  prepLocationAddress: text("prep_location_address"),
+  prepLocationDescription: text("prep_location_description"),
+  menuDescription: text("menu_description"),
+  foodItemsList: text("food_items_list").array(),
+  foodSourceLocations: text("food_source_locations").array(),
+  
+  // Certifications & Insurance
+  foodHandlerCertNumber: varchar("food_handler_cert_number", { length: 100 }),
+  foodHandlerCertExpiry: timestamp("food_handler_cert_expiry"),
+  liabilityInsuranceCarrier: varchar("liability_insurance_carrier", { length: 200 }),
+  liabilityInsurancePolicyNumber: varchar("liability_insurance_policy_number", { length: 100 }),
+  liabilityInsuranceExpiry: timestamp("liability_insurance_expiry"),
+  
+  // Metadata about data quality
+  confidenceScores: jsonb("confidence_scores").$type<Record<string, number>>(),
+  fieldSources: jsonb("field_sources").$type<Record<string, string>>(),
+  lastSyncedFromParsedLog: timestamp("last_synced_from_parsed_log"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Submission Jobs - Track permit submission attempts
+export const submissionJobs = pgTable("submission_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  permitId: varchar("permit_id").references(() => permits.id),
+  townId: varchar("town_id").references(() => towns.id),
+  vaultId: varchar("vault_id").references(() => dataVaults.id),
+  
+  // Submission details
+  submissionType: submissionTypeEnum("submission_type").notNull(),
+  status: submissionStatusEnum("status").default("draft"),
+  
+  // Generated artifacts
+  filledPdfData: text("filled_pdf_data"), // base64 of filled PDF
+  filledPdfFilename: varchar("filled_pdf_filename", { length: 200 }),
+  portalSessionData: jsonb("portal_session_data").$type<Record<string, unknown>>(),
+  
+  // Datalab integration
+  datalabRequestId: varchar("datalab_request_id", { length: 100 }),
+  datalabStatus: varchar("datalab_status", { length: 50 }),
+  datalabResponse: jsonb("datalab_response").$type<Record<string, unknown>>(),
+  
+  // Portal automation
+  portalCredentialId: varchar("portal_credential_id"),
+  portalNavigationLog: jsonb("portal_navigation_log").$type<Array<{ step: string; timestamp: string; success: boolean; error?: string }>>(),
+  
+  // Review tracking
+  previewGenerated: boolean("preview_generated").default(false),
+  userReviewedAt: timestamp("user_reviewed_at"),
+  userApproved: boolean("user_approved").default(false),
+  submittedAt: timestamp("submitted_at"),
+  
+  // Error handling
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
+  maxRetries: integer("max_retries").default(3),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Portal Credentials - Encrypted storage for ViewPoint/OpenGov logins
+export const portalCredentials = pgTable("portal_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  townId: varchar("town_id").references(() => towns.id),
+  portalProvider: portalProviderEnum("portal_provider"),
+  
+  // Encrypted credentials (use Replit secrets for encryption key)
+  encryptedUsername: text("encrypted_username"),
+  encryptedPassword: text("encrypted_password"),
+  
+  // Session management
+  lastLoginAt: timestamp("last_login_at"),
+  lastLoginSuccess: boolean("last_login_success"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Relations for new tables
+export const dataVaultsRelations = relations(dataVaults, ({ one }) => ({
+  profile: one(profiles, {
+    fields: [dataVaults.profileId],
+    references: [profiles.id],
+  }),
+}));
+
+export const submissionJobsRelations = relations(submissionJobs, ({ one }) => ({
+  permit: one(permits, {
+    fields: [submissionJobs.permitId],
+    references: [permits.id],
+  }),
+  town: one(towns, {
+    fields: [submissionJobs.townId],
+    references: [towns.id],
+  }),
+  vault: one(dataVaults, {
+    fields: [submissionJobs.vaultId],
+    references: [dataVaults.id],
+  }),
+}));
+
+export const portalCredentialsRelations = relations(portalCredentials, ({ one }) => ({
+  town: one(towns, {
+    fields: [portalCredentials.townId],
+    references: [towns.id],
+  }),
+}));
+
+// Insert schemas for new tables
+export const insertDataVaultSchema = createInsertSchema(dataVaults).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSubmissionJobSchema = createInsertSchema(submissionJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPortalCredentialSchema = createInsertSchema(portalCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDataVault = z.infer<typeof insertDataVaultSchema>;
+export type DataVault = typeof dataVaults.$inferSelect;
+
+export type InsertSubmissionJob = z.infer<typeof insertSubmissionJobSchema>;
+export type SubmissionJob = typeof submissionJobs.$inferSelect;
+
+export type InsertPortalCredential = z.infer<typeof insertPortalCredentialSchema>;
+export type PortalCredential = typeof portalCredentials.$inferSelect;

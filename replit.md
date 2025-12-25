@@ -6,7 +6,7 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 The platform uses a "pioneer" model where early users help build the knowledge base by contributing verified permit requirements for new towns, creating a crowd-sourced database of municipal permitting information.
 
-**Current Status**: Phase 3 In Progress (TruckPermitAI - Intelligent Form Filling)
+**Current Status**: Phase 4 In Progress (Autonomous Permit Filling Infrastructure)
 See `PROGRESS.md` for detailed feature tracking.
 
 Recent additions include:
@@ -17,6 +17,11 @@ Recent additions include:
 - Town selection visual highlighting in permit wizard
 - Auto-fill from profile data (business name, address, phone, etc.)
 - AI-powered town research automation (auto-researches new town submissions using Gemini 2.5 Flash)
+- **Master Data Vault** - Single source of truth for all user data (50+ fields synced from parsed documents)
+- **Datalab API Integration** - AI-powered PDF form filling with semantic field matching
+- **Playwright Portal Automation** - Browser automation for ViewPoint/OpenGov permit portals
+- **Draft & Review Workflow** - Submission jobs with preview before final submit
+- **Encrypted Portal Credentials** - AES-256-CBC encrypted storage for portal logins
 
 ## User Preferences
 
@@ -59,6 +64,9 @@ The frontend follows a mobile-first design pattern with:
   - `portal_mappings`: Field selectors for auto-fill functionality
   - `town_requests`: Pioneer submissions for new towns (with research tracking)
   - `research_jobs`: AI-powered town research pipeline tracking
+  - `data_vaults`: Master Data Vault with 50+ fields (single source of truth)
+  - `submission_jobs`: PDF filling and portal automation job tracking
+  - `portal_credentials`: Encrypted portal login credentials
   - `sessions` & `users`: Replit Auth required tables (with role enum)
 
 ### Authentication
@@ -110,7 +118,60 @@ The frontend follows a mobile-first design pattern with:
 - **nanoid**: ID generation
 - **Tesseract.js**: Client-side OCR for document scanning
 
+### AI & Automation
+- **Datalab API**: External service for AI-powered PDF form filling (https://www.datalab.to/api/v1/fill)
+- **Playwright**: Browser automation for portal form submission
+- **Gemini 2.5 Flash**: Document parsing and town research automation
+
+### Security
+- **DOMPurify**: XSS sanitization for user-generated content
+- **express-rate-limit**: API rate limiting (document parsing, research endpoints)
+- **crypto (Node.js)**: AES-256-CBC encryption for portal credentials
+
 ### Development
 - **Vite**: Development server and build tool
 - **tsx**: TypeScript execution for server
 - **esbuild**: Production server bundling
+
+## New Backend Services
+
+### Vault Service (`server/lib/vault-service.ts`)
+- `syncParsedDataToVault(profileId)`: Syncs parsed document data to Master Data Vault
+- `getVaultDataForPdfFill(vault)`: Formats vault data for Datalab API field_data
+- `getVaultCompleteness(vaultId)`: Calculates completeness score and lists missing/low-confidence fields
+
+### Datalab Service (`server/lib/datalab-service.ts`)
+- `fillPdfWithDatalab(request)`: Submits PDF to Datalab for AI filling
+- `checkDatalabResult(requestCheckUrl)`: Polls for async completion
+- `createPdfFillJob(...)`: Creates submission job and initiates filling
+- `pollDatalabJob(jobId)`: Checks job status and retrieves filled PDF
+- `startAutoPdfFill(...)`: Auto-fills using town's configured form
+
+### Portal Automation Service (`server/lib/portal-automation-service.ts`)
+- `storePortalCredentials(...)`: Encrypts and stores portal login credentials
+- `getDecryptedCredentials(credentialId)`: Retrieves decrypted credentials
+- `createPortalAutomationJob(...)`: Creates job for browser automation
+- `executePortalAutomation(jobId)`: Runs Playwright automation against portal
+- `approveAndSubmit(jobId)`: User approves and finalizes submission
+
+## API Endpoints (Vault & Submissions)
+
+### Vault Endpoints
+- `POST /api/vault/sync/:profileId` - Sync parsed data to vault
+- `GET /api/vault` - Get user's vault with completeness score
+- `GET /api/vault/:id/completeness` - Get vault completeness
+- `GET /api/vault/:id/pdf-fields` - Get data formatted for PDF filling
+
+### Submission Endpoints
+- `POST /api/submissions/pdf-fill` - Create PDF fill job
+- `POST /api/submissions/auto-fill` - Start auto PDF fill
+- `GET /api/submissions/:jobId/poll` - Poll job status
+- `GET /api/submissions` - Get user's submission jobs
+- `GET /api/submissions/:jobId` - Get specific job
+- `GET /api/submissions/:jobId/pdf` - Download filled PDF
+- `POST /api/submissions/:jobId/approve` - Approve and submit
+
+### Portal Automation Endpoints
+- `POST /api/portal-credentials` - Store encrypted credentials
+- `POST /api/submissions/portal-automation` - Create automation job
+- `POST /api/submissions/:jobId/execute` - Execute portal automation

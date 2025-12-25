@@ -23,7 +23,37 @@ import {
 import { townResearchService } from "./lib/town-research-service";
 import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
+import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
+import { createPdfFillJob, pollDatalabJob, startAutoPdfFill } from "./lib/datalab-service";
+import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured } from "./lib/portal-automation-service";
 import { z } from "zod";
+
+const pdfFillSchema = z.object({
+  permitId: z.string().min(1, "Permit ID is required"),
+  townId: z.string().min(1, "Town ID is required"),
+  vaultId: z.string().min(1, "Vault ID is required"),
+  pdfBase64: z.string().min(1, "PDF data is required"),
+  pdfFilename: z.string().optional(),
+});
+
+const autoFillSchema = z.object({
+  permitId: z.string().min(1, "Permit ID is required"),
+  townId: z.string().min(1, "Town ID is required"),
+  vaultId: z.string().min(1, "Vault ID is required"),
+});
+
+const portalCredentialsSchema = z.object({
+  townId: z.string().min(1, "Town ID is required"),
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+const portalAutomationSchema = z.object({
+  permitId: z.string().min(1, "Permit ID is required"),
+  townId: z.string().min(1, "Town ID is required"),
+  vaultId: z.string().min(1, "Vault ID is required"),
+  credentialId: z.string().min(1, "Credential ID is required"),
+});
 
 const generatePacketSchema = z.object({
   templateId: z.string().min(1, "Template ID is required"),
@@ -1541,6 +1571,368 @@ ${prompt}`;
     } catch (error) {
       console.error("Error downloading PDF:", error);
       res.status(500).json({ message: "Failed to download PDF" });
+    }
+  });
+
+  // ============================================
+  // Data Vault & Submission Job Endpoints
+  // ============================================
+
+  // Sync parsed data to vault
+  app.post("/api/vault/sync/:profileId", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const profile = await storage.getProfile(req.params.profileId);
+      
+      if (!profile || profile.userId !== user.id) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const vault = await syncParsedDataToVault(req.params.profileId);
+      if (!vault) {
+        return res.status(400).json({ message: "No parsed data to sync" });
+      }
+
+      res.json(vault);
+    } catch (error) {
+      console.error("Error syncing to vault:", error);
+      res.status(500).json({ message: "Failed to sync data to vault" });
+    }
+  });
+
+  // Get user's vault
+  app.get("/api/vault", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const vault = await storage.getDataVaultByUserId(user.id);
+      
+      if (!vault) {
+        return res.status(404).json({ message: "No vault found" });
+      }
+
+      const completeness = await getVaultCompleteness(vault.id);
+      res.json({ ...vault, completeness });
+    } catch (error) {
+      console.error("Error fetching vault:", error);
+      res.status(500).json({ message: "Failed to fetch vault" });
+    }
+  });
+
+  // Get vault completeness score
+  app.get("/api/vault/:id/completeness", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const vault = await storage.getDataVault(req.params.id);
+      
+      if (!vault) {
+        return res.status(404).json({ message: "Vault not found" });
+      }
+      
+      if (vault.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const completeness = await getVaultCompleteness(req.params.id);
+      res.json(completeness);
+    } catch (error) {
+      console.error("Error calculating completeness:", error);
+      res.status(500).json({ message: "Failed to calculate completeness" });
+    }
+  });
+
+  // Get vault data formatted for PDF filling
+  app.get("/api/vault/:id/pdf-fields", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const vault = await storage.getDataVault(req.params.id);
+      
+      if (!vault) {
+        return res.status(404).json({ message: "Vault not found" });
+      }
+
+      if (vault.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const fieldData = getVaultDataForPdfFill(vault);
+      res.json(fieldData);
+    } catch (error) {
+      console.error("Error getting PDF fields:", error);
+      res.status(500).json({ message: "Failed to get PDF field data" });
+    }
+  });
+
+  // Create a PDF fill submission job
+  app.post("/api/submissions/pdf-fill", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const validation = pdfFillSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error.errors[0].message });
+      }
+      
+      const { permitId, townId, vaultId, pdfBase64, pdfFilename } = validation.data;
+
+      const vault = await storage.getDataVault(vaultId);
+      if (!vault || vault.userId !== user.id) {
+        return res.status(403).json({ message: "Vault not found or access denied" });
+      }
+
+      const job = await createPdfFillJob(
+        user.id,
+        permitId,
+        townId,
+        vaultId,
+        pdfBase64,
+        pdfFilename || "permit_application.pdf"
+      );
+
+      if (!job) {
+        return res.status(400).json({ message: "Failed to create fill job" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Error creating PDF fill job:", error);
+      res.status(500).json({ message: "Failed to create PDF fill job" });
+    }
+  });
+
+  // Start auto PDF fill using town's configured form
+  app.post("/api/submissions/auto-fill", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const validation = autoFillSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error.errors[0].message });
+      }
+      
+      const { permitId, townId, vaultId } = validation.data;
+
+      const vault = await storage.getDataVault(vaultId);
+      if (!vault || vault.userId !== user.id) {
+        return res.status(403).json({ message: "Vault not found or access denied" });
+      }
+
+      const result = await startAutoPdfFill(user.id, permitId, townId, vaultId);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error });
+      }
+
+      res.json({ jobId: result.jobId });
+    } catch (error) {
+      console.error("Error starting auto PDF fill:", error);
+      res.status(500).json({ message: "Failed to start auto PDF fill" });
+    }
+  });
+
+  // Poll Datalab job status
+  app.get("/api/submissions/:jobId/poll", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const existingJob = await storage.getSubmissionJob(req.params.jobId);
+      
+      if (!existingJob) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (existingJob.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const job = await pollDatalabJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Error polling job:", error);
+      res.status(500).json({ message: "Failed to poll job status" });
+    }
+  });
+
+  // Get user's submission jobs
+  app.get("/api/submissions", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const jobs = await storage.getSubmissionJobsByUser(user.id);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching submissions:", error);
+      res.status(500).json({ message: "Failed to fetch submissions" });
+    }
+  });
+
+  // Get submission job by ID
+  app.get("/api/submissions/:jobId", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const job = await storage.getSubmissionJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Error fetching submission:", error);
+      res.status(500).json({ message: "Failed to fetch submission" });
+    }
+  });
+
+  // Get filled PDF data for download/preview
+  app.get("/api/submissions/:jobId/pdf", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const job = await storage.getSubmissionJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (!job.filledPdfData) {
+        return res.status(400).json({ message: "No filled PDF available" });
+      }
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", 'attachment; filename="filled_permit.pdf"');
+      res.send(Buffer.from(job.filledPdfData, "base64"));
+    } catch (error) {
+      console.error("Error fetching PDF:", error);
+      res.status(500).json({ message: "Failed to fetch PDF" });
+    }
+  });
+
+  // Approve and submit a job
+  app.post("/api/submissions/:jobId/approve", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const job = await storage.getSubmissionJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const result = await approveAndSubmit(req.params.jobId);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error });
+      }
+
+      res.json({ message: "Submission approved successfully" });
+    } catch (error) {
+      console.error("Error approving submission:", error);
+      res.status(500).json({ message: "Failed to approve submission" });
+    }
+  });
+
+  // Store portal credentials (encrypted)
+  app.post("/api/portal-credentials", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      
+      if (!isEncryptionConfigured()) {
+        return res.status(503).json({ message: "Credential storage is not configured on this server" });
+      }
+      
+      const validation = portalCredentialsSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error.errors[0].message });
+      }
+      
+      const { townId, username, password } = validation.data;
+
+      const credential = await storePortalCredentials(user.id, townId, username, password);
+      res.json({ id: credential.id, townId: credential.townId });
+    } catch (error) {
+      console.error("Error storing credentials:", error);
+      res.status(500).json({ message: "Failed to store credentials" });
+    }
+  });
+
+  // Create portal automation job
+  app.post("/api/submissions/portal-automation", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const validation = portalAutomationSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error.errors[0].message });
+      }
+      
+      const { permitId, townId, vaultId, credentialId } = validation.data;
+
+      const vault = await storage.getDataVault(vaultId);
+      if (!vault || vault.userId !== user.id) {
+        return res.status(403).json({ message: "Vault not found or access denied" });
+      }
+
+      const credential = await storage.getPortalCredential(credentialId);
+      if (!credential || credential.userId !== user.id) {
+        return res.status(403).json({ message: "Credential not found or access denied" });
+      }
+
+      const job = await createPortalAutomationJob(
+        user.id,
+        permitId,
+        townId,
+        vaultId,
+        credentialId
+      );
+
+      if (!job) {
+        return res.status(400).json({ message: "Failed to create automation job" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Error creating automation job:", error);
+      res.status(500).json({ message: "Failed to create automation job" });
+    }
+  });
+
+  // Execute portal automation
+  app.post("/api/submissions/:jobId/execute", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const job = await storage.getSubmissionJob(req.params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.userId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const result = await executePortalAutomation(req.params.jobId);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error });
+      }
+
+      res.json({ message: "Automation executed successfully" });
+    } catch (error) {
+      console.error("Error executing automation:", error);
+      res.status(500).json({ message: "Failed to execute automation" });
     }
   });
 

@@ -9,9 +9,7 @@ export const aiRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.headers["x-forwarded-for"] as string || "unknown";
-  },
+  validate: { xForwardedForHeader: false },
 });
 
 export const documentParseRateLimiter = rateLimit({
@@ -23,9 +21,7 @@ export const documentParseRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.headers["x-forwarded-for"] as string || "unknown";
-  },
+  validate: { xForwardedForHeader: false },
 });
 
 export const researchRateLimiter = rateLimit({
@@ -37,7 +33,5 @@ export const researchRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.headers["x-forwarded-for"] as string || "unknown";
-  },
+  validate: { xForwardedForHeader: false },
 });

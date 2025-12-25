@@ -1,5 +1,5 @@
 import { 
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -11,6 +11,9 @@ import {
   type TownForm, type InsertTownForm,
   type TownRequest, type InsertTownRequest,
   type ResearchJob, type InsertResearchJob,
+  type DataVault, type InsertDataVault,
+  type SubmissionJob, type InsertSubmissionJob,
+  type PortalCredential, type InsertPortalCredential,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -455,6 +458,95 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingResearchJobs(): Promise<ResearchJob[]> {
     return db.select().from(researchJobs).where(eq(researchJobs.status, "pending")).orderBy(researchJobs.createdAt);
+  }
+
+  // Data Vault methods
+  async getDataVault(id: string): Promise<DataVault | undefined> {
+    const [vault] = await db.select().from(dataVaults).where(eq(dataVaults.id, id));
+    return vault;
+  }
+
+  async getDataVaultByProfileId(profileId: string): Promise<DataVault | undefined> {
+    const [vault] = await db.select().from(dataVaults).where(eq(dataVaults.profileId, profileId));
+    return vault;
+  }
+
+  async getDataVaultByUserId(userId: string): Promise<DataVault | undefined> {
+    const [vault] = await db.select().from(dataVaults).where(eq(dataVaults.userId, userId));
+    return vault;
+  }
+
+  async createDataVault(vault: InsertDataVault): Promise<DataVault> {
+    const [newVault] = await db.insert(dataVaults).values(vault as any).returning();
+    return newVault;
+  }
+
+  async updateDataVault(id: string, data: Partial<InsertDataVault>): Promise<DataVault | undefined> {
+    const [updated] = await db
+      .update(dataVaults)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(dataVaults.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Submission Job methods
+  async getSubmissionJob(id: string): Promise<SubmissionJob | undefined> {
+    const [job] = await db.select().from(submissionJobs).where(eq(submissionJobs.id, id));
+    return job;
+  }
+
+  async getSubmissionJobsByUser(userId: string): Promise<SubmissionJob[]> {
+    return db.select().from(submissionJobs).where(eq(submissionJobs.userId, userId)).orderBy(desc(submissionJobs.createdAt));
+  }
+
+  async getSubmissionJobsByPermit(permitId: string): Promise<SubmissionJob[]> {
+    return db.select().from(submissionJobs).where(eq(submissionJobs.permitId, permitId)).orderBy(desc(submissionJobs.createdAt));
+  }
+
+  async createSubmissionJob(job: InsertSubmissionJob): Promise<SubmissionJob> {
+    const [newJob] = await db.insert(submissionJobs).values(job as any).returning();
+    return newJob;
+  }
+
+  async updateSubmissionJob(id: string, data: Partial<InsertSubmissionJob>): Promise<SubmissionJob | undefined> {
+    const [updated] = await db
+      .update(submissionJobs)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(submissionJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getPendingSubmissionJobs(): Promise<SubmissionJob[]> {
+    return db.select().from(submissionJobs).where(eq(submissionJobs.status, "draft")).orderBy(submissionJobs.createdAt);
+  }
+
+  // Portal Credentials methods
+  async getPortalCredential(id: string): Promise<PortalCredential | undefined> {
+    const [cred] = await db.select().from(portalCredentials).where(eq(portalCredentials.id, id));
+    return cred;
+  }
+
+  async getPortalCredentialByUserAndTown(userId: string, townId: string): Promise<PortalCredential | undefined> {
+    const [cred] = await db.select().from(portalCredentials).where(
+      and(eq(portalCredentials.userId, userId), eq(portalCredentials.townId, townId))
+    );
+    return cred;
+  }
+
+  async createPortalCredential(cred: InsertPortalCredential): Promise<PortalCredential> {
+    const [newCred] = await db.insert(portalCredentials).values(cred as any).returning();
+    return newCred;
+  }
+
+  async updatePortalCredential(id: string, data: Partial<InsertPortalCredential>): Promise<PortalCredential | undefined> {
+    const [updated] = await db
+      .update(portalCredentials)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(portalCredentials.id, id))
+      .returning();
+    return updated;
   }
 }
 
