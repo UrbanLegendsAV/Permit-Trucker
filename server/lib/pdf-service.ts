@@ -2,6 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import * as fs from "fs";
 import * as path from "path";
+import type { TownForm } from "@shared/schema";
 
 export interface FieldMapping {
   page: number;
@@ -537,4 +538,175 @@ export function getAvailableTemplates(): { formId: string; formName: string; tow
 
 export function getTemplateById(templateId: string): FormTemplate | undefined {
   return FORM_TEMPLATES[templateId];
+}
+
+/**
+ * Fill a PDF form from the database town_forms table.
+ * This uses the stored fileData (base64 PDF) and fieldMappings from the database.
+ * Supports both AcroForm fields and coordinate-based filling.
+ */
+export async function fillPdfFromDatabase(
+  townForm: TownForm,
+  userData: ParsedUserData,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): Promise<Uint8Array> {
+  if (!townForm.fileData) {
+    throw new Error(`No PDF data stored for form: ${townForm.name}`);
+  }
+
+  // Decode base64 PDF data
+  const pdfBuffer = Buffer.from(townForm.fileData, "base64");
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  pdfDoc.registerFontkit(fontkit);
+
+  console.log(`[PDF Service] Filling database form: ${townForm.name} (ID: ${townForm.id})`);
+
+  // Check if this is an AcroForm PDF by looking for form fields
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+  const hasAcroFields = fields.length > 0;
+
+  console.log(`[PDF Service] Form has ${fields.length} AcroForm fields, isFillable: ${townForm.isFillable}`);
+
+  // Build data map from userData
+  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+    for (const field of fieldNames) {
+      const value = getFieldValue(userData, category, field);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  const mailingAddress = getFromAny("contact_info", "mailing_address");
+  let parsedCity = getFromAny("contact_info", "city");
+  let parsedState = getFromAny("contact_info", "state");
+  let parsedZip = getFromAny("contact_info", "zip");
+  let streetAddress = getFromAny("contact_info", "address");
+  
+  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
+    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+    if (match) {
+      if (!streetAddress) streetAddress = match[1].trim();
+      if (!parsedCity) parsedCity = match[2].trim();
+      if (!parsedState) parsedState = match[3].trim();
+      if (!parsedZip) parsedZip = match[4].trim();
+    }
+  }
+
+  // Standard data map for form filling
+  const dataMap: Record<string, string | null> = {
+    business_name: getFromAny("contact_info", "business_name"),
+    owner_name: getFromAny("contact_info", "owner_name", "applicant_name"),
+    applicant_name: getFromAny("contact_info", "applicant_name", "owner_name"),
+    address: streetAddress,
+    mailing_address: mailingAddress,
+    city: parsedCity,
+    state: parsedState,
+    zip: parsedZip,
+    phone: getFromAny("contact_info", "phone"),
+    email: getFromAny("contact_info", "email"),
+    city_state_zip: [parsedCity, parsedState, parsedZip].filter(Boolean).join(", "),
+    // Vehicle info
+    vin: getFromAny("vehicle_info", "vin"),
+    license_plate: getFromAny("vehicle_info", "license_plate"),
+    // Operations
+    water_supply: getFromAny("operations", "water_supply_type"),
+    sanitizer_type: getFromAny("operations", "sanitizer_type"),
+    toilet_facilities: getFromAny("operations", "toilet_facilities"),
+    // Commissary
+    commissary_name: getFromAny("commissary_info", "commissary_name"),
+    commissary_address: getFromAny("commissary_info", "commissary_address"),
+    // Event data
+    event_name: eventData?.eventName || null,
+    event_location: eventData?.eventAddress || null,
+    event_dates: eventData?.eventDates || null,
+    hours_of_operation: eventData?.hoursOfOperation || null,
+    person_in_charge: eventData?.personInCharge || null,
+    license_type: eventData?.licenseType || null,
+  };
+
+  if (hasAcroFields && townForm.isFillable) {
+    // Use AcroForm field filling
+    const fieldMappings = townForm.fieldMappings || {};
+    
+    console.log(`[PDF Service] Filling ${fields.length} AcroForm fields using database mappings`);
+
+    for (const field of fields) {
+      const fieldName = field.getName();
+      
+      try {
+        // Check if we have a mapping for this field
+        const mappedDataKey = fieldMappings[fieldName];
+        let value: string | null = null;
+
+        if (mappedDataKey && dataMap[mappedDataKey]) {
+          value = dataMap[mappedDataKey];
+        } else {
+          // Try to match field name directly to data
+          const normalizedFieldName = fieldName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+          for (const [key, val] of Object.entries(dataMap)) {
+            if (key.toLowerCase() === normalizedFieldName && val) {
+              value = val;
+              break;
+            }
+          }
+        }
+
+        if (value) {
+          const fieldType = field.constructor.name;
+          if (fieldType === "PDFTextField") {
+            const textField = form.getTextField(fieldName);
+            textField.setText(value);
+            console.log(`[PDF Service] Set field "${fieldName}" = "${value.substring(0, 30)}..."`);
+          }
+        }
+      } catch (err) {
+        console.error(`[PDF Service] Error filling field ${fieldName}:`, err);
+      }
+    }
+
+    // Flatten the form to prevent further editing
+    try {
+      form.flatten();
+    } catch (err) {
+      console.log("[PDF Service] Could not flatten form, continuing without flattening");
+    }
+  } else {
+    console.log(`[PDF Service] Form is not fillable or has no AcroForm fields, returning unmodified PDF`);
+  }
+
+  return pdfDoc.save();
+}
+
+/**
+ * Get list of fillable forms from database for a specific town.
+ * This replaces the hardcoded getAvailableTemplates for database-backed forms.
+ */
+export interface DatabaseFormTemplate {
+  formId: string;
+  formName: string;
+  townId: string;
+  townName?: string;
+  isFillable: boolean;
+  hasFieldMappings: boolean;
+  category: string | null;
+}
+
+export function townFormToTemplate(form: TownForm, townName?: string): DatabaseFormTemplate {
+  return {
+    formId: form.id,
+    formName: form.name,
+    townId: form.townId,
+    townName: townName,
+    isFillable: form.isFillable ?? false,
+    hasFieldMappings: !!form.fieldMappings && Object.keys(form.fieldMappings).length > 0,
+    category: form.category,
+  };
 }

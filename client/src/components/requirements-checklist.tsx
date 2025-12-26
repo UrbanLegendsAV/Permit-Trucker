@@ -87,36 +87,19 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
   const [isRunningAutomation, setIsRunningAutomation] = useState(false);
   const [automationStatus, setAutomationStatus] = useState<string | null>(null);
   
-  const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
+  const { data: formsResponse, isLoading: formsLoading } = useQuery<{ fillableForms: TownForm[], forms: TownForm[] }>({
     queryKey: [`/api/towns/${town.id}/forms`],
   });
+  const forms = formsResponse?.forms || [];
 
   const { data: vault } = useQuery<DataVault>({
     queryKey: ["/api/vault"],
     enabled: !!profile,
   });
 
-  const getTemplateId = (form: TownForm, townName: string): string | null => {
-    const lowerTown = townName.toLowerCase();
-    const lowerName = form.name?.toLowerCase() || "";
-    const category = form.category || "";
-    
-    if (lowerTown === "bethel") {
-      if (category === "temporary_permit" || lowerName.includes("temporary") || lowerName.includes("seasonal")) {
-        return "bethel_seasonal";
-      }
-    }
-    if (lowerTown === "newtown") {
-      if (lowerName.includes("plan review") || lowerName.includes("mfe")) {
-        return "newtown_mfe";
-      }
-      if (category === "yearly_permit" || lowerName.includes("new") || lowerName.includes("renewal")) {
-        return "newtown_new_license";
-      }
-    }
-    // Note: Danbury and other portal-based towns don't use PDF templates
-    // They use Playwright automation through the ViewPoint/OpenGov portal
-    return null;
+  // Forms with isFillable=true and fileData can be auto-filled using database storage
+  const canAutoFill = (form: TownForm): boolean => {
+    return !!(form.isFillable && form.fileData);
   };
 
   const handleGeneratePreFill = async (form: TownForm) => {
@@ -129,11 +112,10 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       return;
     }
 
-    const templateId = getTemplateId(form, town.townName);
-    if (!templateId) {
+    if (!canAutoFill(form)) {
       toast({
-        title: "Template Not Available",
-        description: `Auto-fill is not yet available for "${form.name}". Use "View PDF" to download the blank form.`,
+        title: "Form Not Available",
+        description: `Auto-fill is not configured for "${form.name}". Use "View PDF" to download the blank form.`,
         variant: "destructive",
       });
       return;
@@ -142,8 +124,9 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
     setGeneratingFormId(form.id);
     
     try {
-      const response = await apiRequest("POST", `/api/profiles/${profile.id}/generate-packet`, {
-        templateId,
+      // Use new database-backed endpoint with form ID directly
+      const response = await apiRequest("POST", `/api/towns/${town.id}/forms/${form.id}/generate`, {
+        profileId: profile.id,
         includeDocuments: false,
       });
 
@@ -468,7 +451,7 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
                       {form.fileData ? "View PDF" : "View Form"}
                     </Button>
                   )}
-                  {form.isFillable && profile && getTemplateId(form, town.townName) && (
+                  {canAutoFill(form) && profile && (
                     <Button
                       size="sm"
                       variant="default"

@@ -1,9 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Printer, Download, ArrowLeft, FileText, MapPin, Globe, Calendar, Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Town, Profile } from "@shared/schema";
+
+interface DatabaseFormTemplate {
+  formId: string;
+  formName: string;
+  townId: string;
+  townName?: string;
+  isFillable: boolean;
+  hasFieldMappings: boolean;
+  category: string | null;
+}
 
 interface PermitPacketProps {
   town: Town;
@@ -21,7 +31,27 @@ const permitTypeLabels = {
 
 export function PermitPacket({ town, profile, permitType, signature, onClose }: PermitPacketProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [availableForms, setAvailableForms] = useState<DatabaseFormTemplate[]>([]);
+  const [formsLoading, setFormsLoading] = useState(true);
   const { toast } = useToast();
+
+  // Fetch available forms from database for this town
+  useEffect(() => {
+    const fetchForms = async () => {
+      try {
+        const response = await fetch(`/api/towns/${town.id}/forms`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableForms(data.fillableForms || []);
+        }
+      } catch (error) {
+        console.error("Error fetching town forms:", error);
+      } finally {
+        setFormsLoading(false);
+      }
+    };
+    fetchForms();
+  }, [town.id]);
 
   const handlePrint = () => {
     window.print();
@@ -30,38 +60,21 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
   const handleSaveAsPDF = async () => {
     setIsGenerating(true);
     try {
-      // Map town name + permit type to the correct template ID
-      // Each town has its own forms - this prevents cross-town contamination
-      const getTemplateForTown = (townName: string, pType: string): string => {
-        const townLower = townName.toLowerCase();
-        
-        if (townLower === "bethel") {
-          return "bethel_seasonal"; // Bethel Temporary/Seasonal Food Service License
-        } else if (townLower === "newtown") {
-          // Newtown has two forms - MFE for seasonal/yearly, and new_license for others
-          return pType === "temporary" ? "newtown_mfe" : "newtown_new_license";
-        }
-        // Note: Danbury, Greenwich, and other portal-based towns don't use PDF templates
-        // They use Playwright automation through ViewPoint/OpenGov portals
-        
-        // Fallback: If town doesn't have a specific template, try to use a generic one
-        // based on form type. For now, return empty to indicate no template available.
-        return "";
-      };
+      // Find a fillable form for this town from the database
+      const fillableForm = availableForms.find(f => f.isFillable);
       
-      const templateId = getTemplateForTown(town.townName, permitType);
-      
-      if (!templateId) {
-        throw new Error(`No PDF template available for ${town.townName}. This town may require manual form submission.`);
+      if (!fillableForm) {
+        throw new Error(`No fillable PDF form available for ${town.townName}. Please upload a form in the admin dashboard.`);
       }
       
-      const response = await fetch(`/api/profiles/${profile.id}/generate-packet`, {
+      // Use the new database-backed endpoint
+      const response = await fetch(`/api/towns/${town.id}/forms/${fillableForm.formId}/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          templateId,
+          profileId: profile.id,
           includeDocuments: true,
           eventData: {
             licenseType: permitType === "temporary" ? "temporary" : "seasonal",

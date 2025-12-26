@@ -18,6 +18,8 @@ import {
   appendDocumentsToPdf, 
   getAvailableTemplates, 
   getTemplateById,
+  fillPdfFromDatabase,
+  townFormToTemplate,
   type ParsedUserData 
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
@@ -844,6 +846,7 @@ ${prompt}`;
 
   // ============ PDF GENERATION ============
 
+  // Legacy endpoint - returns hardcoded templates (deprecated)
   app.get("/api/pdf-templates", isAuthenticated, async (req, res) => {
     try {
       const templates = getAvailableTemplates();
@@ -851,6 +854,84 @@ ${prompt}`;
     } catch (error) {
       console.error("Error fetching PDF templates:", error);
       res.status(500).json({ message: "Failed to fetch PDF templates" });
+    }
+  });
+
+  // New endpoint - returns forms from database for a specific town
+  app.get("/api/towns/:townId/forms", isAuthenticated, async (req, res) => {
+    try {
+      const { townId } = req.params;
+      const town = await storage.getTown(townId);
+      if (!town) {
+        return res.status(404).json({ message: "Town not found" });
+      }
+
+      const forms = await storage.getTownForms(townId);
+      const templates = forms.map(form => townFormToTemplate(form, town.townName));
+      
+      res.json({
+        townId,
+        townName: town.townName,
+        forms: templates,
+        fillableForms: templates.filter(t => t.isFillable),
+      });
+    } catch (error) {
+      console.error("Error fetching town forms:", error);
+      res.status(500).json({ message: "Failed to fetch town forms" });
+    }
+  });
+
+  // Generate PDF from database form
+  app.post("/api/towns/:townId/forms/:formId/generate", isAuthenticated, async (req: any, res) => {
+    try {
+      const { townId, formId } = req.params;
+      const { profileId, includeDocuments = true, eventData } = req.body;
+
+      // Get the form from database
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found for this town" });
+      }
+
+      if (!form.fileData) {
+        return res.status(400).json({ message: "Form has no PDF data stored. Please upload the PDF in admin." });
+      }
+
+      // Get the profile for user data
+      const profile = await storage.getProfile(profileId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = profile.parsedDataLog as ParsedUserData | null;
+      if (!parsedData) {
+        return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
+      }
+
+      // Generate filled PDF from database form
+      let pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+
+      // Optionally append supporting documents
+      if (includeDocuments) {
+        const documents = profile.uploadsJson?.documents || [];
+        const supportingDocs = filterSupportingDocs(documents);
+        if (supportingDocs.length > 0) {
+          pdfBytes = await appendDocumentsToPdf(pdfBytes, supportingDocs);
+        }
+      }
+
+      const town = await storage.getTown(townId);
+      const filename = `${town?.townName || 'permit'}_${form.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': pdfBytes.length,
+      });
+      res.send(Buffer.from(pdfBytes));
+    } catch (error: any) {
+      console.error("Error generating PDF from database form:", error);
+      res.status(500).json({ message: error.message || "Failed to generate PDF" });
     }
   });
 

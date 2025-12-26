@@ -84,21 +84,13 @@ export default function PermitDetailPage() {
     enabled: isAuthenticated,
   });
 
-  const { data: townForms = [] } = useQuery<TownForm[]>({
+  const { data: townFormsResponse } = useQuery<{ fillableForms: TownForm[], forms: TownForm[] }>({
     queryKey: ["/api/towns", permit?.townId, "forms"],
     enabled: isAuthenticated && !!permit?.townId,
   });
+  const townForms = townFormsResponse?.forms || [];
 
-  interface PdfTemplate {
-    formId: string;
-    formName: string;
-    townName: string;
-  }
-
-  const { data: pdfTemplates = [] } = useQuery<PdfTemplate[]>({
-    queryKey: ["/api/pdf-templates"],
-    enabled: isAuthenticated,
-  });
+  // Using townForms from database instead of hardcoded pdfTemplates
 
   const updateMutation = useMutation({
     mutationFn: async (data: Partial<Permit>) => {
@@ -156,7 +148,12 @@ export default function PermitDetailPage() {
     setEditedPermit({});
   };
 
-  const handleGeneratePacket = async (templateId: string) => {
+  // Check if a form can be auto-filled (has fileData and is marked fillable)
+  const canAutoFill = (form: TownForm): boolean => {
+    return !!(form.isFillable && form.fileData);
+  };
+
+  const handleGeneratePacket = async (formId: string) => {
     if (!permit?.profileId) {
       toast({ 
         title: "No Profile", 
@@ -166,13 +163,23 @@ export default function PermitDetailPage() {
       return;
     }
 
-    setGeneratingTemplateId(templateId);
+    if (!permit?.townId) {
+      toast({ 
+        title: "No Town", 
+        description: "This permit has no town linked.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    setGeneratingTemplateId(formId);
     try {
-      const response = await fetch(`/api/permits/generate/${permitId}`, {
+      // Use new database-backed endpoint
+      const response = await fetch(`/api/towns/${permit.townId}/forms/${formId}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ templateId, includeDocuments: true }),
+        body: JSON.stringify({ profileId: permit.profileId, includeDocuments: true }),
       });
 
       if (!response.ok) {
@@ -594,33 +601,31 @@ export default function PermitDetailPage() {
                       Select a form template to generate your pre-filled application:
                     </p>
                     <div className="grid gap-2">
-                      {pdfTemplates
-                        .filter((template) => 
-                          template.townName.toLowerCase() === town?.townName?.toLowerCase()
-                        )
-                        .map((template) => (
+                      {townForms
+                        .filter((form) => canAutoFill(form))
+                        .map((form) => (
                           <Button
-                            key={template.formId}
-                            onClick={() => handleGeneratePacket(template.formId)}
+                            key={form.id}
+                            onClick={() => handleGeneratePacket(form.id)}
                             disabled={generatingTemplateId !== null}
                             variant="outline"
                             className="justify-start h-auto py-3"
-                            data-testid={`button-generate-${template.formId}`}
+                            data-testid={`button-generate-${form.id}`}
                           >
-                            {generatingTemplateId === template.formId ? (
+                            {generatingTemplateId === form.id ? (
                               <Loader2 className="w-4 h-4 mr-3 animate-spin" />
                             ) : (
                               <FileText className="w-4 h-4 mr-3" />
                             )}
                             <div className="text-left">
-                              <div className="font-medium">{template.formName}</div>
-                              <div className="text-xs text-muted-foreground">{template.townName}</div>
+                              <div className="font-medium">{form.name}</div>
+                              <div className="text-xs text-muted-foreground">{form.category || "Form"}</div>
                             </div>
                           </Button>
                         ))}
-                      {pdfTemplates.filter((t) => t.townName.toLowerCase() === town?.townName?.toLowerCase()).length === 0 && (
+                      {townForms.filter((f) => canAutoFill(f)).length === 0 && (
                         <p className="text-sm text-muted-foreground py-2">
-                          No form templates available for {town?.townName} yet.
+                          No fillable form templates available for {town?.townName} yet. Upload forms in the admin dashboard.
                         </p>
                       )}
                     </div>
