@@ -40,9 +40,9 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
         } else if (townLower === "newtown") {
           // Newtown has two forms - MFE for seasonal/yearly, and new_license for others
           return pType === "temporary" ? "newtown_mfe" : "newtown_new_license";
-        } else if (townLower === "danbury") {
-          return "danbury_itinerant"; // Danbury Itinerant Food Vendor Application
         }
+        // Note: Danbury, Greenwich, and other portal-based towns don't use PDF templates
+        // They use Playwright automation through ViewPoint/OpenGov portals
         
         // Fallback: If town doesn't have a specific template, try to use a generic one
         // based on form type. For now, return empty to indicate no template available.

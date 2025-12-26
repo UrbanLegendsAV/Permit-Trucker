@@ -101,10 +101,8 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
         return "newtown_new_license";
       }
     }
-    if (lowerTown === "danbury") {
-      // Danbury uses the Itinerant Food Vendor Application for all permit types
-      return "danbury_itinerant";
-    }
+    // Note: Danbury and other portal-based towns don't use PDF templates
+    // They use Playwright automation through the ViewPoint/OpenGov portal
     return null;
   };
 
