@@ -165,6 +165,72 @@ const BETHEL_CHECKBOX_MAP: Record<string, { dataField: string; matchValue: strin
   "Check Box5": { dataField: "fee_type", matchValue: "non-profit-seasonal" },
 };
 
+const DANBURY_ACRO_FIELD_MAP: Record<string, string> = {
+  "Trade Name": "business_name",
+  "Vehicle License Plate": "license_plate",
+  "Color": "vehicle_color",
+  "Make  Model of Vehicle": "trailer_make_model",
+  "VIN": "vin",
+  "Owner of Vehicle": "owner_name",
+  "Address": "address",
+  "Telephone": "phone",
+  "Email": "email",
+  "Name of Qualified Food Operators": "person_in_charge",
+  "Proposed Locations": "event_location",
+  "What type of sanitizer is used": "sanitizer_type",
+  "Describe setup if not a fixed handsink": "handwash_setup",
+  "Will nonlatex disposable gloves andor utensils andor food grade paper be used to minimize handling": "glove_usage",
+  "Where will food products be purchased All items must be from an approved source 1": "food_source_1",
+  "Where will food products be purchased All items must be from an approved source 2": "food_source_2",
+  "Where will food be stored outside of operation hours": "food_storage",
+  "Food Preparation Describe 1": "food_prep_1",
+  "Food Preparation Describe 2": "food_prep_2",
+  "List types of cooking equipment": "cooking_equipment",
+  "s be maintained at 140F 60C and above during holding for service Indicate type": "hot_holding",
+  "and number of hot holding units 1": "hot_holding_units_1",
+  "and number of hot holding units 2": "hot_holding_units_2",
+  "70F to 45F in 4 hours 1": "cooling_method_1",
+  "70F to 45F in 4 hours 2": "cooling_method_2",
+  "70F to 45F in 4 hours 3": "cooling_method_3",
+  "the food reach a temperature of at least 165F for 15 seconds Indicate type and number of units used": "reheating_method",
+  "for reheating foods": "reheating_units",
+  "and number of cold holding units 1": "cold_holding_units_1",
+  "and number of cold holding units 2": "cold_holding_units_2",
+  "Are toilet facilities available Describe location available to operator": "toilet_facilities",
+  "Year": "year",
+  "Hours of Operation Mon": "hours_mon",
+  "Tues": "hours_tue",
+  "Wed": "hours_wed",
+  "Thurs": "hours_thu",
+  "Fri": "hours_fri",
+  "Sat": "hours_sat",
+  "Sun": "hours_sun",
+};
+
+const DANBURY_CHECKBOX_MAP: Record<string, { dataField: string; matchValue: string }> = {
+  "Please check appropriately  New Operation": { dataField: "application_type", matchValue: "new" },
+  "Change of Ownership": { dataField: "application_type", matchValue: "change_ownership" },
+  "License Renewal": { dataField: "application_type", matchValue: "renewal" },
+  "Equipment Type Truck": { dataField: "equipment_type", matchValue: "truck" },
+  "Van": { dataField: "equipment_type", matchValue: "van" },
+  "Trailer": { dataField: "equipment_type", matchValue: "trailer" },
+  "Cart": { dataField: "equipment_type", matchValue: "cart" },
+  "Operating Season Year Round": { dataField: "operating_season", matchValue: "year_round" },
+  "Seasonal": { dataField: "operating_season", matchValue: "seasonal" },
+  "Public": { dataField: "water_source", matchValue: "public" },
+  "Private": { dataField: "water_source", matchValue: "private" },
+  "Is a Three compartment sink available  YES": { dataField: "three_compartment_sink", matchValue: "yes" },
+  "NO_2": { dataField: "three_compartment_sink", matchValue: "no" },
+  "Are handwashing facilities available YES": { dataField: "handwash_available", matchValue: "yes" },
+  "NO_3": { dataField: "handwash_available", matchValue: "no" },
+  "Is hot and cold running water under pressure available at each handwashing sink YES": { dataField: "running_water", matchValue: "yes" },
+  "NO_4": { dataField: "running_water", matchValue: "no" },
+  "Complete Menu included  YES": { dataField: "menu_included", matchValue: "yes" },
+  "NO_5": { dataField: "menu_included", matchValue: "no" },
+  "refrigerated foods at 45F 5C and below YES": { dataField: "cold_storage_available", matchValue: "yes" },
+  "NO_6": { dataField: "cold_storage_available", matchValue: "no" },
+};
+
 const FORM_TEMPLATES: Record<string, FormTemplate> = {
   "newtown_mfe": {
     formId: "newtown_mfe",
@@ -201,6 +267,15 @@ const FORM_TEMPLATES: Record<string, FormTemplate> = {
       "owner_name": { page: 0, x: 200, y: 675, fontSize: 11 },
       "address": { page: 0, x: 200, y: 650, fontSize: 11 },
     }
+  },
+  "danbury_itinerant": {
+    formId: "danbury_itinerant",
+    formName: "Itinerant Food Vendor Application",
+    townName: "Danbury",
+    pdfPath: "attached_assets/Itinerant-Food-Vendor-Application-PDF_1766452214150.pdf",
+    useAcroForm: true,
+    acroFieldMap: DANBURY_ACRO_FIELD_MAP,
+    fields: {}
   }
 };
 
@@ -362,6 +437,125 @@ async function fillBethelAcroForm(
   form.flatten();
 }
 
+async function fillDanburyAcroForm(
+  pdfDoc: PDFDocument,
+  userData: ParsedUserData,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): Promise<void> {
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+  
+  console.log("[PDF Service] Filling Danbury AcroForm with", fields.length, "fields");
+
+  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+    for (const field of fieldNames) {
+      const value = getFieldValue(userData, category, field);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  const mailingAddress = getFromAny("contact_info", "mailing_address");
+  let streetAddress = getFromAny("contact_info", "address");
+  if (!streetAddress && mailingAddress) {
+    streetAddress = mailingAddress;
+  }
+
+  const trailerMake = getFromAny("vehicle_info", "trailer_make");
+  const trailerModel = getFromAny("vehicle_info", "trailer_model");
+  const trailerMakeModel = [trailerMake, trailerModel].filter(Boolean).join(" ");
+
+  const equipmentType = getFromAny("vehicle_info", "equipment_type") || "trailer";
+
+  const dataMap: Record<string, string | null> = {
+    "business_name": getFromAny("contact_info", "business_name"),
+    "owner_name": getFromAny("contact_info", "owner_name", "applicant_name"),
+    "address": streetAddress,
+    "phone": getFromAny("contact_info", "phone"),
+    "email": getFromAny("contact_info", "email"),
+    "vin": getFromAny("vehicle_info", "vin"),
+    "license_plate": getFromAny("vehicle_info", "license_plate"),
+    "vehicle_color": getFromAny("vehicle_info", "color"),
+    "trailer_make_model": trailerMakeModel || getFromAny("vehicle_info", "trailer_make"),
+    "person_in_charge": eventData?.personInCharge || getFromAny("contact_info", "applicant_name", "owner_name"),
+    "event_location": eventData?.eventAddress || null,
+    "sanitizer_type": getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
+    "handwash_setup": getFromAny("equipment_info", "handwash_setup"),
+    "glove_usage": "Yes, disposable gloves used",
+    "food_source_1": getFromAny("menu_and_prep", "food_source_location"),
+    "food_source_2": "",
+    "food_storage": getFromAny("safety", "cold_storage_method") || "Commercial refrigeration at commissary",
+    "food_prep_1": getFromAny("menu_and_prep", "prep_location"),
+    "food_prep_2": "",
+    "cooking_equipment": getFromAny("equipment_info", "cooking_equipment"),
+    "hot_holding": getFromAny("safety", "hot_holding_method"),
+    "hot_holding_units_1": "",
+    "hot_holding_units_2": "",
+    "cooling_method_1": "",
+    "cooling_method_2": "",
+    "cooling_method_3": "",
+    "reheating_method": "",
+    "reheating_units": "",
+    "cold_holding_units_1": "",
+    "cold_holding_units_2": "",
+    "toilet_facilities": getFromAny("commissary_info", "toilet_facilities") || getFromAny("operations", "toilet_facilities"),
+    "year": new Date().getFullYear().toString(),
+    "equipment_type": equipmentType,
+    "application_type": "renewal",
+    "operating_season": eventData?.licenseType === "seasonal" ? "seasonal" : "year_round",
+    "water_source": "public",
+    "three_compartment_sink": "yes",
+    "handwash_available": "yes",
+    "running_water": "yes",
+    "menu_included": "yes",
+    "cold_storage_available": "yes",
+  };
+
+  console.log("[PDF Service] Danbury Data map:", JSON.stringify(dataMap, null, 2));
+
+  for (const field of fields) {
+    const fieldName = field.getName();
+    const fieldType = field.constructor.name;
+
+    try {
+      if (fieldType === "PDFTextField") {
+        const textField = form.getTextField(fieldName);
+        const dataKey = DANBURY_ACRO_FIELD_MAP[fieldName];
+        
+        if (dataKey && dataMap[dataKey]) {
+          console.log(`[PDF Service] Danbury: Setting text field "${fieldName}" to "${dataMap[dataKey]}"`);
+          textField.setText(dataMap[dataKey] || "");
+        }
+      } else if (fieldType === "PDFCheckBox") {
+        const checkbox = form.getCheckBox(fieldName);
+        const checkboxConfig = DANBURY_CHECKBOX_MAP[fieldName];
+        
+        if (checkboxConfig) {
+          const dataValue = dataMap[checkboxConfig.dataField];
+          if (dataValue) {
+            const shouldCheck = dataValue.toLowerCase().includes(checkboxConfig.matchValue.toLowerCase());
+            if (shouldCheck) {
+              console.log(`[PDF Service] Danbury: Checking checkbox "${fieldName}" (${checkboxConfig.matchValue})`);
+              checkbox.check();
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[PDF Service] Error filling Danbury field ${fieldName}:`, err);
+    }
+  }
+
+  form.flatten();
+}
+
 export async function fillPdfForm(
   templateId: string,
   userData: ParsedUserData,
@@ -393,6 +587,8 @@ export async function fillPdfForm(
 
   if (template.useAcroForm && templateId === "bethel_seasonal") {
     await fillBethelAcroForm(pdfDoc, userData, eventData);
+  } else if (template.useAcroForm && templateId === "danbury_itinerant") {
+    await fillDanburyAcroForm(pdfDoc, userData, eventData);
   } else {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const pages = pdfDoc.getPages();

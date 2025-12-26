@@ -30,14 +30,30 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
   const handleSaveAsPDF = async () => {
     setIsGenerating(true);
     try {
-      // Map permitType to template ID
-      const templateMap: Record<string, string> = {
-        yearly: "bethel_seasonal", // Use same form for now
-        temporary: "bethel_seasonal",
-        seasonal: "bethel_seasonal",
+      // Map town name + permit type to the correct template ID
+      // Each town has its own forms - this prevents cross-town contamination
+      const getTemplateForTown = (townName: string, pType: string): string => {
+        const townLower = townName.toLowerCase();
+        
+        if (townLower === "bethel") {
+          return "bethel_seasonal"; // Bethel Temporary/Seasonal Food Service License
+        } else if (townLower === "newtown") {
+          // Newtown has two forms - MFE for seasonal/yearly, and new_license for others
+          return pType === "temporary" ? "newtown_mfe" : "newtown_new_license";
+        } else if (townLower === "danbury") {
+          return "danbury_itinerant"; // Danbury Itinerant Food Vendor Application
+        }
+        
+        // Fallback: If town doesn't have a specific template, try to use a generic one
+        // based on form type. For now, return empty to indicate no template available.
+        return "";
       };
       
-      const templateId = templateMap[permitType] || "bethel_seasonal";
+      const templateId = getTemplateForTown(town.townName, permitType);
+      
+      if (!templateId) {
+        throw new Error(`No PDF template available for ${town.townName}. This town may require manual form submission.`);
+      }
       
       const response = await fetch(`/api/profiles/${profile.id}/generate-packet`, {
         method: "POST",
@@ -86,16 +102,18 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
   };
 
   // Get document counts for display
+  // Normalize folder names (replace dashes with underscores) to handle both conventions
   const documents = profile.uploadsJson?.documents || [];
+  const normalizeFolder = (folder: string) => (folder || "").toLowerCase().replace(/-/g, "_");
   const docCategories = {
-    "Health Permit": documents.filter(d => (d.folder || "").includes("health")).length,
-    "Food Manager Cert": documents.filter(d => (d.folder || "").includes("food-manager") || (d.folder || "").includes("cert")).length,
-    "Vehicle Registration": documents.filter(d => (d.folder || "").includes("vehicle")).length,
-    "Insurance (COI)": documents.filter(d => (d.folder || "").includes("coi") || (d.folder || "").includes("insurance")).length,
-    "Commissary Letter": documents.filter(d => (d.folder || "").includes("commissary")).length,
-    "Menu": documents.filter(d => (d.folder || "").includes("menu")).length,
-    "Fire Safety": documents.filter(d => (d.folder || "").includes("fire")).length,
-    "Trailer Diagram": documents.filter(d => (d.folder || "").includes("diagram")).length,
+    "Health Permit": documents.filter(d => normalizeFolder(d.folder).includes("health")).length,
+    "Food Manager Cert": documents.filter(d => normalizeFolder(d.folder).includes("food_manager") || normalizeFolder(d.folder).includes("cert")).length,
+    "Vehicle Registration": documents.filter(d => normalizeFolder(d.folder).includes("vehicle")).length,
+    "Insurance (COI)": documents.filter(d => normalizeFolder(d.folder).includes("coi") || normalizeFolder(d.folder).includes("insurance")).length,
+    "Commissary Letter": documents.filter(d => normalizeFolder(d.folder).includes("commissary")).length,
+    "Menu": documents.filter(d => normalizeFolder(d.folder).includes("menu")).length,
+    "Fire Safety": documents.filter(d => normalizeFolder(d.folder).includes("fire")).length,
+    "Trailer Diagram": documents.filter(d => normalizeFolder(d.folder).includes("diagram")).length,
   };
 
   return (
