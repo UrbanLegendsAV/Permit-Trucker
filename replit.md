@@ -56,7 +56,8 @@ The frontend follows a mobile-first design pattern with:
 - **Key Tables**:
   - `profiles`: User vehicle profiles (truck/trailer details, documents)
   - `permits`: Permit applications with status tracking
-  - `towns`: Municipal permit requirements with confidence scores
+  - `towns`: Municipal permit requirements with confidence scores (healthDistrictId FK)
+  - `health_districts`: CT health districts with contact info and websites (66 districts)
   - `badges`: Gamification achievements
   - `public_profiles`: Opt-in public listings for consumer discovery
   - `reviews`: Anonymous reviews with IP rate limiting

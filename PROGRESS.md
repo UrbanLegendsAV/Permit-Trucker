@@ -274,6 +274,14 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Dynamic category support (operations, menu_and_prep, safety, license_info)
 - [x] ParsedUserData TypeScript interface for type safety
 
+### Connecticut Health Districts & Town Coverage
+- [x] Health districts table with normalized data (name, website, phone, email)
+- [x] All 169 CT towns seeded with county and health district associations
+- [x] District-based filtering in town search (dropdown selector)
+- [x] Auto-populate portal URLs from health district websites
+- [x] API endpoints: GET /api/health-districts, GET /api/health-districts/:id/towns
+- [x] Comprehensive seed script (server/seed-ct-towns.ts) for all CT coverage
+
 ---
 
 ## Current Status
