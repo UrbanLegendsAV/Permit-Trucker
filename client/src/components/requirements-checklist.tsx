@@ -101,6 +101,10 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
         return "newtown_new_license";
       }
     }
+    if (lowerTown === "danbury") {
+      // Danbury uses the Itinerant Food Vendor Application for all permit types
+      return "danbury_itinerant";
+    }
     return null;
   };
 

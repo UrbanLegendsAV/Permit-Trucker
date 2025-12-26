@@ -104,7 +104,7 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
   // Get document counts for display
   // Normalize folder names (replace dashes with underscores) to handle both conventions
   const documents = profile.uploadsJson?.documents || [];
-  const normalizeFolder = (folder: string) => (folder || "").toLowerCase().replace(/-/g, "_");
+  const normalizeFolder = (folder: string | null | undefined) => (folder || "").toLowerCase().replace(/-/g, "_");
   const docCategories = {
     "Health Permit": documents.filter(d => normalizeFolder(d.folder).includes("health")).length,
     "Food Manager Cert": documents.filter(d => normalizeFolder(d.folder).includes("food_manager") || normalizeFolder(d.folder).includes("cert")).length,
