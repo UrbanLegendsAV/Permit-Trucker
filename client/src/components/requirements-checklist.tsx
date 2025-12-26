@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2, Wand2, Bot } from "lucide-react";
+import { Check, Info, ExternalLink, AlertTriangle, FileText, Download, Loader2, Wand2, Bot, Play } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Town, TownForm, Profile } from "@shared/schema";
+import type { Town, TownForm, Profile, DataVault } from "@shared/schema";
 
 interface RequirementsChecklistProps {
   town: Town;
@@ -78,9 +81,19 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
   const requirements = (town.requirementsJson || {}) as Record<string, unknown>;
   const { toast } = useToast();
   const [generatingFormId, setGeneratingFormId] = useState<string | null>(null);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  const [portalUsername, setPortalUsername] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
+  const [isRunningAutomation, setIsRunningAutomation] = useState(false);
+  const [automationStatus, setAutomationStatus] = useState<string | null>(null);
   
   const { data: forms = [], isLoading: formsLoading } = useQuery<TownForm[]>({
     queryKey: [`/api/towns/${town.id}/forms`],
+  });
+
+  const { data: vault } = useQuery<DataVault>({
+    queryKey: ["/api/vault"],
+    enabled: !!profile,
   });
 
   const getTemplateId = (form: TownForm, townName: string): string | null => {
@@ -164,7 +177,7 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
     }
   };
 
-  const handleStartAIAssist = () => {
+  const handleStartAIAssist = async () => {
     if (!town.portalUrl) {
       toast({
         title: "No Portal Available",
@@ -183,11 +196,85 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       return;
     }
 
-    window.open(town.portalUrl, "_blank");
-    toast({
-      title: "Portal Opened",
-      description: `Opening ${town.townName}'s permit portal. Full automation coming soon!`,
-    });
+    if (!vault) {
+      toast({
+        title: "Data Vault Required",
+        description: "Please sync your profile data to the vault first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setShowCredentialsModal(true);
+  };
+
+  const handleRunAutomation = async () => {
+    if (!portalUsername || !portalPassword) {
+      toast({
+        title: "Credentials Required",
+        description: "Please enter your portal login credentials.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsRunningAutomation(true);
+    setAutomationStatus("Storing credentials securely...");
+
+    try {
+      const credResponse = await apiRequest("POST", "/api/portal-credentials", {
+        townId: town.id,
+        username: portalUsername,
+        password: portalPassword,
+      });
+
+      if (!credResponse.ok) {
+        throw new Error("Failed to store credentials");
+      }
+
+      const credential = await credResponse.json();
+      setAutomationStatus("Creating automation job...");
+
+      const jobResponse = await apiRequest("POST", "/api/submissions/portal-automation", {
+        permitId: null,
+        townId: town.id,
+        vaultId: vault?.id,
+        credentialId: credential.id,
+      });
+
+      if (!jobResponse.ok) {
+        throw new Error("Failed to create automation job");
+      }
+
+      const job = await jobResponse.json();
+      setAutomationStatus("Running portal automation...");
+
+      const executeResponse = await apiRequest("POST", `/api/submissions/${job.id}/execute`);
+
+      if (!executeResponse.ok) {
+        const error = await executeResponse.json();
+        throw new Error(error.message || "Automation failed");
+      }
+
+      setAutomationStatus("Automation complete!");
+      toast({
+        title: "Portal Automation Complete",
+        description: `Successfully filled ${town.townName}'s permit portal with your data.`,
+      });
+
+      setShowCredentialsModal(false);
+      setPortalUsername("");
+      setPortalPassword("");
+    } catch (error: any) {
+      setAutomationStatus(null);
+      toast({
+        title: "Automation Failed",
+        description: error.message || "Could not complete portal automation.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRunningAutomation(false);
+    }
   };
   
   const items: RequirementItem[] = Object.entries(requirements)
@@ -412,6 +499,88 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       <p className="text-xs text-muted-foreground text-center italic">
         Always verify requirements directly with official town sources.
       </p>
+
+      <Dialog open={showCredentialsModal} onOpenChange={setShowCredentialsModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Portal Login Required</DialogTitle>
+            <DialogDescription>
+              Enter your {town.townName} permit portal credentials. Your credentials are encrypted and stored securely.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {automationStatus && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-lg">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {automationStatus}
+              </div>
+            )}
+            
+            <div className="space-y-2">
+              <Label htmlFor="portal-username">Portal Email/Username</Label>
+              <Input
+                id="portal-username"
+                type="email"
+                placeholder="your@email.com"
+                value={portalUsername}
+                onChange={(e) => setPortalUsername(e.target.value)}
+                disabled={isRunningAutomation}
+                data-testid="input-portal-username"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="portal-password">Portal Password</Label>
+              <Input
+                id="portal-password"
+                type="password"
+                placeholder="Your portal password"
+                value={portalPassword}
+                onChange={(e) => setPortalPassword(e.target.value)}
+                disabled={isRunningAutomation}
+                data-testid="input-portal-password"
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              The automation will fill forms using your saved profile data. You'll still need to review and submit the final application.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCredentialsModal(false);
+                setPortalUsername("");
+                setPortalPassword("");
+                setAutomationStatus(null);
+              }}
+              disabled={isRunningAutomation}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRunAutomation}
+              disabled={isRunningAutomation || !portalUsername || !portalPassword}
+              data-testid="button-run-automation"
+            >
+              {isRunningAutomation ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Running...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Start Automation
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

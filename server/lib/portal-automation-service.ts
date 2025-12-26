@@ -95,27 +95,62 @@ interface PortalNavigationStep {
   error?: string;
 }
 
-interface ViewPointConfig {
-  loginUrl: string;
-  permitFormPath: string;
-  fieldMappings: Record<string, string>;
-  uploadSelectors: Record<string, string>;
+interface OpenGovFieldMapping {
+  vaultField: string;
+  selectors: string[];
+  type: "text" | "select" | "checkbox";
 }
 
-const VIEWPOINT_CONFIGS: Record<string, ViewPointConfig> = {
-  default: {
-    loginUrl: "/Account/Login",
-    permitFormPath: "/Permits/Apply",
-    fieldMappings: {
-      businessName: "#BusinessName",
-      ownerName: "#ApplicantName",
-      phone: "#Phone",
-      email: "#Email",
-      address: "#Address",
-    },
-    uploadSelectors: {
-      documents: "#FileUpload",
-    },
+const OPENGOV_DEFAULT_MAPPINGS: Record<string, OpenGovFieldMapping> = {
+  firstName: {
+    vaultField: "first_name",
+    selectors: ['input[name*="first" i]', 'input[id*="first" i]', 'input[placeholder*="first" i]'],
+    type: "text",
+  },
+  lastName: {
+    vaultField: "last_name", 
+    selectors: ['input[name*="last" i]', 'input[id*="last" i]', 'input[placeholder*="last" i]'],
+    type: "text",
+  },
+  email: {
+    vaultField: "email",
+    selectors: ['input[type="email"]', 'input[name*="email" i]', 'input[id*="email" i]'],
+    type: "text",
+  },
+  phone: {
+    vaultField: "phone",
+    selectors: ['input[name*="phone" i]', 'input[id*="phone" i]', 'input[type="tel"]'],
+    type: "text",
+  },
+  address1: {
+    vaultField: "address",
+    selectors: ['input[name*="address1" i]', 'input[name*="address" i]:not([name*="2"])', 'input[id*="address1" i]'],
+    type: "text",
+  },
+  address2: {
+    vaultField: "address_line_2",
+    selectors: ['input[name*="address2" i]', 'input[id*="address2" i]'],
+    type: "text",
+  },
+  city: {
+    vaultField: "city",
+    selectors: ['input[name*="city" i]', 'input[id*="city" i]'],
+    type: "text",
+  },
+  state: {
+    vaultField: "state",
+    selectors: ['input[name*="state" i]', 'select[name*="state" i]', 'input[id*="state" i]'],
+    type: "text",
+  },
+  zip: {
+    vaultField: "zip",
+    selectors: ['input[name*="zip" i]', 'input[name*="postal" i]', 'input[id*="zip" i]'],
+    type: "text",
+  },
+  businessName: {
+    vaultField: "business_name",
+    selectors: ['input[name*="business" i]', 'input[name*="company" i]', 'input[id*="business" i]'],
+    type: "text",
   },
 };
 
@@ -152,13 +187,46 @@ export async function createPortalAutomationJob(
   return job;
 }
 
+function getVaultValue(vault: DataVault, fieldName: string): string | null {
+  const fieldMap: Record<string, keyof DataVault> = {
+    first_name: "ownerName",
+    last_name: "ownerName",
+    email: "email",
+    phone: "phone",
+    address: "mailingStreet",
+    address_line_2: "mailingStreet",
+    city: "mailingCity",
+    state: "mailingState",
+    zip: "mailingZip",
+    business_name: "businessName",
+  };
+  
+  const vaultField = fieldMap[fieldName];
+  if (!vaultField) return null;
+  
+  const value = vault[vaultField];
+  if (typeof value === "string") {
+    if (fieldName === "first_name" && value) {
+      return value.split(" ")[0] || value;
+    }
+    if (fieldName === "last_name" && value) {
+      const parts = value.split(" ");
+      return parts.length > 1 ? parts.slice(1).join(" ") : "";
+    }
+    return value;
+  }
+  return null;
+}
+
 export async function executePortalAutomation(
   jobId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; stepsCompleted?: number }> {
   const job = await storage.getSubmissionJob(jobId);
   if (!job) {
     return { success: false, error: "Job not found" };
   }
+
+  // Job is already in "draft" status, automation will update it as it progresses
 
   const vault = job.vaultId ? await storage.getDataVault(job.vaultId) : null;
   const town = job.townId ? await storage.getTown(job.townId) : null;
@@ -176,6 +244,8 @@ export async function executePortalAutomation(
     return { success: false, error: "No portal URL configured for this town" };
   }
 
+  let stepsCompleted = 0;
+
   try {
     const { chromium } = await import("playwright");
     
@@ -189,48 +259,69 @@ export async function executePortalAutomation(
     const page = await context.newPage();
 
     try {
-      const config = VIEWPOINT_CONFIGS[town.portalProvider || "default"] || VIEWPOINT_CONFIGS.default;
-      const baseUrl = town.portalUrl.replace(/\/$/, "");
+      const portalUrl = town.portalUrl.replace(/\/$/, "");
       
-      await page.goto(`${baseUrl}${config.loginUrl}`);
-      await logNavigationStep(jobId, "navigate_login", true);
+      await page.goto(portalUrl, { waitUntil: "networkidle" });
+      await logNavigationStep(jobId, "navigate_portal", true);
+
+      const maxSteps = 14;
       
-      await page.fill('input[type="email"], input[name="email"], input[name="username"]', credentials.username);
-      await page.fill('input[type="password"], input[name="password"]', credentials.password);
-      await logNavigationStep(jobId, "fill_credentials", true);
-      
-      await page.click('button[type="submit"], input[type="submit"]');
-      await page.waitForLoadState("networkidle");
-      await logNavigationStep(jobId, "submit_login", true);
-      
-      await page.goto(`${baseUrl}${config.permitFormPath}`);
-      await page.waitForLoadState("networkidle");
-      await logNavigationStep(jobId, "navigate_permit_form", true);
-      
-      const fieldData = getVaultDataForPdfFill(vault);
-      for (const [fieldKey, selector] of Object.entries(config.fieldMappings)) {
-        const data = fieldData[fieldKey];
-        if (data?.value) {
-          try {
-            await page.fill(selector, data.value);
-          } catch (e) {
-            console.warn(`Could not fill field ${fieldKey}: ${e}`);
+      for (let step = 1; step <= maxSteps; step++) {
+        await logNavigationStep(jobId, `processing_step_${step}`, true);
+        
+        let filledFields = 0;
+        for (const [fieldName, mapping] of Object.entries(OPENGOV_DEFAULT_MAPPINGS)) {
+          const value = getVaultValue(vault, mapping.vaultField);
+          if (!value) continue;
+
+          for (const selector of mapping.selectors) {
+            try {
+              const element = await page.$(selector);
+              if (element && await element.isVisible()) {
+                if (mapping.type === "text") {
+                  const currentValue = await element.inputValue().catch(() => "");
+                  if (!currentValue || currentValue.trim() === "") {
+                    await element.fill(value);
+                    filledFields++;
+                    console.log(`[Portal] Filled ${fieldName} with vault field ${mapping.vaultField}`);
+                  }
+                }
+                break;
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+        }
+
+        await logNavigationStep(jobId, `step_${step}_filled_${filledFields}_fields`, true);
+        stepsCompleted = step;
+
+        const nextButton = await page.$('button:has-text("Next"), button:has-text("Continue"), a:has-text("Next")');
+        if (nextButton && await nextButton.isVisible()) {
+          await nextButton.click();
+          await page.waitForLoadState("networkidle");
+          await page.waitForTimeout(1000);
+        } else {
+          const submitButton = await page.$('button:has-text("Submit"), button[type="submit"]');
+          if (submitButton && await submitButton.isVisible()) {
+            await logNavigationStep(jobId, "reached_submit_step", true);
+            break;
           }
         }
       }
-      await logNavigationStep(jobId, "fill_form_fields", true);
-      
+
       await storage.updateSubmissionJob(jobId, {
         status: "pending_review",
         previewGenerated: true,
       });
-      await logNavigationStep(jobId, "prepare_for_review", true);
+      await logNavigationStep(jobId, "automation_complete", true);
 
     } finally {
       await browser.close();
     }
 
-    return { success: true };
+    return { success: true, stepsCompleted };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -240,7 +331,7 @@ export async function executePortalAutomation(
       errorMessage,
       retryCount: (job.retryCount || 0) + 1,
     });
-    return { success: false, error: errorMessage };
+    return { success: false, error: errorMessage, stepsCompleted };
   }
 }
 

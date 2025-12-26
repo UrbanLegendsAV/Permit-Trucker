@@ -45,6 +45,9 @@ export interface IStorage {
   getLeaderboard(): Promise<Array<{ userId: string; name: string; badgeCount: number; pioneerCount: number }>>;
 
   getPortalMapping(townId: string): Promise<PortalMapping | undefined>;
+  createPortalMapping(mapping: InsertPortalMapping): Promise<PortalMapping>;
+  updatePortalMapping(townId: string, fieldSelectors: Record<string, string>): Promise<PortalMapping | undefined>;
+  getDefaultPortalMapping(): Promise<PortalMapping | undefined>;
 
   // Public profiles
   getPublicProfiles(): Promise<PublicProfile[]>;
@@ -226,6 +229,25 @@ export class DatabaseStorage implements IStorage {
 
   async getPortalMapping(townId: string): Promise<PortalMapping | undefined> {
     const [mapping] = await db.select().from(portalMappings).where(eq(portalMappings.townId, townId));
+    return mapping;
+  }
+
+  async createPortalMapping(mapping: InsertPortalMapping): Promise<PortalMapping> {
+    const [newMapping] = await db.insert(portalMappings).values(mapping).returning();
+    return newMapping;
+  }
+
+  async updatePortalMapping(townId: string, fieldSelectors: Record<string, string>): Promise<PortalMapping | undefined> {
+    const [updated] = await db
+      .update(portalMappings)
+      .set({ fieldSelectors })
+      .where(eq(portalMappings.townId, townId))
+      .returning();
+    return updated;
+  }
+
+  async getDefaultPortalMapping(): Promise<PortalMapping | undefined> {
+    const [mapping] = await db.select().from(portalMappings).where(eq(portalMappings.townId, "default_opengov"));
     return mapping;
   }
 
