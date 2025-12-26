@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { towns, configs, profiles, publicProfiles, reviews } from "@shared/schema";
+import { runFullCTSeed } from "./seed-ct-towns";
 
 const ctTowns = [
   {
@@ -630,6 +631,8 @@ export async function seedTowns() {
 
       console.log(`Seeded 3 sample public profiles and ${sampleReviews.length} reviews`);
     }
+    
+    await runFullCTSeed();
   } catch (error) {
     console.error("Error seeding:", error);
   }

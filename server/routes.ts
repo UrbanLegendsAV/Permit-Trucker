@@ -983,6 +983,26 @@ ${prompt}`;
     }
   });
 
+  app.get("/api/health-districts", async (req, res) => {
+    try {
+      const districts = await storage.getHealthDistricts();
+      res.json(districts);
+    } catch (error) {
+      console.error("Error fetching health districts:", error);
+      res.status(500).json({ message: "Failed to fetch health districts" });
+    }
+  });
+
+  app.get("/api/health-districts/:id/towns", async (req, res) => {
+    try {
+      const towns = await storage.getTownsByDistrict(req.params.id);
+      res.json(towns);
+    } catch (error) {
+      console.error("Error fetching towns by district:", error);
+      res.status(500).json({ message: "Failed to fetch towns" });
+    }
+  });
+
   app.get("/api/badges", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

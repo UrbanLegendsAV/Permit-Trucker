@@ -1,5 +1,5 @@
 import { 
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -14,6 +14,7 @@ import {
   type DataVault, type InsertDataVault,
   type SubmissionJob, type InsertSubmissionJob,
   type PortalCredential, type InsertPortalCredential,
+  type HealthDistrict,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -95,6 +96,11 @@ export interface IStorage {
   createResearchJob(job: InsertResearchJob): Promise<ResearchJob>;
   updateResearchJob(id: string, data: Partial<InsertResearchJob>): Promise<ResearchJob | undefined>;
   getPendingResearchJobs(): Promise<ResearchJob[]>;
+
+  // Health Districts
+  getHealthDistricts(): Promise<HealthDistrict[]>;
+  getHealthDistrict(id: string): Promise<HealthDistrict | undefined>;
+  getTownsByDistrict(districtId: string): Promise<Town[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -569,6 +575,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(portalCredentials.id, id))
       .returning();
     return updated;
+  }
+
+  // Health Districts methods
+  async getHealthDistricts(): Promise<HealthDistrict[]> {
+    return db.select().from(healthDistricts).orderBy(healthDistricts.name);
+  }
+
+  async getHealthDistrict(id: string): Promise<HealthDistrict | undefined> {
+    const [district] = await db.select().from(healthDistricts).where(eq(healthDistricts.id, id));
+    return district;
+  }
+
+  async getTownsByDistrict(districtId: string): Promise<Town[]> {
+    return db.select().from(towns).where(eq(towns.healthDistrictId, districtId)).orderBy(towns.townName);
   }
 }
 

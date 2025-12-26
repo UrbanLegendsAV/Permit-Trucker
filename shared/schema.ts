@@ -17,6 +17,15 @@ export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", 
 export const submissionStatusEnum = pgEnum("submission_status", ["draft", "pending_review", "ready_to_submit", "submitted", "failed", "completed"]);
 export const submissionTypeEnum = pgEnum("submission_type", ["pdf_fill", "portal_automation", "manual"]);
 
+export const healthDistricts = pgTable("health_districts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 200 }).notNull().unique(),
+  website: varchar("website", { length: 200 }),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 200 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const profiles = pgTable("profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
@@ -54,6 +63,7 @@ export const towns = pgTable("towns", {
   submissionMethod: submissionMethodEnum("submission_method"),
   portalProvider: portalProviderEnum("portal_provider"),
   portalProviderLabel: varchar("portal_provider_label", { length: 100 }),
+  healthDistrictId: varchar("health_district_id").references(() => healthDistricts.id),
   healthDistrictName: varchar("health_district_name", { length: 200 }),
   requirementsJson: jsonb("requirements_json").$type<{
     coi: boolean;
@@ -306,6 +316,11 @@ export const insertTownSchema = createInsertSchema(towns).omit({
   id: true,
 });
 
+export const insertHealthDistrictSchema = createInsertSchema(healthDistricts).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertPermitSchema = createInsertSchema(permits).omit({
   id: true,
   createdAt: true,
@@ -326,6 +341,9 @@ export type Profile = typeof profiles.$inferSelect;
 
 export type InsertTown = z.infer<typeof insertTownSchema>;
 export type Town = typeof towns.$inferSelect;
+
+export type InsertHealthDistrict = z.infer<typeof insertHealthDistrictSchema>;
+export type HealthDistrict = typeof healthDistricts.$inferSelect;
 
 export type InsertPermit = z.infer<typeof insertPermitSchema>;
 export type Permit = typeof permits.$inferSelect;

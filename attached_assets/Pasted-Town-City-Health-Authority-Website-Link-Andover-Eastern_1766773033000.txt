@@ -1,0 +1,170 @@
+Town / City	Health Authority	Website Link
+Andover	Eastern Highlands Health District	ehhd.org
+Ansonia	Naugatuck Valley Health District	nvhd.org
+Ashford	Eastern Highlands Health District	ehhd.org
+Avon	Farmington Valley Health District	fvhd.org
+Barkhamsted	Farmington Valley Health District	fvhd.org
+Beacon Falls	Naugatuck Valley Health District	nvhd.org
+Berlin	Central Connecticut Health District	ccthd.org
+Bethany	Quinnipiack Valley Health District	qvhd.org
+Bethel	Bethel Health Dept.	bethel-ct.gov
+Bethlehem	Torrington Area Health District	tahd.org
+Bloomfield	West Hartford-Bloomfield District	westhartfordct.gov
+Bolton	Eastern Highlands Health District	ehhd.org
+Bozrah	Uncas Health District	uncashd.org
+Branford	East Shore District Health	esdhd.org
+Bridgeport	Bridgeport Health & Social Services	bridgeportct.gov
+Bridgewater	Newtown Health District	newtown-ct.gov/health-district
+Bristol	Bristol-Burlington Health District	bbhd.org
+Brookfield	Brookfield Health Dept.	brookfieldct.gov
+Brooklyn	Northeast District Health	nddh.org
+Burlington	Bristol-Burlington Health District	bbhd.org
+Canaan	Torrington Area Health District	tahd.org
+Canterbury	Northeast District Health	nddh.org
+Canton	Farmington Valley Health District	fvhd.org
+Chaplin	Eastern Highlands Health District	ehhd.org
+Cheshire	Chesprocott Health District	chesprocott.org
+Chester	CT River Area Health District	crahd.org
+Clinton	CT River Area Health District	crahd.org
+Colchester	Chatham Health District	chathamhealth.org
+Colebrook	Farmington Valley Health District	fvhd.org
+Columbia	Eastern Highlands Health District	ehhd.org
+Cornwall	Torrington Area Health District	tahd.org
+Coventry	Eastern Highlands Health District	ehhd.org
+Cromwell	Cromwell Health Dept.	cromwellct.com
+Danbury	Danbury Health & Human Services	danbury-ct.gov
+Darien	Darien Health Dept.	darienct.gov
+Deep River	CT River Area Health District	crahd.org
+Derby	Naugatuck Valley Health District	nvhd.org
+Durham	Durham Health Dept.	townofdurhamct.org
+East Granby	Farmington Valley Health District	fvhd.org
+East Haddam	Chatham Health District	chathamhealth.org
+East Hampton	Chatham Health District	chathamhealth.org
+East Hartford	East Hartford Health Dept.	easthartfordct.gov
+East Haven	East Shore District Health	esdhd.org
+East Lyme	Ledge Light Health District	llhd.org
+East Windsor	North Central Health District	ncdhd.org
+Eastford	Northeast District Health	nddh.org
+Easton	Aspetuck Health District	aspetuckhd.org
+Ellington	North Central Health District	ncdhd.org
+Enfield	North Central Health District	ncdhd.org
+Essex	Essex Health Dept.	essexct.gov
+Fairfield	Fairfield Health Dept.	fairfieldct.org
+Farmington	Farmington Valley Health District	fvhd.org
+Franklin	Uncas Health District	uncashd.org
+Glastonbury	Glastonbury Health Dept.	glastonbury-ct.gov
+Goshen	Torrington Area Health District	tahd.org
+Granby	Farmington Valley Health District	fvhd.org
+Greenwich	Greenwich Health Dept.	greenwichct.gov
+Griswold	Uncas Health District	uncashd.org
+Groton	Ledge Light Health District	llhd.org
+Guilford	Guilford Health Dept.	ci.guilford.ct.us
+Haddam	CT River Area Health District	crahd.org
+Hamden	Quinnipiack Valley Health District	qvhd.org
+Hampton	Northeast District Health	nddh.org
+Hartford	Hartford Health & Human Services	hartfordct.gov
+Hartland	Farmington Valley Health District	fvhd.org
+Harwinton	Torrington Area Health District	tahd.org
+Hebron	Chatham Health District	chathamhealth.org
+Kent	Torrington Area Health District	tahd.org
+Killingly	Northeast District Health	nddh.org
+Killingworth	Killingworth Health Dept.	townofkillingworth.com
+Lebanon	Uncas Health District	uncashd.org
+Ledyard	Ledge Light Health District	llhd.org
+Lisbon	Uncas Health District	uncashd.org
+Litchfield	Torrington Area Health District	tahd.org
+Lyme	Lyme Health Dept.	townlyme.org
+Madison	Madison Health Dept.	madisonct.org
+Manchester	Manchester Health Dept.	manchesterct.gov
+Mansfield	Eastern Highlands Health District	ehhd.org
+Marlborough	Chatham Health District	chathamhealth.org
+Meriden	Meriden Health & Human Services	meridenct.gov
+Middlebury	Middlebury Health Dept.	middlebury-ct.org
+Middlefield	Middlefield Health Dept.	middlefieldct.org
+Middletown	Middletown Health Dept.	middletownct.gov
+Milford	Milford Health Dept.	ci.milford.ct.us
+Monroe	Monroe Health Dept.	monroect.org
+Montville	Uncas Health District	uncashd.org
+Morris	Torrington Area Health District	tahd.org
+Naugatuck	Naugatuck Valley Health District	nvhd.org
+New Britain	New Britain Health Dept.	newbritainct.gov
+New Canaan	New Canaan Health Dept.	newcanaan.info
+New Fairfield	New Fairfield Health Dept.	newfairfield.org
+New Hartford	Farmington Valley Health District	fvhd.org
+New Haven	New Haven Health Dept.	newhavenct.gov
+New London	Ledge Light Health District	llhd.org
+New Milford	Housatonic Valley Health District	hvhd.us
+Newington	Central Connecticut Health District	ccthd.org
+Newtown	Newtown Health District	newtown-ct.gov
+Norfolk	Torrington Area Health District	tahd.org
+North Branford	East Shore District Health	esdhd.org
+North Canaan	Torrington Area Health District	tahd.org
+North Haven	Quinnipiack Valley Health District	qvhd.org
+North Stonington	Ledge Light Health District	llhd.org
+Norwalk	Norwalk Health Dept.	norwalkct.org
+Norwich	Uncas Health District	uncashd.org
+Old Lyme	Ledge Light Health District	llhd.org
+Old Saybrook	CT River Area Health District	crahd.org
+Orange	Orange Health Dept.	orange-ct.gov
+Oxford	Housatonic Valley Health District	hvhd.us
+Plainfield	Northeast District Health	nddh.org
+Plainville	Plainville-Southington District	pshd.org
+Plymouth	Torrington Area Health District	tahd.org
+Pomfret	Northeast District Health	nddh.org
+Portland	Chatham Health District	chathamhealth.org
+Preston	Uncas Health District	uncashd.org
+Prospect	Chesprocott Health District	chesprocott.org
+Putnam	Northeast District Health	nddh.org
+Redding	Redding Health Dept.	townofreddingct.org
+Ridgefield	Ridgefield Health Dept.	ridgefieldct.org
+Rocky Hill	Central Connecticut Health District	ccthd.org
+Roxbury	Newtown Health District	newtown-ct.gov
+Salem	Uncas Health District	uncashd.org
+Salisbury	Torrington Area Health District	tahd.org
+Scotland	Eastern Highlands Health District	ehhd.org
+Seymour	Naugatuck Valley Health District	nvhd.org
+Sharon	Housatonic Valley Health District	hvhd.us
+Shelton	Naugatuck Valley Health District	nvhd.org
+Sherman	Sherman Health Dept.	townofshermanct.org
+Simsbury	Farmington Valley Health District	fvhd.org
+Somers	North Central Health District	ncdhd.org
+South Windsor	South Windsor Health Dept.	southwindsor-ct.gov
+Southbury	Housatonic Valley Health District	hvhd.us
+Southington	Plainville-Southington District	pshd.org
+Sprague	Uncas Health District	uncashd.org
+Stafford	North Central Health District	ncdhd.org
+Stamford	Stamford Dept. of Health	stamfordct.gov
+Sterling	Northeast District Health	nddh.org
+Stonington	Ledge Light Health District	llhd.org
+Stratford	Stratford Health Dept.	stratfordct.gov
+Suffield	North Central Health District	ncdhd.org
+Thomaston	Torrington Area Health District	tahd.org
+Thompson	Northeast District Health	nddh.org
+Tolland	Eastern Highlands Health District	ehhd.org
+Torrington	Torrington Area Health District	tahd.org
+Trumbull	Trumbull Health Dept.	trumbull-ct.gov
+Union	Northeast District Health	nddh.org
+Vernon	North Central Health District	ncdhd.org
+Voluntown	Uncas Health District	uncashd.org
+Wallingford	Wallingford Health Dept.	wallingfordct.gov
+Warren	Torrington Area Health District	tahd.org
+Washington	Housatonic Valley Health District	hvhd.us
+Waterbury	Waterbury Health Dept.	waterburyct.org
+Waterford	Ledge Light Health District	llhd.org
+Watertown	Torrington Area Health District	tahd.org
+West Hartford	West Hartford-Bloomfield District	westhartfordct.gov
+West Haven	West Haven Health Dept.	cityofwesthaven.com
+Westbrook	Westbrook Health Dept.	westbrookct.us
+Weston	Weston Health Dept.	westonct.gov
+Westport	Aspetuck Health District	aspetuckhd.org
+Wethersfield	Central Connecticut Health District	ccthd.org
+Willington	Eastern Highlands Health District	ehhd.org
+Wilton	Wilton Health Dept.	wiltonct.org
+Winchester	Torrington Area Health District	tahd.org
+Windham	Uncas Health District	uncashd.org
+Windsor	Windsor Health Dept.	townofwindsorct.com
+Windsor Locks	North Central Health District	ncdhd.org
+Wolcott	Chesprocott Health District	chesprocott.org
+Woodbridge	Quinnipiack Valley Health District	qvhd.org
+Woodbury	Housatonic Valley Health District	hvhd.us
+Woodstock	Northeast District Health	nddh.org
