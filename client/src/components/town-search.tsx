@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, MapPin, Building, ChevronRight, Flag, ExternalLink } from "lucide-react";
+import { Search, MapPin, Building, ChevronRight, Flag, ExternalLink, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConfidenceIndicator } from "./confidence-indicator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Town } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
+import type { Town, HealthDistrict } from "@shared/schema";
 
 interface TownSearchProps {
   towns: Town[];
@@ -30,10 +32,15 @@ export function TownSearch({
   isLoading = false,
 }: TownSearchProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string>("all");
   const [showPioneerDialog, setShowPioneerDialog] = useState(false);
   const [pioneerForm, setPioneerForm] = useState({ townName: "", county: "", portalUrl: "", notes: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+
+  const { data: healthDistricts = [] } = useQuery<HealthDistrict[]>({
+    queryKey: ["/api/health-districts"],
+  });
 
   const handlePioneerSubmit = async () => {
     if (!pioneerForm.townName.trim()) {
@@ -66,6 +73,10 @@ export function TownSearch({
     if (selectedCounty) {
       filtered = filtered.filter(t => t.county === selectedCounty);
     }
+
+    if (selectedDistrictId && selectedDistrictId !== "all") {
+      filtered = filtered.filter(t => t.healthDistrictId === selectedDistrictId);
+    }
     
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -76,7 +87,7 @@ export function TownSearch({
     }
     
     return filtered.sort((a, b) => a.townName.localeCompare(b.townName));
-  }, [towns, selectedState, selectedCounty, searchQuery]);
+  }, [towns, selectedState, selectedCounty, selectedDistrictId, searchQuery]);
 
   const counties = useMemo(() => {
     const countySet = new Set(
@@ -87,16 +98,32 @@ export function TownSearch({
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search towns..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10 h-12"
-          data-testid="input-town-search"
-        />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search towns..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-12"
+            data-testid="input-town-search"
+          />
+        </div>
+        <Select value={selectedDistrictId} onValueChange={setSelectedDistrictId}>
+          <SelectTrigger className="h-12 sm:w-[220px]" data-testid="select-health-district">
+            <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="Filter by district" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all" data-testid="select-district-all">All Districts</SelectItem>
+            {healthDistricts.map((district) => (
+              <SelectItem key={district.id} value={district.id} data-testid={`select-district-${district.id}`}>
+                {district.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (
