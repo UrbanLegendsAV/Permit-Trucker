@@ -867,13 +867,13 @@ ${prompt}`;
       }
 
       const forms = await storage.getTownForms(townId);
-      const templates = forms.map(form => townFormToTemplate(form, town.townName));
       
+      // Return full TownForm objects so frontend can access all properties
       res.json({
         townId,
         townName: town.townName,
-        forms: templates,
-        fillableForms: templates.filter(t => t.isFillable),
+        forms: forms,
+        fillableForms: forms.filter(f => f.isFillable && f.fileData),
       });
     } catch (error) {
       console.error("Error fetching town forms:", error);

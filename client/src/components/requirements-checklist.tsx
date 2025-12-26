@@ -125,15 +125,11 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
     
     try {
       // Use new database-backed endpoint with form ID directly
+      // apiRequest throws on non-2xx responses, so no need to check response.ok
       const response = await apiRequest("POST", `/api/towns/${town.id}/forms/${form.id}/generate`, {
         profileId: profile.id,
         includeDocuments: false,
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to generate form");
-      }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);

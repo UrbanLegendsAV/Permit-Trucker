@@ -3,17 +3,7 @@ import { Printer, Download, ArrowLeft, FileText, MapPin, Globe, Calendar, Loader
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import type { Town, Profile } from "@shared/schema";
-
-interface DatabaseFormTemplate {
-  formId: string;
-  formName: string;
-  townId: string;
-  townName?: string;
-  isFillable: boolean;
-  hasFieldMappings: boolean;
-  category: string | null;
-}
+import type { Town, Profile, TownForm } from "@shared/schema";
 
 interface PermitPacketProps {
   town: Town;
@@ -31,7 +21,7 @@ const permitTypeLabels = {
 
 export function PermitPacket({ town, profile, permitType, signature, onClose }: PermitPacketProps) {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [availableForms, setAvailableForms] = useState<DatabaseFormTemplate[]>([]);
+  const [availableForms, setAvailableForms] = useState<TownForm[]>([]);
   const [formsLoading, setFormsLoading] = useState(true);
   const { toast } = useToast();
 
@@ -39,7 +29,9 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
   useEffect(() => {
     const fetchForms = async () => {
       try {
-        const response = await fetch(`/api/towns/${town.id}/forms`);
+        const response = await fetch(`/api/towns/${town.id}/forms`, {
+          credentials: "include",
+        });
         if (response.ok) {
           const data = await response.json();
           setAvailableForms(data.fillableForms || []);
@@ -61,18 +53,19 @@ export function PermitPacket({ town, profile, permitType, signature, onClose }: 
     setIsGenerating(true);
     try {
       // Find a fillable form for this town from the database
-      const fillableForm = availableForms.find(f => f.isFillable);
+      const fillableForm = availableForms.find(f => f.isFillable && f.fileData);
       
       if (!fillableForm) {
         throw new Error(`No fillable PDF form available for ${town.townName}. Please upload a form in the admin dashboard.`);
       }
       
       // Use the new database-backed endpoint
-      const response = await fetch(`/api/towns/${town.id}/forms/${fillableForm.formId}/generate`, {
+      const response = await fetch(`/api/towns/${town.id}/forms/${fillableForm.id}/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           profileId: profile.id,
           includeDocuments: true,
