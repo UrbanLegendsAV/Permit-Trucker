@@ -60,6 +60,35 @@ const generatePacketSchema = z.object({
   includeDocuments: z.boolean().optional().default(true),
 });
 
+// Standard document categories to include in permit packets
+// IMPORTANT: These are town-agnostic documents - do NOT include permit-application
+// as those are specific to individual towns and would cause cross-town contamination
+const PERMIT_PACKET_DOC_CATEGORIES = [
+  "menu",           // Menu with Prices
+  "trailer_diagram", // Trailer/Truck Diagram
+  "coi",            // Certificate of Insurance (Liability)
+  "insurance",      // Legacy insurance folder
+  "food_manager_cert", // Food Handler Certification
+  "food_manager",   // Food Manager Certificate
+  "cert",           // Legacy cert folder
+  "health_permit",  // State Health Department License
+  "health_dept",    // Legacy health dept folder
+  "fire_safety",    // Fire Safety Inspection
+  "vehicle_registration", // Vehicle Registration
+  "commissary_letter", // Commissary Agreement Letter
+  "commissary",     // Commissary documents
+  "business_license", // Business License
+];
+
+// Helper function to filter supporting documents for permit packets
+function filterSupportingDocs(documents: any[]): any[] {
+  return documents.filter((doc: any) => {
+    // Normalize folder name: lowercase and convert dashes to underscores
+    const folder = (doc.folder || "").toLowerCase().replace(/-/g, "_");
+    return PERMIT_PACKET_DOC_CATEGORIES.some(cat => folder.includes(cat));
+  });
+}
+
 // Build the Golden Questions prompt with targeted extraction hints and 0-100 confidence scoring
 function buildGoldenQuestionsPrompt(): string {
   return `You are analyzing food truck/vendor permit application documents. Extract information into these specific categories with NUMERIC confidence scores (0-100).
@@ -874,27 +903,7 @@ ${prompt}`;
 
       if (includeDocuments) {
         const documents = profile.uploadsJson?.documents || [];
-        // Include all required document types for permit packet
-        const requiredCategories = [
-          "menu",           // Menu with Prices
-          "trailer-diagram", // Trailer/Truck Diagram
-          "coi",            // Certificate of Insurance (Liability)
-          "insurance",      // Legacy insurance folder
-          "food-manager-cert", // Food Handler Certification
-          "cert",           // Legacy cert folder
-          "health-permit",  // State Health Department License
-          "health-dept",    // Legacy health dept folder
-          "fire-safety",    // Fire Safety Inspection
-          "vehicle-registration", // Vehicle Registration
-          "commissary-letter", // Commissary Agreement Letter
-          "business-license", // Business License
-          "permit-application", // Other permit applications
-        ];
-        
-        const supportingDocs = documents.filter((doc: any) => {
-          const folder = (doc.folder || "").toLowerCase();
-          return requiredCategories.some(cat => folder.includes(cat));
-        });
+        const supportingDocs = filterSupportingDocs(documents);
 
         if (supportingDocs.length > 0) {
           pdfBytes = await appendDocumentsToPdf(pdfBytes, supportingDocs);
@@ -934,27 +943,7 @@ ${prompt}`;
 
       if (includeDocuments) {
         const documents = profile.uploadsJson?.documents || [];
-        // Include all required document types for permit packet
-        const requiredCategories = [
-          "menu",           // Menu with Prices
-          "trailer-diagram", // Trailer/Truck Diagram
-          "coi",            // Certificate of Insurance (Liability)
-          "insurance",      // Legacy insurance folder
-          "food-manager-cert", // Food Handler Certification
-          "cert",           // Legacy cert folder
-          "health-permit",  // State Health Department License
-          "health-dept",    // Legacy health dept folder
-          "fire-safety",    // Fire Safety Inspection
-          "vehicle-registration", // Vehicle Registration
-          "commissary-letter", // Commissary Agreement Letter
-          "business-license", // Business License
-          "permit-application", // Other permit applications
-        ];
-        
-        const supportingDocs = documents.filter((doc: any) => {
-          const folder = (doc.folder || "").toLowerCase();
-          return requiredCategories.some(cat => folder.includes(cat));
-        });
+        const supportingDocs = filterSupportingDocs(documents);
 
         if (supportingDocs.length > 0) {
           pdfBytes = await appendDocumentsToPdf(pdfBytes, supportingDocs);
