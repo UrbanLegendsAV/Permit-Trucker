@@ -594,29 +594,33 @@ export default function PermitDetailPage() {
                       Select a form template to generate your pre-filled application:
                     </p>
                     <div className="grid gap-2">
-                      {pdfTemplates.map((template) => (
-                        <Button
-                          key={template.formId}
-                          onClick={() => handleGeneratePacket(template.formId)}
-                          disabled={generatingTemplateId !== null}
-                          variant="outline"
-                          className="justify-start h-auto py-3"
-                          data-testid={`button-generate-${template.formId}`}
-                        >
-                          {generatingTemplateId === template.formId ? (
-                            <Loader2 className="w-4 h-4 mr-3 animate-spin" />
-                          ) : (
-                            <FileText className="w-4 h-4 mr-3" />
-                          )}
-                          <div className="text-left">
-                            <div className="font-medium">{template.formName}</div>
-                            <div className="text-xs text-muted-foreground">{template.townName}</div>
-                          </div>
-                        </Button>
-                      ))}
-                      {pdfTemplates.length === 0 && (
+                      {pdfTemplates
+                        .filter((template) => 
+                          template.townName.toLowerCase() === town?.townName?.toLowerCase()
+                        )
+                        .map((template) => (
+                          <Button
+                            key={template.formId}
+                            onClick={() => handleGeneratePacket(template.formId)}
+                            disabled={generatingTemplateId !== null}
+                            variant="outline"
+                            className="justify-start h-auto py-3"
+                            data-testid={`button-generate-${template.formId}`}
+                          >
+                            {generatingTemplateId === template.formId ? (
+                              <Loader2 className="w-4 h-4 mr-3 animate-spin" />
+                            ) : (
+                              <FileText className="w-4 h-4 mr-3" />
+                            )}
+                            <div className="text-left">
+                              <div className="font-medium">{template.formName}</div>
+                              <div className="text-xs text-muted-foreground">{template.townName}</div>
+                            </div>
+                          </Button>
+                        ))}
+                      {pdfTemplates.filter((t) => t.townName.toLowerCase() === town?.townName?.toLowerCase()).length === 0 && (
                         <p className="text-sm text-muted-foreground py-2">
-                          No form templates available yet.
+                          No form templates available for {town?.townName} yet.
                         </p>
                       )}
                     </div>

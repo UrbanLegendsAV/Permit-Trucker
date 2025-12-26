@@ -172,9 +172,19 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       return;
     }
 
+    if (!profile) {
+      toast({
+        title: "Profile Required",
+        description: "Please select a vehicle profile first to use AI Portal Assistant.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    window.open(town.portalUrl, "_blank");
     toast({
-      title: "AI Assist Coming Soon",
-      description: "AI-powered form filling will be available in a future update.",
+      title: "Portal Opened",
+      description: `Opening ${town.townName}'s permit portal. Full automation coming soon!`,
     });
   };
   
