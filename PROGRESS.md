@@ -122,104 +122,7 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 ---
 
-## Technical Architecture
-
-### Frontend Stack
-- React 18 + TypeScript
-- Vite build tool
-- Tailwind CSS with dark mode
-- shadcn/ui component library
-- Wouter for routing
-- Zustand for local state
-- TanStack Query for server state
-- Vanilla Leaflet.js for mapping
-
-### Backend Stack
-- Node.js + Express
-- PostgreSQL via Drizzle ORM
-- Replit Auth (OpenID Connect)
-- Passport.js for auth middleware
-
-### Key Files
-| File | Purpose |
-|------|---------|
-| `shared/schema.ts` | Database schema + types |
-| `server/routes.ts` | API endpoints |
-| `server/storage.ts` | Data access layer |
-| `server/seed.ts` | Town + config seeding |
-| `client/src/App.tsx` | Main router |
-| `client/src/pages/discover.tsx` | Consumer map page |
-| `client/src/pages/admin.tsx` | Admin dashboard |
-| `client/src/pages/profile.tsx` | User profile page |
-| `client/src/pages/onboarding.tsx` | Multi-step onboarding flow |
-| `client/src/components/permit-packet.tsx` | Print-ready permit packets |
-| `client/src/lib/ocr.ts` | OCR utility (Tesseract.js) |
-| `client/public/sw.js` | Service worker for PWA |
-
----
-
-## API Endpoints
-
-### Public
-- `GET /api/public-profiles` - List public food trucks
-- `GET /api/reviews/:publicProfileId` - Get reviews for truck
-- `POST /api/reviews` - Submit anonymous review
-
-### Authenticated
-- `GET /api/profiles` - User's vehicle profiles
-- `POST /api/profiles` - Create vehicle profile
-- `GET /api/permits` - User's permits
-- `POST /api/permits` - Create permit application
-- `GET /api/badges` - User's earned badges
-- `GET /api/towns` - All towns with requirements
-- `GET /api/me/role` - Current user's role
-
-### Admin Only
-- `GET/POST /api/admin/configs` - Manage settings
-- `POST /api/admin/towns` - Create town
-- `PATCH /api/admin/towns/:id` - Update town
-- `DELETE /api/admin/towns/:id` - Delete town
-
-### Owner Only
-- `PATCH /api/admin/users/:id/role` - Assign user roles
-
----
-
-## Next Steps (Future Phases)
-
-### Phase 3: Enhanced Features
-- [ ] Push notifications for permit expiry
-- [ ] Email reminders
-- [ ] Multi-state expansion (beyond CT)
-- [ ] Permit auto-fill with saved documents
-- [ ] Commissary letter templates
-
-### Phase 4: Monetization
-- [ ] Pro subscription integration (Stripe)
-- [ ] Premium features unlock
-- [ ] Featured truck listings
-- [ ] Analytics dashboard for truckers
-
-### Phase 5: Community
-- [ ] Trucker forums/discussion
-- [ ] Event calendar integration
-- [ ] Route planning tools
-- [ ] Bulk permit applications
-
----
-
-## Configuration Defaults
-
-| Setting | Default Value | Description |
-|---------|---------------|-------------|
-| `pro_price` | $99 | Pro plan monthly price |
-| `basic_price` | $0 | Basic plan price (free) |
-| `max_vehicles` | 5 | Max vehicles per user |
-| `pioneer_threshold` | 60% | Confidence below which Pioneer badge earned |
-
----
-
-## Phase 3: TruckPermitAI - Intelligent Form Filling (IN PROGRESS)
+## Phase 3: TruckPermitAI - Intelligent Form Filling (COMPLETE)
 
 ### Auto-OCR Document Processing
 - [x] Auto-run Tesseract.js OCR on image upload
@@ -260,8 +163,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] External links to municipality websites
 - [x] Fillable form indicators
 
----
-
 ### Permit Wizard Improvements
 - [x] Draft progress saving (persists permit step and data on refresh)
 - [x] Town selection visual highlighting (blue ring on selected town)
@@ -284,12 +185,182 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 ---
 
+## Phase 4: Autonomous PDF Filling Infrastructure (IN PROGRESS)
+
+### Database-Backed Form System
+- [x] `town_forms` table with columns: id, townId, name, formType, fileData (base64), fieldMappings (JSON), isFillable, sourceUrl
+- [x] Admin dashboard form upload (PDF file + metadata)
+- [x] Base64 encoding for PDF storage in PostgreSQL
+- [x] API: GET `/api/towns/:townId/forms` - returns all forms for a town
+- [x] API: POST `/api/towns/:townId/forms/:formId/generate` - generates filled PDF
+- [x] Frontend displays "Official Forms" section with "Fillable" badges
+- [x] "Generate Filled Form" and "View PDF" buttons per form
+
+### PDF Generation Pipeline
+- [x] `fillPdfFromDatabase()` function in `server/lib/pdf-service.ts`
+- [x] Retrieves form template from database by formId
+- [x] Uses pdf-lib to load PDF and access AcroForm fields
+- [x] Maps profile data to form fields using `fieldMappings` JSON
+- [x] Returns filled PDF as binary blob for download
+
+### Current Issues (BLOCKING)
+- [ ] **fieldMappings is empty** - Forms are marked `isFillable=true` but lack actual field mappings
+- [ ] Downloaded PDFs appear BLANK because no field values are set
+- [ ] No validation/error when fieldMappings is missing
+- [ ] Admin form upload doesn't auto-generate fieldMappings
+
+### Field Mapping Requirements
+Each form needs a `fieldMappings` JSON object that maps:
+```json
+{
+  "PDF_FIELD_NAME": "profile.fieldPath",
+  "BusinessName": "businessName",
+  "ApplicantPhone": "phone",
+  "VehicleVIN": "vehicleInfo.vin",
+  ...
+}
+```
+
+### Two Submission Paths (Planned)
+1. **PDF Auto-Fill Path** (Current Focus)
+   - Upload form → Extract field names → Create fieldMappings → Generate filled PDF
+   - Uses pdf-lib for AcroForm manipulation
+   - Datalab API for AI-powered semantic field matching (optional enhancement)
+
+2. **Portal Automation Path** (Future)
+   - Store portal credentials (AES-256-CBC encrypted)
+   - Playwright browser automation
+   - Navigate to OpenGov/ViewPoint portals
+   - Fill fields programmatically
+   - Submit with user approval
+
+### Master Data Vault
+- [x] `data_vaults` table with 50+ standardized fields
+- [x] Single source of truth for all user data
+- [x] Fields: businessName, ownerName, address, phone, email, ein, vehicleInfo, licenses, insurance, etc.
+- [x] Sync from parsed documents via `syncParsedDataToVault()`
+- [x] Completeness scoring for data quality
+
+### Submission Jobs Tracking
+- [x] `submission_jobs` table for tracking fill/automation jobs
+- [x] Status: pending, processing, completed, failed, needs_approval
+- [x] Stores filled PDF result for download
+- [x] Error logging for debugging
+
+---
+
+## Technical Architecture
+
+### Frontend Stack
+- React 18 + TypeScript
+- Vite build tool
+- Tailwind CSS with dark mode
+- shadcn/ui component library
+- Wouter for routing
+- Zustand for local state
+- TanStack Query for server state
+- Vanilla Leaflet.js for mapping
+
+### Backend Stack
+- Node.js + Express
+- PostgreSQL via Drizzle ORM
+- Replit Auth (OpenID Connect)
+- Passport.js for auth middleware
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `shared/schema.ts` | Database schema + types |
+| `server/routes.ts` | API endpoints |
+| `server/storage.ts` | Data access layer |
+| `server/seed.ts` | Town + config seeding |
+| `server/lib/pdf-service.ts` | PDF generation with pdf-lib |
+| `client/src/App.tsx` | Main router |
+| `client/src/pages/discover.tsx` | Consumer map page |
+| `client/src/pages/admin.tsx` | Admin dashboard |
+| `client/src/pages/profile.tsx` | User profile page |
+| `client/src/pages/onboarding.tsx` | Multi-step onboarding flow |
+| `client/src/pages/permit-detail.tsx` | Permit application detail page |
+| `client/src/components/permit-packet.tsx` | PDF generation UI |
+| `client/src/components/requirements-checklist.tsx` | Town requirements display |
+| `client/src/lib/ocr.ts` | OCR utility (Tesseract.js) |
+| `client/public/sw.js` | Service worker for PWA |
+
+---
+
+## API Endpoints
+
+### Public
+- `GET /api/public-profiles` - List public food trucks
+- `GET /api/reviews/:publicProfileId` - Get reviews for truck
+- `POST /api/reviews` - Submit anonymous review
+
+### Authenticated
+- `GET /api/profiles` - User's vehicle profiles
+- `POST /api/profiles` - Create vehicle profile
+- `GET /api/permits` - User's permits
+- `POST /api/permits` - Create permit application
+- `GET /api/badges` - User's earned badges
+- `GET /api/towns` - All towns with requirements
+- `GET /api/me/role` - Current user's role
+
+### Town Forms (New)
+- `GET /api/towns/:townId/forms` - Get all forms for a town (returns `{ forms, fillableForms }`)
+- `GET /api/towns/:townId/forms/:formId` - Get single form details
+- `POST /api/towns/:townId/forms/:formId/generate` - Generate filled PDF
+
+### Admin Only
+- `GET/POST /api/admin/configs` - Manage settings
+- `POST /api/admin/towns` - Create town
+- `PATCH /api/admin/towns/:id` - Update town
+- `DELETE /api/admin/towns/:id` - Delete town
+- `POST /api/admin/towns/:townId/forms` - Upload form to town
+
+### Owner Only
+- `PATCH /api/admin/users/:id/role` - Assign user roles
+
+---
+
+## Configuration Defaults
+
+| Setting | Default Value | Description |
+|---------|---------------|-------------|
+| `pro_price` | $99 | Pro plan monthly price |
+| `basic_price` | $0 | Basic plan price (free) |
+| `max_vehicles` | 5 | Max vehicles per user |
+| `pioneer_threshold` | 60% | Confidence below which Pioneer badge earned |
+
+---
+
+## Next Steps (Immediate Priority)
+
+### Fix PDF Filling (Critical)
+1. [ ] Add validation in `fillPdfFromDatabase()` - throw error if fieldMappings is empty
+2. [ ] Create admin UI for field mapping configuration
+3. [ ] OR: Auto-extract PDF field names on upload and prompt admin to map them
+4. [ ] Add regression test: load profile, generate PDF, verify fields are filled
+
+### Populate Field Mappings for Existing Forms
+- [ ] Newtown Mobile Food Establishment Application
+- [ ] Newtown Temporary Food Service Application
+- [ ] Other CT town forms
+
+### Future Phases
+- [ ] Push notifications for permit expiry
+- [ ] Email reminders
+- [ ] Multi-state expansion (beyond CT)
+- [ ] Pro subscription integration (Stripe)
+- [ ] Trucker forums/discussion
+- [ ] Event calendar integration
+- [ ] Route planning tools
+
+---
+
 ## Current Status
-**Phase 3 In Progress** - TruckPermitAI features actively developed: AcroForm-based PDF auto-filling working for Bethel form with 46 fields mapped, Gemini AI document parsing, draft progress saving, and permit wizard improvements. Core platform fully functional with consumer discovery, admin dashboard, and PWA support.
+**Phase 4 In Progress** - Database-backed form system is wired up end-to-end, but PDFs download BLANK because field mappings are not configured. The pipeline from admin upload → database storage → frontend display → PDF generation is complete, but the critical `fieldMappings` JSON is empty for all forms.
 
-**Remaining Items:**
-- Event-specific fields need user input during permit wizard (location, dates, hours)
-- Additional town form templates (Newtown, etc.) need field mapping
-- AI Portal Assistant embedded WebView
+**Root Cause**: Forms are marked `isFillable=true` but the admin upload process doesn't populate `fieldMappings`. The `fillPdfFromDatabase()` function silently uses an empty mapping object, resulting in no fields being filled.
 
-Last Updated: December 23, 2025
+**Fix Required**: Either (1) create admin UI for field mapping, (2) use Datalab API to auto-detect and map fields, or (3) manually populate fieldMappings via database script.
+
+Last Updated: December 28, 2025
