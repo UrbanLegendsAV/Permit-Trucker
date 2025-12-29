@@ -26,7 +26,7 @@ import { townResearchService } from "./lib/town-research-service";
 import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
 import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
-import { createPdfFillJob, pollDatalabJob, startAutoPdfFill } from "./lib/datalab-service";
+import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
 import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured } from "./lib/portal-automation-service";
 import { z } from "zod";
 
@@ -881,7 +881,7 @@ ${prompt}`;
     }
   });
 
-  // Generate PDF from database form
+  // Generate PDF from database form - uses Datalab AI when fieldMappings is empty
   app.post("/api/towns/:townId/forms/:formId/generate", isAuthenticated, async (req: any, res) => {
     try {
       const { townId, formId } = req.params;
@@ -904,12 +904,147 @@ ${prompt}`;
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
-      if (!parsedData) {
-        return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
-      }
+      
+      let pdfBytes: Uint8Array;
+      const fieldMappings = form.fieldMappings as Record<string, string> | null;
+      const hasFieldMappings = fieldMappings && Object.keys(fieldMappings).length > 0;
 
-      // Generate filled PDF from database form
-      let pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+      // If no fieldMappings configured, use Datalab AI for intelligent field detection
+      if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
+        console.log(`Using Datalab AI for form ${formId} (no fieldMappings configured)`);
+        
+        // Build field data from profile for Datalab
+        const fieldData: Record<string, { value: string; description: string }> = {};
+        
+        // Contact info
+        if (parsedData?.contact_info?.business_name?.value) {
+          fieldData.business_name = { value: parsedData.contact_info.business_name.value, description: "Name of the business or food truck" };
+        }
+        if (parsedData?.contact_info?.applicant_name?.value) {
+          fieldData.applicant_name = { value: parsedData.contact_info.applicant_name.value, description: "Full name of the applicant or owner" };
+        }
+        if (parsedData?.contact_info?.phone?.value) {
+          fieldData.phone = { value: parsedData.contact_info.phone.value, description: "Contact phone number" };
+        }
+        if (parsedData?.contact_info?.email?.value) {
+          fieldData.email = { value: parsedData.contact_info.email.value, description: "Email address" };
+        }
+        if (parsedData?.contact_info?.mailing_address?.value) {
+          fieldData.address = { value: parsedData.contact_info.mailing_address.value, description: "Mailing address" };
+        }
+        
+        // Operations
+        if (parsedData?.operations?.water_supply_type?.value) {
+          fieldData.water_supply = { value: parsedData.operations.water_supply_type.value, description: "Type of water supply (public, private, bottled)" };
+        }
+        if (parsedData?.operations?.toilet_facilities?.value) {
+          fieldData.toilet_facilities = { value: parsedData.operations.toilet_facilities.value, description: "Type of toilet facilities" };
+        }
+        
+        // Safety
+        if (parsedData?.safety?.hot_holding_method?.value) {
+          fieldData.hot_holding = { value: parsedData.safety.hot_holding_method.value, description: "Method for hot holding foods" };
+        }
+        if (parsedData?.safety?.cold_storage_method?.value) {
+          fieldData.cold_storage = { value: parsedData.safety.cold_storage_method.value, description: "Method for cold storage" };
+        }
+        
+        // Menu
+        if (parsedData?.menu_and_prep?.food_items_list?.value) {
+          fieldData.menu_items = { value: parsedData.menu_and_prep.food_items_list.value, description: "List of food items to be served" };
+        }
+        if (parsedData?.menu_and_prep?.prep_location?.value) {
+          fieldData.prep_location = { value: parsedData.menu_and_prep.prep_location.value, description: "Food preparation location" };
+        }
+        
+        // Profile data
+        if (profile.commissaryName) {
+          fieldData.commissary_name = { value: profile.commissaryName, description: "Name of commissary facility" };
+        }
+        if (profile.commissaryAddress) {
+          fieldData.commissary_address = { value: profile.commissaryAddress, description: "Address of commissary facility" };
+        }
+        if (profile.vinPlate) {
+          fieldData.vin = { value: profile.vinPlate, description: "Vehicle Identification Number or License Plate" };
+        }
+        // Check uploadsJson for additional vehicle info
+        const uploadsJson = profile.uploadsJson as { licensePlate?: string; vehicleInfo?: { vin?: string; licensePlate?: string } } | null;
+        if (uploadsJson?.licensePlate) {
+          fieldData.license_plate = { value: uploadsJson.licensePlate, description: "Vehicle license plate number" };
+        }
+        if (uploadsJson?.vehicleInfo?.vin && !profile.vinPlate) {
+          fieldData.vin = { value: uploadsJson.vehicleInfo.vin, description: "Vehicle Identification Number" };
+        }
+        
+        // Event data
+        if (eventData?.eventName) {
+          fieldData.event_name = { value: eventData.eventName, description: "Name of the event" };
+        }
+        if (eventData?.eventAddress) {
+          fieldData.event_location = { value: eventData.eventAddress, description: "Location or address of the event" };
+        }
+        if (eventData?.eventDates) {
+          fieldData.event_dates = { value: eventData.eventDates, description: "Date(s) of the event" };
+        }
+        
+        // Call Datalab API
+        const datalabResult = await fillPdfWithDatalab({
+          pdfBase64: form.fileData,
+          pdfFilename: form.fileName || `${form.name}.pdf`,
+          fieldData,
+          confidenceThreshold: 0.3,
+        });
+
+        if (!datalabResult.success) {
+          console.error("Datalab API failed:", datalabResult.error);
+          // Fall back to local filling if Datalab fails
+          if (!parsedData) {
+            return res.status(400).json({ message: "Profile has no parsed data and Datalab failed. Please analyze documents first." });
+          }
+          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+        } else if (datalabResult.request_check_url) {
+          // Poll for result (Datalab is async)
+          let attempts = 0;
+          const maxAttempts = 30;
+          let filledPdfBase64: string | null = null;
+          
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+            const pollResult = await checkDatalabResult(datalabResult.request_check_url);
+            
+            if (pollResult.status === "completed" && pollResult.filled_pdf_base64) {
+              filledPdfBase64 = pollResult.filled_pdf_base64;
+              break;
+            } else if (pollResult.status === "failed") {
+              console.error("Datalab processing failed:", pollResult.error);
+              break;
+            }
+            attempts++;
+          }
+          
+          if (filledPdfBase64) {
+            pdfBytes = new Uint8Array(Buffer.from(filledPdfBase64, "base64"));
+          } else {
+            // Fall back to local filling
+            if (!parsedData) {
+              return res.status(400).json({ message: "Profile has no parsed data and Datalab timed out." });
+            }
+            pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+          }
+        } else {
+          // Datalab returned success but no check URL - fall back
+          if (!parsedData) {
+            return res.status(400).json({ message: "Profile has no parsed data." });
+          }
+          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+        }
+      } else {
+        // Use local field mapping
+        if (!parsedData) {
+          return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
+        }
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+      }
 
       // Optionally append supporting documents
       if (includeDocuments) {

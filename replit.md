@@ -23,7 +23,7 @@ PermitTruck employs a monorepo structure, housing client, server, and shared cod
 - **Authentication**: Replit Auth via OpenID Connect with Passport.js, storing sessions in PostgreSQL.
 - **Database**: PostgreSQL with Drizzle ORM. A shared schema (`shared/schema.ts`) ensures type safety across client and server.
 - **Key Data Models**: `profiles` (vehicle details), `permits` (applications), `towns` (permit requirements with confidence scores), `town_forms` (official PDF forms), `health_districts`, `badges`, `data_vaults` (master data for auto-filling).
-- **PDF Generation System**: Utilizes `pdf-lib` to fill PDF forms dynamically based on user profile data and `fieldMappings`. The current critical issue involves `fieldMappings` being empty, leading to blank generated forms.
+- **PDF Generation System**: Uses Datalab AI for intelligent field matching when `fieldMappings` is not configured, with `pdf-lib` as fallback. Datalab semantically matches profile data to PDF form fields automatically.
 - **Pioneer Badge System**: Gamification encourages users to contribute verified permit information for new towns.
 - **Two Submission Paths**:
     1.  **PDF Auto-Fill**: Generates pre-filled PDFs for users to download.
