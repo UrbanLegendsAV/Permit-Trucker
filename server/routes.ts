@@ -884,8 +884,10 @@ ${prompt}`;
   // Generate PDF from database form - uses Datalab AI when fieldMappings is empty
   app.post("/api/towns/:townId/forms/:formId/generate", isAuthenticated, async (req: any, res) => {
     try {
+      console.log("=== PDF GENERATION REQUEST ===");
       const { townId, formId } = req.params;
       const { profileId, includeDocuments = true, eventData } = req.body;
+      console.log(`townId=${townId}, formId=${formId}, profileId=${profileId}`);
 
       // Get the form from database
       const form = await storage.getTownFormById(formId);
@@ -910,6 +912,7 @@ ${prompt}`;
       const hasFieldMappings = fieldMappings && Object.keys(fieldMappings).length > 0;
 
       // If no fieldMappings configured, use Datalab AI for intelligent field detection
+      console.log(`hasFieldMappings=${hasFieldMappings}, DATALAB_API_KEY exists=${!!process.env.DATALAB_API_KEY}`);
       if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
         console.log(`Using Datalab AI for form ${formId} (no fieldMappings configured)`);
         
@@ -988,12 +991,14 @@ ${prompt}`;
         }
         
         // Call Datalab API
+        console.log(`Calling Datalab with ${Object.keys(fieldData).length} fields:`, Object.keys(fieldData));
         const datalabResult = await fillPdfWithDatalab({
           pdfBase64: form.fileData,
           pdfFilename: form.fileName || `${form.name}.pdf`,
           fieldData,
           confidenceThreshold: 0.3,
         });
+        console.log("Datalab result:", JSON.stringify(datalabResult, null, 2));
 
         if (!datalabResult.success) {
           console.error("Datalab API failed:", datalabResult.error);
@@ -1004,6 +1009,7 @@ ${prompt}`;
           pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
         } else if (datalabResult.request_check_url) {
           // Poll for result (Datalab is async)
+          console.log("Polling Datalab for result at:", datalabResult.request_check_url);
           let attempts = 0;
           const maxAttempts = 30;
           let filledPdfBase64: string | null = null;
@@ -1011,8 +1017,10 @@ ${prompt}`;
           while (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
             const pollResult = await checkDatalabResult(datalabResult.request_check_url);
+            console.log(`Poll attempt ${attempts + 1}: status=${pollResult.status}`);
             
             if (pollResult.status === "completed" && pollResult.filled_pdf_base64) {
+              console.log("Datalab completed - got filled PDF");
               filledPdfBase64 = pollResult.filled_pdf_base64;
               break;
             } else if (pollResult.status === "failed") {
