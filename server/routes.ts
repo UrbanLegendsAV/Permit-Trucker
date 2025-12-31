@@ -1150,28 +1150,31 @@ Return ONLY valid JSON array with EXACT field names from the list above:
                 }
               }
               
-              // Fall back to basic field info if Gemini fails
-              if (fields.length === 0) {
-                fields = fieldInfo.map(f => ({
-                  pdfFieldName: f.name,
-                  fieldType: f.type as "text" | "checkbox",
-                  label: f.name,
-                  dataKey: null,
-                  confidence: 0,
-                }));
+              // Only cache if we have meaningful mappings (at least 30% of text fields mapped)
+              const textFields = fields.filter(f => f.fieldType === "text");
+              const mappedTextFields = textFields.filter(f => f.dataKey !== null);
+              const mappingCoverage = textFields.length > 0 ? mappedTextFields.length / textFields.length : 0;
+              
+              // Require at least 30% coverage to consider mappings valid
+              const hasValidMappings = mappingCoverage >= 0.3 || mappedTextFields.length >= 5;
+              
+              if (hasValidMappings && fields.length > 0) {
+                const aiFieldMappings = {
+                  fields,
+                  lastAnalyzedAt: new Date().toISOString(),
+                  analysisSource: apiKey ? "gemini" as const : "datalab" as const,
+                  coverage: mappingCoverage,
+                };
+                
+                await storage.updateTownForm(formId, {
+                  datalabAnalyzed: true,
+                  aiFieldMappings: aiFieldMappings as any,
+                });
+                console.log(`Cached ${fields.length} PDF field mappings (${mappedTextFields.length} text fields matched, ${Math.round(mappingCoverage * 100)}% coverage)`);
+              } else {
+                console.log(`Gemini mapping coverage too low (${Math.round(mappingCoverage * 100)}%), NOT caching - will use Datalab again next time`);
+                // Don't mark as analyzed - will use Datalab again next time
               }
-              
-              const aiFieldMappings = {
-                fields,
-                lastAnalyzedAt: new Date().toISOString(),
-                analysisSource: apiKey ? "gemini" as const : "datalab" as const,
-              };
-              
-              await storage.updateTownForm(formId, {
-                datalabAnalyzed: true,
-                aiFieldMappings: aiFieldMappings as any,
-              });
-              console.log(`Cached ${fields.length} PDF field mappings (${fields.filter(f => f.dataKey).length} matched)`);
             } catch (cacheError) {
               console.error("Failed to cache field mappings (non-fatal):", cacheError);
             }
