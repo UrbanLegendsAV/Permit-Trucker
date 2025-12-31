@@ -1181,7 +1181,7 @@ ${prompt}`;
               
               if (apiKey) {
                 const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 
                 // Send PDF as inline data for Gemini to analyze visually
                 const prompt = `Analyze this PDF permit application form and match form fields to data keys.
@@ -1305,7 +1305,7 @@ Return ONLY valid JSON array with EXACT field names from the list above:
                 if (eventData?.licenseType) availableData.license_type = { value: eventData.licenseType, description: "License type (temporary or seasonal)" };
                 
                 const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 
                 const prompt = `Analyze this PDF permit form. For each checkbox, identify what it represents by reading the label NEXT TO it.
 
