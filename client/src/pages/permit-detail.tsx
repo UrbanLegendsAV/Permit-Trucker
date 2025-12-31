@@ -175,12 +175,28 @@ export default function PermitDetailPage() {
 
     setGeneratingTemplateId(formId);
     try {
+      // Format event data for PDF filling
+      const eventData = {
+        eventName: permit.eventName || undefined,
+        eventAddress: permit.eventAddress 
+          ? `${permit.eventAddress}${permit.eventCity ? `, ${permit.eventCity}` : ''}`
+          : undefined,
+        eventDates: permit.eventDate 
+          ? `${new Date(permit.eventDate).toLocaleDateString()}${permit.eventEndDate ? ` - ${new Date(permit.eventEndDate).toLocaleDateString()}` : ''}`
+          : undefined,
+        hoursOfOperation: permit.eventHours && Array.isArray(permit.eventHours) 
+          ? permit.eventHours.map((h: any) => `${h.start} - ${h.end}`).join(', ')
+          : undefined,
+        personInCharge: permit.eventContactName || undefined,
+        licenseType: permit.permitType === "temporary" ? "temporary" as const : "seasonal" as const,
+      };
+
       // Use new database-backed endpoint
       const response = await fetch(`/api/towns/${permit.townId}/forms/${formId}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ profileId: permit.profileId, includeDocuments: true }),
+        body: JSON.stringify({ profileId: permit.profileId, includeDocuments: true, eventData }),
       });
 
       if (!response.ok) {

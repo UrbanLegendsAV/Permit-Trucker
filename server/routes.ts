@@ -973,6 +973,7 @@ ${prompt}`;
       const { townId, formId } = req.params;
       const { profileId, includeDocuments = true, eventData } = req.body;
       console.log(`townId=${townId}, formId=${formId}, profileId=${profileId}`);
+      console.log("eventData received:", JSON.stringify(eventData, null, 2));
 
       // Get the form from database
       const form = await storage.getTownFormById(formId);

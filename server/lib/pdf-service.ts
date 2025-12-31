@@ -705,32 +705,43 @@ function smartMatchFieldToData(
   if (lowerField.includes("applicant") && lowerField.includes("name")) {
     return dataMap.applicant_name || dataMap.owner_name;
   }
-  if (lowerField.includes("owner") && lowerField.includes("name")) {
+  if (lowerField.includes("owner") && (lowerField.includes("name") || lowerField.includes("operator"))) {
     return dataMap.owner_name || dataMap.applicant_name;
   }
   if (lowerField === "name" || lowerField.includes("name of applicant") || lowerField.includes("applicant name")) {
     return dataMap.applicant_name || dataMap.owner_name;
   }
   
-  // Business name patterns
+  // Business/Establishment name patterns
   if (lowerField.includes("business") && lowerField.includes("name")) {
     return dataMap.business_name;
   }
-  if (lowerField.includes("organization") || lowerField.includes("event") && lowerField.includes("name")) {
+  if (lowerField.includes("organization") || (lowerField.includes("event") && lowerField.includes("name"))) {
     return eventData?.eventName || dataMap.business_name;
   }
-  if (lowerField.includes("establishment")) {
+  if (lowerField.includes("establishment") && (lowerField.includes("name") || !lowerField.includes("address"))) {
     return dataMap.business_name;
   }
   
-  // Address patterns
+  // Address patterns - handle "establishment address", "owner/operator address" etc.
   if (lowerField.includes("mailing") && lowerField.includes("address")) {
     return dataMap.mailing_address || dataMap.address;
   }
-  if (lowerField.includes("street") || (lowerField === "address" || lowerField.includes("address") && !lowerField.includes("email"))) {
+  if (lowerField.includes("establishment") && lowerField.includes("address")) {
     return dataMap.address || dataMap.mailing_address;
   }
-  if (lowerField.includes("location") && lowerField.includes("event")) {
+  if (lowerField.includes("owner") && lowerField.includes("address")) {
+    return dataMap.address || dataMap.mailing_address;
+  }
+  if (lowerField.includes("street") || (lowerField === "address" || (lowerField.includes("address") && !lowerField.includes("email")))) {
+    return dataMap.address || dataMap.mailing_address;
+  }
+  
+  // Event location - handle "Location of Event", "event location" etc.
+  if (lowerField.includes("location") && (lowerField.includes("event") || lowerField.includes("of"))) {
+    return eventData?.eventAddress || null;
+  }
+  if (lowerField === "location of event" || lowerField === "event location") {
     return eventData?.eventAddress || null;
   }
   
@@ -761,14 +772,23 @@ function smartMatchFieldToData(
     return dataMap.email;
   }
   
-  // Event-specific patterns
-  if (lowerField.includes("date") && lowerField.includes("event")) {
+  // Event-specific patterns - handle "Dates of Event", "Event Date(s)", etc.
+  if (lowerField.includes("date") && (lowerField.includes("event") || lowerField.includes("of"))) {
     return eventData?.eventDates || null;
   }
-  if (lowerField.includes("hours") || lowerField.includes("operation")) {
+  if (lowerField === "dates of event" || lowerField === "event dates" || lowerField === "date of event" || lowerField === "event date") {
+    return eventData?.eventDates || null;
+  }
+  
+  // Hours of operation patterns - handle "Hours of Food Service Operation", "Operating Hours"
+  if ((lowerField.includes("hours") && (lowerField.includes("operation") || lowerField.includes("service") || lowerField.includes("food"))) ||
+      lowerField.includes("operating hours")) {
     return eventData?.hoursOfOperation || null;
   }
-  if (lowerField.includes("person in charge") || lowerField.includes("contact person")) {
+  
+  // Person in charge patterns
+  if (lowerField.includes("person in charge") || lowerField.includes("contact person") || 
+      lowerField.includes("person_in_charge") || lowerField.includes("in charge")) {
     return eventData?.personInCharge || dataMap.applicant_name || dataMap.owner_name;
   }
   
