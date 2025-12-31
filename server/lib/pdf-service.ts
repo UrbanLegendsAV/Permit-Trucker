@@ -1187,7 +1187,14 @@ export async function fillPdfFromDatabase(
           const checkbox = form.getCheckBox(fieldName);
           let shouldCheck = false;
           
-          if (aiMapping && aiMapping.dataKey && aiMapping.matchValue) {
+          // PRIORITY 0: Check user-provided answers first (highest priority)
+          if (userAnswers && userAnswers[fieldName]) {
+            const userAnswer = userAnswers[fieldName].toLowerCase().trim();
+            shouldCheck = ["yes", "true", "1", "checked", "on", "x"].includes(userAnswer);
+            console.log(`[PDF Service] User answer checkbox: "${fieldName}" = "${userAnswers[fieldName]}" -> ${shouldCheck}`);
+          }
+          // PRIORITY 1: AI semantic rules
+          else if (aiMapping && aiMapping.dataKey && aiMapping.matchValue) {
             // Semantic rule: check if user's data matches the required value
             const userValue = dataMap[aiMapping.dataKey];
             if (userValue) {
