@@ -1101,6 +1101,24 @@ ${prompt}`;
         if (eventData?.eventDates) {
           fieldData.event_dates = { value: eventData.eventDates, description: "Date(s) of the event" };
         }
+        if (eventData?.licenseType) {
+          fieldData.license_type = { value: eventData.licenseType, description: "License type (temporary or seasonal)" };
+        } else {
+          // Default to temporary for food trucks - they file event permits
+          fieldData.license_type = { value: "temporary", description: "License type (temporary or seasonal)" };
+        }
+        
+        // FOOD TRUCK INDUSTRY DEFAULTS - these are universal truths about mobile food operations
+        // Food trucks/trailers NEVER have internal bathrooms - they always use event-site facilities
+        if (!fieldData.toilet_facilities) {
+          fieldData.toilet_facilities = { value: "portable", description: "Type of toilet facilities (always event-site for food trucks)" };
+        }
+        // Hand washing in food trucks is always temporary setup
+        fieldData.handwash_type = { value: "temporary", description: "Hand washing station type (temporary for mobile operations)" };
+        // Food at events is prepared on-site
+        fieldData.foods_prepared_onsite = { value: "yes", description: "Whether all foods are prepared at the event site" };
+        // Hand washing station shown on sketch (typically yes for permit applications)
+        fieldData.handwash_sketch_yes = { value: "yes", description: "Hand washing station is shown on layout sketch" };
         
         // Call Datalab API
         console.log(`Calling Datalab with ${Object.keys(fieldData).length} fields:`, Object.keys(fieldData));
@@ -1184,7 +1202,14 @@ ${prompt}`;
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 
                 // Send PDF as inline data for Gemini to analyze visually
-                const prompt = `Analyze this PDF permit application form and match form fields to data keys.
+                const prompt = `You are an expert in food truck and mobile food vendor operations. Analyze this PDF permit application form.
+
+CRITICAL FOOD TRUCK INDUSTRY KNOWLEDGE:
+- Food trucks and trailers NEVER have internal bathrooms/toilets - they ALWAYS use event-site facilities (portable toilets, rest rooms at venue)
+- When filing for event permits, it's almost always a "Temporary" license (1-14 days), NOT seasonal
+- Food trucks typically use "Public Water" from the event site, or "Self-contained" water tanks
+- Hand washing stations in food trucks are "Temporary" setups, not permanent fixtures
+- All food at events is typically prepared at the event site (answer "Yes" to "Will all foods be prepared at this food service event site?")
 
 The PDF has these AcroForm field IDs:
 ${JSON.stringify(fieldInfo, null, 2)}
@@ -1198,10 +1223,18 @@ then map Text1 -> business_name.
 
 For CHECKBOXES: Look at the label NEXT TO each checkbox to determine its meaning.
 Return a "matchValue" that the data key should contain for this checkbox to be checked.
-For example:
-- If checkbox is next to "Public Water", set dataKey: "water_supply", matchValue: "public"
-- If checkbox is next to "Temporary: 1 to 14 days", set dataKey: "license_type", matchValue: "temporary"
-- If checkbox is next to "Rest Rooms", set dataKey: "toilet_facilities", matchValue: "rest room"
+
+CHECKBOX MAPPING RULES:
+- "Temporary" or "Temporary: 1 to 14 days" -> dataKey: "license_type", matchValue: "temporary" (DEFAULT for food truck event permits)
+- "Seasonal" or "15 days or longer" -> dataKey: "license_type", matchValue: "seasonal"
+- "Public Water" -> dataKey: "water_supply", matchValue: "public"
+- "Self-contained" -> dataKey: "water_supply", matchValue: "self-contained"
+- "Portable toilets" -> dataKey: "toilet_facilities", matchValue: "portable" (MOST COMMON for food trucks)
+- "Rest Rooms" -> dataKey: "toilet_facilities", matchValue: "restroom"
+- "At Event Site" (for toilets) -> dataKey: "toilet_facilities", matchValue: "event" (ALWAYS true for food trucks)
+- "Yes" next to "Will all foods be prepared..." -> dataKey: "foods_prepared_onsite", matchValue: "yes"
+- "Temporary" (hand washing) -> dataKey: "handwash_type", matchValue: "temporary" (DEFAULT for food trucks)
+- "Permanent" (hand washing) -> dataKey: "handwash_type", matchValue: "permanent"
 
 Return ONLY valid JSON array with EXACT field names from the list above:
 [
@@ -1307,27 +1340,45 @@ Return ONLY valid JSON array with EXACT field names from the list above:
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 
-                const prompt = `Analyze this PDF permit form. For each checkbox, identify what it represents by reading the label NEXT TO it.
+                const prompt = `You are an expert in food truck and mobile food vendor operations. Analyze this PDF permit form.
+
+CRITICAL FOOD TRUCK INDUSTRY KNOWLEDGE:
+- Food trucks and trailers NEVER have internal bathrooms/toilets - they ALWAYS use event-site facilities (portable toilets, rest rooms at venue)
+- When filing for event permits, it's almost always a "Temporary" license (1-14 days), NOT seasonal
+- Food trucks typically use "Public Water" from the event site, or "Self-contained" water tanks
+- Hand washing stations in food trucks are "Temporary" setups, not permanent fixtures
+- All food at events is typically prepared at the event site (answer "Yes" to "Will all foods be prepared at this food service event site?")
 
 PDF form fields:
 ${JSON.stringify(fieldInfo, null, 2)}
 
 Available data keys that can be matched:
-- water_supply: Type of water supply (e.g., "Public", "Self-contained", "Private well")
-- toilet_facilities: Type of toilet facilities (e.g., "Rest Rooms", "Portable toilets")
-- license_type: License type (e.g., "temporary", "seasonal")
-- handwash_setup: Handwashing setup type
+- license_type: License type - "temporary" for 1-14 days (DEFAULT for food trucks), "seasonal" for 15+ days
+- water_supply: Type of water supply (e.g., "public", "self-contained", "private_well")
+- toilet_facilities: Type of toilet facilities - "portable" or "event" (ALWAYS for food trucks), "restroom"
+- handwash_type: Handwashing setup type - "temporary" (DEFAULT for food trucks) or "permanent"
+- foods_prepared_onsite: Whether all food is prepared at event - "yes" (DEFAULT for food trucks)
+- handwash_sketch_yes: Whether hand washing is shown on sketch - "yes" or "no"
 
-For each CHECKBOX, tell me:
-1. What label appears next to it in the PDF
-2. Which data key it relates to
-3. What value that data key should contain for this checkbox to be checked
+CHECKBOX MAPPING RULES:
+- "Temporary" or "1 to 14 days" -> dataKey: "license_type", matchValue: "temporary" (DEFAULT)
+- "Seasonal" or "15 days or longer" -> dataKey: "license_type", matchValue: "seasonal"
+- "Public Water" -> dataKey: "water_supply", matchValue: "public"
+- "Self-contained" or "Self-contained / Home" -> dataKey: "water_supply", matchValue: "self-contained"
+- "At Event Site" (water) -> dataKey: "water_supply", matchValue: "event"
+- "Portable toilets" -> dataKey: "toilet_facilities", matchValue: "portable"
+- "Rest Rooms" -> dataKey: "toilet_facilities", matchValue: "restroom"
+- "At Event Site" (toilets) -> dataKey: "toilet_facilities", matchValue: "event" (ALWAYS for food trucks)
+- "Will all foods be prepared..." + "Yes" -> dataKey: "foods_prepared_onsite", matchValue: "yes"
+- "Temporary" (hand washing) -> dataKey: "handwash_type", matchValue: "temporary" (DEFAULT)
+- "Permanent" (hand washing) -> dataKey: "handwash_type", matchValue: "permanent"
+- "Hand Washing Station is shown on Sketch: Yes" -> dataKey: "handwash_sketch_yes", matchValue: "yes"
 
-Return JSON array with checkbox RULES (not decisions):
+Return JSON array with checkbox RULES:
 [
   {"fieldName": "Check Box1", "label": "Self-contained / Home", "dataKey": "water_supply", "matchValue": "self-contained"},
   {"fieldName": "Check Box2", "label": "Public Water", "dataKey": "water_supply", "matchValue": "public"},
-  {"fieldName": "Check Box3", "label": "Rest Rooms", "dataKey": "toilet_facilities", "matchValue": "rest room"}
+  {"fieldName": "Check Box3", "label": "Portable toilets", "dataKey": "toilet_facilities", "matchValue": "portable"}
 ]
 
 IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it. We will evaluate against real data later.`;
