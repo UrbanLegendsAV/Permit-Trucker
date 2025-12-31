@@ -541,6 +541,133 @@ export function getTemplateById(templateId: string): FormTemplate | undefined {
 }
 
 /**
+ * Smart field name matching for PDF forms.
+ * Maps common PDF field name patterns to our standardized data keys.
+ */
+function smartMatchFieldToData(
+  fieldName: string,
+  dataMap: Record<string, string | null>,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): string | null {
+  const lowerField = fieldName.toLowerCase();
+  
+  // Applicant/Owner name patterns
+  if (lowerField.includes("applicant") && lowerField.includes("name")) {
+    return dataMap.applicant_name || dataMap.owner_name;
+  }
+  if (lowerField.includes("owner") && lowerField.includes("name")) {
+    return dataMap.owner_name || dataMap.applicant_name;
+  }
+  if (lowerField === "name" || lowerField.includes("name of applicant") || lowerField.includes("applicant name")) {
+    return dataMap.applicant_name || dataMap.owner_name;
+  }
+  
+  // Business name patterns
+  if (lowerField.includes("business") && lowerField.includes("name")) {
+    return dataMap.business_name;
+  }
+  if (lowerField.includes("organization") || lowerField.includes("event") && lowerField.includes("name")) {
+    return eventData?.eventName || dataMap.business_name;
+  }
+  if (lowerField.includes("establishment")) {
+    return dataMap.business_name;
+  }
+  
+  // Address patterns
+  if (lowerField.includes("mailing") && lowerField.includes("address")) {
+    return dataMap.mailing_address || dataMap.address;
+  }
+  if (lowerField.includes("street") || (lowerField === "address" || lowerField.includes("address") && !lowerField.includes("email"))) {
+    return dataMap.address || dataMap.mailing_address;
+  }
+  if (lowerField.includes("location") && lowerField.includes("event")) {
+    return eventData?.eventAddress || null;
+  }
+  
+  // City/State/Zip patterns
+  if (lowerField === "city" || lowerField.includes("city") && !lowerField.includes("state")) {
+    return dataMap.city;
+  }
+  if (lowerField === "town" || lowerField.includes("town")) {
+    return dataMap.city;
+  }
+  if (lowerField === "state" || lowerField.includes("state") && !lowerField.includes("city")) {
+    return dataMap.state;
+  }
+  if (lowerField === "zip" || lowerField.includes("zip") || lowerField.includes("postal")) {
+    return dataMap.zip;
+  }
+  
+  // Phone patterns
+  if (lowerField.includes("phone") || lowerField.includes("telephone") || lowerField.includes("tel")) {
+    return dataMap.phone;
+  }
+  if (lowerField.includes("cell") || lowerField.includes("mobile")) {
+    return dataMap.phone;
+  }
+  
+  // Email patterns
+  if (lowerField.includes("email") || lowerField.includes("e-mail")) {
+    return dataMap.email;
+  }
+  
+  // Event-specific patterns
+  if (lowerField.includes("date") && lowerField.includes("event")) {
+    return eventData?.eventDates || null;
+  }
+  if (lowerField.includes("hours") || lowerField.includes("operation")) {
+    return eventData?.hoursOfOperation || null;
+  }
+  if (lowerField.includes("person in charge") || lowerField.includes("contact person")) {
+    return eventData?.personInCharge || dataMap.applicant_name || dataMap.owner_name;
+  }
+  
+  // Vehicle patterns
+  if (lowerField.includes("vin") || lowerField.includes("vehicle identification")) {
+    return dataMap.vin;
+  }
+  if (lowerField.includes("license") && lowerField.includes("plate")) {
+    return dataMap.license_plate;
+  }
+  
+  // Commissary patterns
+  if (lowerField.includes("commissary") && lowerField.includes("name")) {
+    return dataMap.commissary_name;
+  }
+  if (lowerField.includes("commissary") && lowerField.includes("address")) {
+    return dataMap.commissary_address;
+  }
+  
+  // Water/sanitation patterns
+  if (lowerField.includes("water") && lowerField.includes("supply")) {
+    return dataMap.water_supply;
+  }
+  if (lowerField.includes("sanitizer") || lowerField.includes("sanitiz")) {
+    return dataMap.sanitizer_type;
+  }
+  if (lowerField.includes("toilet") || lowerField.includes("restroom")) {
+    return dataMap.toilet_facilities;
+  }
+  
+  // Direct key match as fallback
+  const normalizedFieldName = lowerField.replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  for (const [key, val] of Object.entries(dataMap)) {
+    if (key === normalizedFieldName && val) {
+      return val;
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Fill a PDF form from the database town_forms table.
  * This uses the stored fileData (base64 PDF) and fieldMappings from the database.
  * Supports both AcroForm fields and coordinate-based filling.
@@ -649,14 +776,8 @@ export async function fillPdfFromDatabase(
         if (mappedDataKey && dataMap[mappedDataKey]) {
           value = dataMap[mappedDataKey];
         } else {
-          // Try to match field name directly to data
-          const normalizedFieldName = fieldName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-          for (const [key, val] of Object.entries(dataMap)) {
-            if (key.toLowerCase() === normalizedFieldName && val) {
-              value = val;
-              break;
-            }
-          }
+          // Smart field name matching - map common PDF field patterns to our data
+          value = smartMatchFieldToData(fieldName, dataMap, eventData);
         }
 
         if (value) {
@@ -664,8 +785,10 @@ export async function fillPdfFromDatabase(
           if (fieldType === "PDFTextField") {
             const textField = form.getTextField(fieldName);
             textField.setText(value);
-            console.log(`[PDF Service] Set field "${fieldName}" = "${value.substring(0, 30)}..."`);
+            console.log(`[PDF Service] Set field "${fieldName}" = "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
           }
+        } else {
+          console.log(`[PDF Service] No match for field: "${fieldName}"`);
         }
       } catch (err) {
         console.error(`[PDF Service] Error filling field ${fieldName}:`, err);
