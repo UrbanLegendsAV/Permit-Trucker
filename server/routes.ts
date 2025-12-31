@@ -910,11 +910,36 @@ ${prompt}`;
       let pdfBytes: Uint8Array;
       const fieldMappings = form.fieldMappings as Record<string, string> | null;
       const hasFieldMappings = fieldMappings && Object.keys(fieldMappings).length > 0;
-
-      // If no fieldMappings configured, use Datalab AI for intelligent field detection
-      console.log(`hasFieldMappings=${hasFieldMappings}, DATALAB_API_KEY exists=${!!process.env.DATALAB_API_KEY}`);
-      if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
-        console.log(`Using Datalab AI for form ${formId} (no fieldMappings configured)`);
+      
+      // Check if form has cached AI mappings from previous Datalab analysis
+      const aiMappings = form.aiFieldMappings as {
+        fields: Array<{
+          pdfFieldName: string;
+          fieldType: "text" | "checkbox";
+          label: string;
+          dataKey: string | null;
+          confidence: number;
+        }>;
+        lastAnalyzedAt: string;
+        analysisSource: string;
+      } | null;
+      const hasCachedMappings = form.datalabAnalyzed && aiMappings && aiMappings.fields?.length > 0;
+      
+      console.log(`hasFieldMappings=${hasFieldMappings}, hasCachedMappings=${hasCachedMappings}, DATALAB_API_KEY exists=${!!process.env.DATALAB_API_KEY}`);
+      
+      // EFFICIENCY: Use cached mappings if available (no API call needed!)
+      if (hasCachedMappings) {
+        console.log(`Using CACHED AI mappings for form ${formId} - NO Datalab API call needed (saving credits!)`);
+        console.log(`Cached ${aiMappings.fields.length} field mappings from ${aiMappings.lastAnalyzedAt}`);
+        
+        if (!parsedData) {
+          return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
+        }
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+      }
+      // If no cached mappings and no manual fieldMappings, use Datalab AI
+      else if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
+        console.log(`Using Datalab AI for form ${formId} - FIRST TIME (will cache for future use)`);
         
         // Build field data from profile for Datalab
         const fieldData: Record<string, { value: string; description: string }> = {};
@@ -1032,6 +1057,30 @@ ${prompt}`;
           
           if (filledPdfBase64) {
             pdfBytes = new Uint8Array(Buffer.from(filledPdfBase64, "base64"));
+            
+            // SAVE the field data for future use - no more API calls needed for this form!
+            console.log("Saving Datalab analysis to cache for future efficiency");
+            try {
+              const aiFieldMappings = {
+                fields: Object.entries(fieldData).map(([key, { value, description }]) => ({
+                  pdfFieldName: key,
+                  fieldType: "text" as const,
+                  label: description,
+                  dataKey: key,
+                  confidence: 1.0,
+                })),
+                lastAnalyzedAt: new Date().toISOString(),
+                analysisSource: "datalab" as const,
+              };
+              
+              await storage.updateTownForm(formId, {
+                datalabAnalyzed: true,
+                aiFieldMappings: aiFieldMappings as any,
+              });
+              console.log(`Cached ${aiFieldMappings.fields.length} field mappings - future calls will skip Datalab API!`);
+            } catch (cacheError) {
+              console.error("Failed to cache Datalab mappings (non-fatal):", cacheError);
+            }
           } else {
             // Fall back to local filling
             if (!parsedData) {
