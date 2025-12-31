@@ -243,12 +243,10 @@ function smartMatchCheckbox(
 ): boolean {
   const lowerField = fieldName.toLowerCase();
   
-  // Yes/No patterns - check if the field asks about something we do
+  // Yes/No patterns - must be determined by AI mappings, not hardcoded
+  // These fields require context about what specifically is being asked
   if (lowerField.includes("yes") || lowerField === "y") {
-    // Common "yes" scenarios for food trucks
-    if (lowerField.includes("food") && lowerField.includes("prepared")) return true;
-    if (lowerField.includes("handwash") || lowerField.includes("hand wash")) return true;
-    if (lowerField.includes("sketch") || lowerField.includes("diagram")) return true;
+    // Return false - let AI field mappings handle yes/no questions
     return false;
   }
   
@@ -282,15 +280,17 @@ function smartMatchCheckbox(
     return toilet?.toLowerCase().includes("restroom") || toilet?.toLowerCase().includes("facilities") || toilet?.toLowerCase().includes("event") || false;
   }
   
-  // Handwashing station type
+  // Handwashing station type - NO hardcoded defaults, check actual profile data
   if (lowerField.includes("temporary") && lowerField.includes("handwash")) {
-    return true; // Most mobile vendors use temporary handwash
+    const handwash = dataMap.handwash_setup;
+    return handwash?.toLowerCase().includes("temporary") || handwash?.toLowerCase().includes("portable") || false;
   }
   if (lowerField.includes("permanent") && lowerField.includes("handwash")) {
-    return false;
+    const handwash = dataMap.handwash_setup;
+    return handwash?.toLowerCase().includes("permanent") || handwash?.toLowerCase().includes("fixed") || false;
   }
   
-  // Food prep location
+  // Food prep location - NO hardcoded defaults
   if (lowerField.includes("on-site") || lowerField.includes("on site") || lowerField.includes("onsite")) {
     const prep = dataMap.prep_location;
     return prep?.toLowerCase().includes("on-site") || prep?.toLowerCase().includes("on site") || false;
@@ -299,11 +299,13 @@ function smartMatchCheckbox(
     const prep = dataMap.prep_location || dataMap.commissary_name;
     return prep != null && prep.length > 0;
   }
-  if (lowerField.includes("commercially made")) {
-    return true; // Default for items purchased commercially
+  if (lowerField.includes("commercially made") || lowerField.includes("commercially purchased")) {
+    const sources = dataMap.food_sources;
+    return sources?.toLowerCase().includes("commercial") || sources?.toLowerCase().includes("purchased") || false;
   }
-  if (lowerField.includes("made by organization")) {
-    return false; // Default to commercially made unless specified
+  if (lowerField.includes("made by organization") || lowerField.includes("homemade")) {
+    const sources = dataMap.food_sources;
+    return sources?.toLowerCase().includes("homemade") || sources?.toLowerCase().includes("organization") || false;
   }
   
   return false;
@@ -797,45 +799,45 @@ function smartMatchFieldToData(
     return dataMap.toilet_facilities;
   }
   
-  // Food/Menu patterns
+  // Food/Menu patterns - NO hardcoded defaults, only real profile data
   if (lowerField.includes("food item") || lowerField.includes("menu item") || lowerField.includes("list all food")) {
-    return dataMap.menu_items || dataMap.food_items;
+    return dataMap.menu_items || dataMap.food_items || null;
   }
   if (lowerField.includes("food") && lowerField.includes("purchased")) {
-    return dataMap.food_sources || "Day of event from approved suppliers";
+    return dataMap.food_sources || null;
   }
   if (lowerField.includes("food") && lowerField.includes("stored") || lowerField.includes("storage")) {
-    return dataMap.cold_storage || dataMap.food_storage || "Kept in coolers with ice packs at 41F or below";
+    return dataMap.cold_storage || dataMap.food_storage || null;
   }
   if (lowerField.includes("temperature") && (lowerField.includes("monitor") || lowerField.includes("describe"))) {
-    return dataMap.temp_monitoring || "Digital probe thermometer, checked every 2 hours";
+    return dataMap.temp_monitoring || null;
   }
   if (lowerField.includes("food") && lowerField.includes("prepared") || lowerField.includes("prep location") || lowerField.includes("preparation")) {
-    return dataMap.prep_location || dataMap.commissary_name;
+    return dataMap.prep_location || dataMap.commissary_name || null;
   }
   if (lowerField.includes("source") || lowerField.includes("where made") || lowerField.includes("where purchased")) {
-    return dataMap.food_sources || dataMap.commissary_name;
+    return dataMap.food_sources || dataMap.commissary_name || null;
   }
   
-  // Hot/cold holding patterns
+  // Hot/cold holding patterns - NO hardcoded defaults
   if (lowerField.includes("hot") && lowerField.includes("hold")) {
-    return dataMap.hot_holding || "Steam tables, chafing dishes maintained at 135F or above";
+    return dataMap.hot_holding || null;
   }
   if (lowerField.includes("cold") && lowerField.includes("hold")) {
-    return dataMap.cold_storage || "Refrigeration units and ice maintained at 41F or below";
+    return dataMap.cold_storage || null;
   }
   
-  // Waste disposal patterns
+  // Waste disposal patterns - NO hardcoded defaults
   if (lowerField.includes("waste") && (lowerField.includes("water") || lowerField.includes("disposal"))) {
-    return dataMap.waste_water || "Gray water tank, disposed at approved facility";
+    return dataMap.waste_water || null;
   }
   if (lowerField.includes("garbage") || lowerField.includes("trash") || lowerField.includes("refuse")) {
-    return "Disposed in covered trash receptacles, removed daily";
+    return dataMap.garbage_disposal || null;
   }
   
-  // Handwashing patterns
+  // Handwashing patterns - NO hardcoded defaults
   if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash")) {
-    return dataMap.handwash_setup || "Portable handwash station with soap, water, and paper towels";
+    return dataMap.handwash_setup || null;
   }
   
   // Direct key match as fallback
@@ -867,7 +869,7 @@ function smartMatchCheckboxForDatabase(
 ): boolean {
   const lowerField = fieldName.toLowerCase();
   
-  // For now, if the field has a descriptive name, try to match it
+  // NO hardcoded defaults - only match if profile data explicitly matches
   // Temporary/Seasonal license type
   if (lowerField.includes("temporary") && !lowerField.includes("seasonal")) {
     const licenseType = eventData?.licenseType || dataMap.license_type;
@@ -875,8 +877,7 @@ function smartMatchCheckboxForDatabase(
   }
   if (lowerField.includes("seasonal") && !lowerField.includes("temporary")) {
     const licenseType = eventData?.licenseType || dataMap.license_type;
-    // Default to seasonal if no license type specified
-    return !licenseType || licenseType.toLowerCase().includes("seasonal");
+    return licenseType?.toLowerCase().includes("seasonal") || false;
   }
   
   // Water supply checkboxes
@@ -905,21 +906,23 @@ function smartMatchCheckboxForDatabase(
     return toilet?.toLowerCase().includes("portable") || false;
   }
   
-  // Hand washing station
+  // Hand washing station - NO hardcoded defaults
   if (lowerField.includes("temporary") && lowerField.includes("handwash")) {
-    return true; // Most mobile vendors use temporary
+    const handwash = dataMap.handwash_setup;
+    return handwash?.toLowerCase().includes("temporary") || handwash?.toLowerCase().includes("portable") || false;
   }
   if (lowerField.includes("permanent") && lowerField.includes("handwash")) {
-    return false;
+    const handwash = dataMap.handwash_setup;
+    return handwash?.toLowerCase().includes("permanent") || handwash?.toLowerCase().includes("fixed") || false;
   }
   
-  // Yes/No patterns
+  // Yes/No patterns - cannot assume, need context
+  // These should be handled by AI field mapping, not hardcoded
   if (lowerField === "yes" || lowerField.endsWith("_yes")) {
-    // Common yes scenarios
-    return true; // Most "Yes" checkboxes should be checked for food trucks
+    return false; // Cannot assume - needs specific field context
   }
   if (lowerField === "no" || lowerField.endsWith("_no")) {
-    return false;
+    return false; // Cannot assume - needs specific field context
   }
   
   // Fee schedule checkboxes - match based on license type
@@ -929,7 +932,7 @@ function smartMatchCheckboxForDatabase(
   }
   if (lowerField.includes("214.1") || (lowerField.includes("seasonal") && lowerField.includes("food"))) {
     const licenseType = eventData?.licenseType || dataMap.license_type;
-    return !licenseType || licenseType.toLowerCase().includes("seasonal");
+    return licenseType?.toLowerCase().includes("seasonal") || false;
   }
   
   // Generic "Check Box" names can't be matched without knowing what they represent
@@ -942,9 +945,19 @@ function smartMatchCheckboxForDatabase(
   return false;
 }
 
+// Type for cached AI field mappings
+export interface CachedAIFieldMapping {
+  pdfFieldName: string;
+  fieldType: "text" | "checkbox";
+  label: string;
+  dataKey: string | null;
+  confidence: number;
+}
+
 /**
  * Fill a PDF form from the database town_forms table.
  * This uses the stored fileData (base64 PDF) and fieldMappings from the database.
+ * When aiFieldMappings are provided, uses those INSTEAD of heuristic matching.
  * Supports both AcroForm fields and coordinate-based filling.
  */
 export async function fillPdfFromDatabase(
@@ -957,7 +970,8 @@ export async function fillPdfFromDatabase(
     hoursOfOperation?: string;
     personInCharge?: string;
     licenseType?: "temporary" | "seasonal";
-  }
+  },
+  aiFieldMappings?: CachedAIFieldMapping[]
 ): Promise<Uint8Array> {
   if (!townForm.fileData) {
     throw new Error(`No PDF data stored for form: ${townForm.name}`);
@@ -1087,24 +1101,39 @@ export async function fillPdfFromDatabase(
     // Use AcroForm field filling
     const fieldMappings = townForm.fieldMappings || {};
     
-    console.log(`[PDF Service] Filling ${fields.length} AcroForm fields using database mappings`);
+    // Build lookup from AI mappings if provided (most efficient - uses cached Datalab results)
+    const aiMappingLookup = new Map<string, CachedAIFieldMapping>();
+    if (aiFieldMappings && aiFieldMappings.length > 0) {
+      console.log(`[PDF Service] Using ${aiFieldMappings.length} CACHED AI field mappings (no Datalab API call!)`);
+      for (const mapping of aiFieldMappings) {
+        aiMappingLookup.set(mapping.pdfFieldName, mapping);
+      }
+    } else {
+      console.log(`[PDF Service] Filling ${fields.length} AcroForm fields using heuristic matching`);
+    }
 
     for (const field of fields) {
       const fieldName = field.getName();
       
       try {
-        // Check if we have a mapping for this field
-        const mappedDataKey = fieldMappings[fieldName];
         let value: string | null = null;
+        const fieldType = field.constructor.name;
 
-        if (mappedDataKey && dataMap[mappedDataKey]) {
-          value = dataMap[mappedDataKey];
-        } else {
-          // Smart field name matching - map common PDF field patterns to our data
+        // PRIORITY 1: Check cached AI mappings first (most accurate, saves API calls)
+        const aiMapping = aiMappingLookup.get(fieldName);
+        if (aiMapping && aiMapping.dataKey && dataMap[aiMapping.dataKey]) {
+          value = dataMap[aiMapping.dataKey];
+          console.log(`[PDF Service] AI mapping: "${fieldName}" -> "${aiMapping.dataKey}" = "${value?.substring(0, 50)}..."`);
+        }
+        // PRIORITY 2: Check manual fieldMappings from database
+        else if (fieldMappings[fieldName] && dataMap[fieldMappings[fieldName]]) {
+          value = dataMap[fieldMappings[fieldName]];
+          console.log(`[PDF Service] Manual mapping: "${fieldName}" -> "${fieldMappings[fieldName]}"`);
+        }
+        // PRIORITY 3: Fall back to heuristic matching (least reliable)
+        else {
           value = smartMatchFieldToData(fieldName, dataMap, eventData);
         }
-
-        const fieldType = field.constructor.name;
         
         if (fieldType === "PDFTextField") {
           if (value) {
@@ -1112,12 +1141,23 @@ export async function fillPdfFromDatabase(
             textField.setText(value);
             console.log(`[PDF Service] Set field "${fieldName}" = "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
           } else {
-            console.log(`[PDF Service] No match for field: "${fieldName}"`);
+            console.log(`[PDF Service] No data for field: "${fieldName}"`);
           }
         } else if (fieldType === "PDFCheckBox") {
-          // Handle checkboxes with smart matching
+          // Handle checkboxes - check AI mapping first
           const checkbox = form.getCheckBox(fieldName);
-          const shouldCheck = smartMatchCheckboxForDatabase(fieldName, dataMap, eventData);
+          let shouldCheck = false;
+          
+          if (aiMapping && aiMapping.dataKey && dataMap[aiMapping.dataKey]) {
+            // If AI says this checkbox maps to a data key, check if that data exists and is truthy
+            const checkboxValue = dataMap[aiMapping.dataKey];
+            shouldCheck = !!checkboxValue && checkboxValue.toLowerCase() !== "false" && checkboxValue.toLowerCase() !== "no";
+            console.log(`[PDF Service] AI checkbox: "${fieldName}" -> "${aiMapping.dataKey}" = ${shouldCheck}`);
+          } else {
+            // Fall back to heuristic matching
+            shouldCheck = smartMatchCheckboxForDatabase(fieldName, dataMap, eventData);
+          }
+          
           if (shouldCheck) {
             checkbox.check();
             console.log(`[PDF Service] Checked checkbox: "${fieldName}"`);

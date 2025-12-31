@@ -935,7 +935,8 @@ ${prompt}`;
         if (!parsedData) {
           return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
         }
-        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+        // Pass the cached AI mappings for efficient form filling
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, aiMappings.fields);
       }
       // If no cached mappings and no manual fieldMappings, use Datalab AI
       else if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
@@ -1058,28 +1059,121 @@ ${prompt}`;
           if (filledPdfBase64) {
             pdfBytes = new Uint8Array(Buffer.from(filledPdfBase64, "base64"));
             
-            // SAVE the field data for future use - no more API calls needed for this form!
-            console.log("Saving Datalab analysis to cache for future efficiency");
+            // SAVE field mappings using Gemini with PDF image for visual analysis
+            console.log("Using Gemini AI with PDF for visual field mapping discovery");
             try {
+              const { PDFDocument } = await import("pdf-lib");
+              const { GoogleGenerativeAI } = await import("@google/generative-ai");
+              
+              // Parse the original PDF to get actual field names
+              const originalPdfBuffer = Buffer.from(form.fileData!, "base64");
+              const originalPdf = await PDFDocument.load(originalPdfBuffer);
+              const pdfForm = originalPdf.getForm();
+              const pdfFields = pdfForm.getFields();
+              
+              // Extract field info with more context
+              const fieldInfo = pdfFields.map(f => ({
+                name: f.getName(),
+                type: f.constructor.name === "PDFCheckBox" ? "checkbox" : "text"
+              }));
+              
+              // Available data keys with descriptions
+              const availableDataKeys = Object.entries(fieldData).map(([key, { description }]) => ({
+                key,
+                description
+              }));
+              
+              const apiKey = process.env.GOOGLE_API_KEY;
+              let fields: Array<{
+                pdfFieldName: string;
+                fieldType: "text" | "checkbox";
+                label: string;
+                dataKey: string | null;
+                confidence: number;
+              }> = [];
+              
+              if (apiKey) {
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
+                
+                // Send PDF as inline data for Gemini to analyze visually
+                const prompt = `Analyze this PDF permit application form and match form fields to data keys.
+
+The PDF has these AcroForm field IDs:
+${JSON.stringify(fieldInfo, null, 2)}
+
+Available data keys from user profile:
+${JSON.stringify(availableDataKeys, null, 2)}
+
+Look at the PDF and determine which field ID corresponds to which data key.
+For example, if you see "Business Name: _______" and the field ID at that position is "Text1",
+then map Text1 -> business_name.
+
+For checkboxes, determine what condition makes them get checked (e.g., a "Temporary" checkbox 
+should be checked when license_type is "temporary").
+
+Return ONLY valid JSON array with EXACT field names from the list above:
+[
+  {"pdfFieldName": "exact_field_id", "dataKey": "matching_key_or_null", "label": "what the field asks for", "confidence": 0.0-1.0}
+]`;
+
+                try {
+                  const result = await model.generateContent([
+                    { text: prompt },
+                    {
+                      inlineData: {
+                        mimeType: "application/pdf",
+                        data: form.fileData!
+                      }
+                    }
+                  ]);
+                  const responseText = result.response.text();
+                  
+                  // Parse Gemini response
+                  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    const mappings = JSON.parse(jsonMatch[0]);
+                    fields = fieldInfo.map(f => {
+                      const mapping = mappings.find((m: any) => m.pdfFieldName === f.name);
+                      return {
+                        pdfFieldName: f.name,
+                        fieldType: f.type as "text" | "checkbox",
+                        label: mapping?.label || f.name,
+                        dataKey: mapping?.dataKey || null,
+                        confidence: mapping?.confidence || 0,
+                      };
+                    });
+                    console.log(`Gemini (with PDF vision) discovered ${fields.filter(f => f.dataKey).length}/${fields.length} field mappings`);
+                  }
+                } catch (geminiError) {
+                  console.error("Gemini PDF analysis failed:", geminiError);
+                }
+              }
+              
+              // Fall back to basic field info if Gemini fails
+              if (fields.length === 0) {
+                fields = fieldInfo.map(f => ({
+                  pdfFieldName: f.name,
+                  fieldType: f.type as "text" | "checkbox",
+                  label: f.name,
+                  dataKey: null,
+                  confidence: 0,
+                }));
+              }
+              
               const aiFieldMappings = {
-                fields: Object.entries(fieldData).map(([key, { value, description }]) => ({
-                  pdfFieldName: key,
-                  fieldType: "text" as const,
-                  label: description,
-                  dataKey: key,
-                  confidence: 1.0,
-                })),
+                fields,
                 lastAnalyzedAt: new Date().toISOString(),
-                analysisSource: "datalab" as const,
+                analysisSource: apiKey ? "gemini" as const : "datalab" as const,
               };
               
               await storage.updateTownForm(formId, {
                 datalabAnalyzed: true,
                 aiFieldMappings: aiFieldMappings as any,
               });
-              console.log(`Cached ${aiFieldMappings.fields.length} field mappings - future calls will skip Datalab API!`);
+              console.log(`Cached ${fields.length} PDF field mappings (${fields.filter(f => f.dataKey).length} matched)`);
             } catch (cacheError) {
-              console.error("Failed to cache Datalab mappings (non-fatal):", cacheError);
+              console.error("Failed to cache field mappings (non-fatal):", cacheError);
             }
           } else {
             // Fall back to local filling
