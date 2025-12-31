@@ -656,6 +656,47 @@ function smartMatchFieldToData(
     return dataMap.toilet_facilities;
   }
   
+  // Food/Menu patterns
+  if (lowerField.includes("food item") || lowerField.includes("menu item") || lowerField.includes("list all food")) {
+    return dataMap.menu_items || dataMap.food_items;
+  }
+  if (lowerField.includes("food") && lowerField.includes("purchased")) {
+    return dataMap.food_sources || "Day of event from approved suppliers";
+  }
+  if (lowerField.includes("food") && lowerField.includes("stored") || lowerField.includes("storage")) {
+    return dataMap.cold_storage || dataMap.food_storage || "Kept in coolers with ice packs at 41F or below";
+  }
+  if (lowerField.includes("temperature") && (lowerField.includes("monitor") || lowerField.includes("describe"))) {
+    return dataMap.temp_monitoring || "Digital probe thermometer, checked every 2 hours";
+  }
+  if (lowerField.includes("food") && lowerField.includes("prepared") || lowerField.includes("prep location") || lowerField.includes("preparation")) {
+    return dataMap.prep_location || dataMap.commissary_name;
+  }
+  if (lowerField.includes("source") || lowerField.includes("where made") || lowerField.includes("where purchased")) {
+    return dataMap.food_sources || dataMap.commissary_name;
+  }
+  
+  // Hot/cold holding patterns
+  if (lowerField.includes("hot") && lowerField.includes("hold")) {
+    return dataMap.hot_holding || "Steam tables, chafing dishes maintained at 135F or above";
+  }
+  if (lowerField.includes("cold") && lowerField.includes("hold")) {
+    return dataMap.cold_storage || "Refrigeration units and ice maintained at 41F or below";
+  }
+  
+  // Waste disposal patterns
+  if (lowerField.includes("waste") && (lowerField.includes("water") || lowerField.includes("disposal"))) {
+    return dataMap.waste_water || "Gray water tank, disposed at approved facility";
+  }
+  if (lowerField.includes("garbage") || lowerField.includes("trash") || lowerField.includes("refuse")) {
+    return "Disposed in covered trash receptacles, removed daily";
+  }
+  
+  // Handwashing patterns
+  if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash")) {
+    return dataMap.handwash_setup || "Portable handwash station with soap, water, and paper towels";
+  }
+  
   // Direct key match as fallback
   const normalizedFieldName = lowerField.replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
   for (const [key, val] of Object.entries(dataMap)) {
@@ -729,6 +770,7 @@ export async function fillPdfFromDatabase(
 
   // Standard data map for form filling
   const dataMap: Record<string, string | null> = {
+    // Contact info
     business_name: getFromAny("contact_info", "business_name"),
     owner_name: getFromAny("contact_info", "owner_name", "applicant_name"),
     applicant_name: getFromAny("contact_info", "applicant_name", "owner_name"),
@@ -743,13 +785,35 @@ export async function fillPdfFromDatabase(
     // Vehicle info
     vin: getFromAny("vehicle_info", "vin"),
     license_plate: getFromAny("vehicle_info", "license_plate"),
-    // Operations
-    water_supply: getFromAny("operations", "water_supply_type"),
-    sanitizer_type: getFromAny("operations", "sanitizer_type"),
-    toilet_facilities: getFromAny("operations", "toilet_facilities"),
+    vehicle_make: getFromAny("vehicle_info", "trailer_make"),
+    vehicle_model: getFromAny("vehicle_info", "trailer_model"),
+    vehicle_year: getFromAny("vehicle_info", "trailer_year"),
+    // Operations & equipment
+    water_supply: getFromAny("operations", "water_supply_type") || getFromAny("equipment_info", "water_supply"),
+    sanitizer_type: getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
+    toilet_facilities: getFromAny("operations", "toilet_facilities") || getFromAny("commissary_info", "toilet_facilities"),
+    handwash_setup: getFromAny("equipment_info", "handwash_setup"),
+    refrigeration: getFromAny("equipment_info", "refrigeration"),
+    cooking_equipment: getFromAny("equipment_info", "cooking_equipment"),
+    // Safety & temperature
+    temp_monitoring: getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring"),
+    hot_holding: getFromAny("safety", "hot_holding_method"),
+    cold_storage: getFromAny("safety", "cold_storage_method"),
+    waste_water: getFromAny("safety", "waste_water_disposal") || getFromAny("equipment_info", "waste_water"),
+    // Menu & food
+    menu_items: getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    food_items: getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    prep_location: getFromAny("menu_and_prep", "prep_location"),
+    food_sources: getFromAny("menu_and_prep", "food_source_location") || getFromAny("food_info", "food_sources"),
+    prep_methods: getFromAny("food_info", "prep_methods"),
+    food_storage: getFromAny("safety", "cold_storage_method"),
     // Commissary
     commissary_name: getFromAny("commissary_info", "commissary_name"),
     commissary_address: getFromAny("commissary_info", "commissary_address"),
+    // Certifications
+    food_manager_cert: getFromAny("certifications", "food_manager_cert"),
+    cert_expiration: getFromAny("certifications", "cert_expiration"),
+    license_number: getFromAny("license_info", "license_number") || getFromAny("certifications", "license_number"),
     // Event data
     event_name: eventData?.eventName || null,
     event_location: eventData?.eventAddress || null,
