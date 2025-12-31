@@ -971,8 +971,9 @@ ${prompt}`;
     try {
       console.log("=== PDF GENERATION REQUEST ===");
       const { townId, formId } = req.params;
-      const { profileId, includeDocuments = true, eventData } = req.body;
+      const { profileId, includeDocuments = true, eventData, userAnswers = {} } = req.body;
       console.log(`townId=${townId}, formId=${formId}, profileId=${profileId}`);
+      console.log("User-provided answers:", Object.keys(userAnswers).length);
       console.log("eventData received:", JSON.stringify(eventData, null, 2));
 
       // Get the form from database
@@ -1022,7 +1023,7 @@ ${prompt}`;
           return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
         }
         // Pass the cached AI mappings for efficient form filling
-        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, aiMappings.fields);
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, aiMappings.fields, userAnswers);
       }
       // If no cached mappings and no manual fieldMappings, use Datalab AI
       else if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
@@ -1470,6 +1471,168 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
     } catch (error: any) {
       console.error("Error generating PDF from database form:", error);
       res.status(500).json({ message: error.message || "Failed to generate PDF" });
+    }
+  });
+
+  // Analyze form and return unanswered questions for the user to fill in
+  app.post("/api/towns/:townId/forms/:formId/analyze-questions", isAuthenticated, async (req: any, res) => {
+    try {
+      const { townId, formId } = req.params;
+      const { profileId, eventData } = req.body;
+
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      if (!form.fileData) {
+        return res.status(400).json({ message: "Form has no PDF data" });
+      }
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const parsedData = profile.parsedDataLog as ParsedUserData | null;
+      
+      // Get cached AI mappings if available
+      const aiMappings = form.aiFieldMappings as {
+        fields: Array<{
+          pdfFieldName: string;
+          fieldType: "text" | "checkbox";
+          label: string;
+          dataKey: string | null;
+          matchValue?: string | null;
+          confidence: number;
+        }>;
+      } | null;
+
+      // If no cached mappings, analyze with Gemini
+      let fields = aiMappings?.fields || [];
+      
+      if (fields.length === 0 && process.env.GOOGLE_API_KEY && form.fileData) {
+        const { PDFDocument } = await import("pdf-lib");
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        
+        const pdfBuffer = Buffer.from(form.fileData, "base64");
+        const pdf = await PDFDocument.load(pdfBuffer);
+        const pdfForm = pdf.getForm();
+        const pdfFields = pdfForm.getFields();
+        
+        const fieldInfo = pdfFields.map(f => ({
+          name: f.getName(),
+          type: f.constructor.name === "PDFCheckBox" ? "checkbox" : "text"
+        }));
+
+        const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        
+        const prompt = `You are a food truck permit expert. Analyze this PDF form and identify ALL questions that need to be answered.
+
+For EACH text field and checkbox in the form, tell me:
+1. What question is being asked (the label/prompt near the field)
+2. Whether this is likely answerable from a business profile (name, address, phone, etc.) or needs specific user input
+
+CRITICAL FOOD TRUCK KNOWLEDGE:
+- Toilet facilities: Food trucks always use event-site facilities (portable toilets)
+- License type: Usually "Temporary" (1-14 days) for event permits
+- Hand washing: Always "Temporary" setup for mobile operations
+- Food prep: All food prepared on-site at events
+
+PDF form fields:
+${JSON.stringify(fieldInfo, null, 2)}
+
+Return JSON array with ALL form fields:
+[
+  {"pdfFieldName": "Text1", "fieldType": "text", "label": "Business Name", "dataKey": "business_name", "needsUserInput": false, "confidence": 0.95},
+  {"pdfFieldName": "Text25", "fieldType": "text", "label": "Describe how food will be protected from contamination", "dataKey": null, "needsUserInput": true, "confidence": 0.9},
+  {"pdfFieldName": "Check Box1", "fieldType": "checkbox", "label": "Temporary (1-14 days)", "dataKey": "license_type", "matchValue": "temporary", "needsUserInput": false, "confidence": 0.95}
+]
+
+For text fields that require descriptive answers about food safety practices, set needsUserInput: true.`;
+
+        try {
+          const result = await model.generateContent([
+            { text: prompt },
+            { inlineData: { mimeType: "application/pdf", data: form.fileData } }
+          ]);
+          const responseText = result.response.text();
+          const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            fields = JSON.parse(jsonMatch[0]);
+          }
+        } catch (geminiError) {
+          console.error("Gemini analysis failed:", geminiError);
+        }
+      }
+
+      // Build available data from profile
+      const availableData: Record<string, string> = {};
+      if (parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
+      if (parsedData?.contact_info?.applicant_name?.value) availableData.applicant_name = parsedData.contact_info.applicant_name.value;
+      if (parsedData?.contact_info?.phone?.value) availableData.phone = parsedData.contact_info.phone.value;
+      if (parsedData?.contact_info?.email?.value) availableData.email = parsedData.contact_info.email.value;
+      if (parsedData?.contact_info?.mailing_address?.value) availableData.address = parsedData.contact_info.mailing_address.value;
+      if (parsedData?.operations?.water_supply_type?.value) availableData.water_supply = parsedData.operations.water_supply_type.value;
+      if (parsedData?.safety?.hot_holding_method?.value) availableData.hot_holding = parsedData.safety.hot_holding_method.value;
+      if (parsedData?.safety?.cold_storage_method?.value) availableData.cold_storage = parsedData.safety.cold_storage_method.value;
+      if (eventData?.eventName) availableData.event_name = eventData.eventName;
+      if (eventData?.eventAddress) availableData.event_location = eventData.eventAddress;
+      if (eventData?.eventDates) availableData.event_dates = eventData.eventDates;
+      
+      // Food truck defaults (industry knowledge)
+      availableData.license_type = eventData?.licenseType || "temporary";
+      availableData.toilet_facilities = "portable";
+      availableData.handwash_type = "temporary";
+      availableData.foods_prepared_onsite = "yes";
+      availableData.handwash_sketch_yes = "yes";
+
+      // Find unanswered questions
+      const unansweredQuestions: Array<{
+        fieldName: string;
+        fieldType: "text" | "checkbox";
+        label: string;
+        dataKey: string | null;
+        currentValue?: string;
+      }> = [];
+
+      for (const field of fields) {
+        const needsInput = (field as any).needsUserInput;
+        const hasData = field.dataKey && availableData[field.dataKey];
+        
+        // Include if: needs user input OR has no dataKey OR dataKey has no data
+        if (field.fieldType === "text" && (needsInput || !field.dataKey || !hasData)) {
+          // Skip if it's a common auto-filled field type
+          const autoFilledKeys = ["business_name", "applicant_name", "phone", "email", "address", 
+            "event_name", "event_location", "event_dates", "license_type", "toilet_facilities",
+            "handwash_type", "foods_prepared_onsite", "water_supply", "hot_holding", "cold_storage"];
+          
+          if (field.dataKey && autoFilledKeys.includes(field.dataKey) && hasData) {
+            continue; // Skip - this will be auto-filled
+          }
+          
+          unansweredQuestions.push({
+            fieldName: field.pdfFieldName,
+            fieldType: field.fieldType,
+            label: field.label,
+            dataKey: field.dataKey,
+            currentValue: field.dataKey ? availableData[field.dataKey] : undefined,
+          });
+        }
+      }
+
+      res.json({
+        formId,
+        formName: form.name,
+        totalFields: fields.length,
+        answeredFields: fields.length - unansweredQuestions.length,
+        unansweredQuestions,
+        hasAllAnswers: unansweredQuestions.length === 0,
+      });
+    } catch (error: any) {
+      console.error("Error analyzing form questions:", error);
+      res.status(500).json({ message: error.message || "Failed to analyze form" });
     }
   });
 

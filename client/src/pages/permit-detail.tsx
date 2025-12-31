@@ -12,6 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -22,6 +30,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -63,6 +72,16 @@ export default function PermitDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedPermit, setEditedPermit] = useState<Partial<Permit>>({});
   const [generatingTemplateId, setGeneratingTemplateId] = useState<string | null>(null);
+  const [showQuestionnaire, setShowQuestionnaire] = useState(false);
+  const [unansweredQuestions, setUnansweredQuestions] = useState<Array<{
+    fieldName: string;
+    fieldType: string;
+    label: string;
+    dataKey: string | null;
+  }>>([]);
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+  const [pendingFormId, setPendingFormId] = useState<string | null>(null);
+  const [analyzingForm, setAnalyzingForm] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -154,6 +173,22 @@ export default function PermitDetailPage() {
     return !!(form.isFillable && form.fileData);
   };
 
+  // Format event data helper
+  const getEventData = () => ({
+    eventName: permit?.eventName || undefined,
+    eventAddress: permit?.eventAddress 
+      ? `${permit.eventAddress}${permit?.eventCity ? `, ${permit.eventCity}` : ''}`
+      : undefined,
+    eventDates: permit?.eventDate 
+      ? `${new Date(permit.eventDate).toLocaleDateString()}${permit?.eventEndDate ? ` - ${new Date(permit.eventEndDate).toLocaleDateString()}` : ''}`
+      : undefined,
+    hoursOfOperation: permit?.eventHours && Array.isArray(permit.eventHours) 
+      ? permit.eventHours.map((h: any) => `${h.start} - ${h.end}`).join(', ')
+      : undefined,
+    personInCharge: permit?.eventContactName || undefined,
+    licenseType: permit?.permitType === "temporary" ? "temporary" as const : "seasonal" as const,
+  });
+
   const handleGeneratePacket = async (formId: string) => {
     if (!permit?.profileId) {
       toast({ 
@@ -173,30 +208,63 @@ export default function PermitDetailPage() {
       return;
     }
 
+    // First, analyze form for unanswered questions
+    setAnalyzingForm(true);
+    setGeneratingTemplateId(formId);
+    
+    try {
+      const analyzeResponse = await fetch(`/api/towns/${permit.townId}/forms/${formId}/analyze-questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ profileId: permit.profileId, eventData: getEventData() }),
+      });
+
+      if (analyzeResponse.ok) {
+        const analysis = await analyzeResponse.json();
+        
+        if (analysis.unansweredQuestions && analysis.unansweredQuestions.length > 0) {
+          // Show questionnaire modal
+          setUnansweredQuestions(analysis.unansweredQuestions);
+          setUserAnswers({});
+          setPendingFormId(formId);
+          setShowQuestionnaire(true);
+          setAnalyzingForm(false);
+          setGeneratingTemplateId(null);
+          return;
+        }
+      }
+      
+      // No unanswered questions, proceed with generation
+      await generatePdfWithAnswers(formId, {});
+    } catch (error: any) {
+      toast({ 
+        title: "Analysis Failed", 
+        description: "Could not analyze form. Generating with available data.",
+        variant: "destructive" 
+      });
+      // Try generating anyway
+      await generatePdfWithAnswers(formId, {});
+    } finally {
+      setAnalyzingForm(false);
+    }
+  };
+
+  const generatePdfWithAnswers = async (formId: string, answers: Record<string, string>) => {
+    if (!permit?.townId || !permit?.profileId) return;
+    
     setGeneratingTemplateId(formId);
     try {
-      // Format event data for PDF filling
-      const eventData = {
-        eventName: permit.eventName || undefined,
-        eventAddress: permit.eventAddress 
-          ? `${permit.eventAddress}${permit.eventCity ? `, ${permit.eventCity}` : ''}`
-          : undefined,
-        eventDates: permit.eventDate 
-          ? `${new Date(permit.eventDate).toLocaleDateString()}${permit.eventEndDate ? ` - ${new Date(permit.eventEndDate).toLocaleDateString()}` : ''}`
-          : undefined,
-        hoursOfOperation: permit.eventHours && Array.isArray(permit.eventHours) 
-          ? permit.eventHours.map((h: any) => `${h.start} - ${h.end}`).join(', ')
-          : undefined,
-        personInCharge: permit.eventContactName || undefined,
-        licenseType: permit.permitType === "temporary" ? "temporary" as const : "seasonal" as const,
-      };
-
-      // Use new database-backed endpoint
       const response = await fetch(`/api/towns/${permit.townId}/forms/${formId}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ profileId: permit.profileId, includeDocuments: true, eventData }),
+        body: JSON.stringify({ 
+          profileId: permit.profileId, 
+          includeDocuments: true, 
+          eventData: getEventData(),
+          userAnswers: answers 
+        }),
       });
 
       if (!response.ok) {
@@ -226,6 +294,14 @@ export default function PermitDetailPage() {
       });
     } finally {
       setGeneratingTemplateId(null);
+      setShowQuestionnaire(false);
+      setPendingFormId(null);
+    }
+  };
+
+  const handleSubmitAnswers = () => {
+    if (pendingFormId) {
+      generatePdfWithAnswers(pendingFormId, userAnswers);
     }
   };
 
@@ -741,6 +817,68 @@ export default function PermitDetailPage() {
       </main>
 
       <MobileNav />
+
+      {/* Questionnaire Modal for unanswered form questions */}
+      <Dialog open={showQuestionnaire} onOpenChange={setShowQuestionnaire}>
+        <DialogContent className="max-w-lg max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Additional Information Needed</DialogTitle>
+            <DialogDescription>
+              Please answer the following questions to complete your permit application.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <ScrollArea className="max-h-[50vh] pr-4">
+            <div className="space-y-4">
+              {unansweredQuestions.map((question, idx) => (
+                <div key={question.fieldName} className="space-y-2">
+                  <Label htmlFor={`question-${idx}`} className="text-sm font-medium">
+                    {question.label}
+                  </Label>
+                  <Textarea
+                    id={`question-${idx}`}
+                    placeholder="Enter your answer..."
+                    value={userAnswers[question.fieldName] || ""}
+                    onChange={(e) => setUserAnswers(prev => ({
+                      ...prev,
+                      [question.fieldName]: e.target.value
+                    }))}
+                    className="min-h-[60px]"
+                    data-testid={`input-question-${idx}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowQuestionnaire(false);
+                setPendingFormId(null);
+              }}
+              data-testid="button-skip-questions"
+            >
+              Skip
+            </Button>
+            <Button 
+              onClick={handleSubmitAnswers}
+              disabled={generatingTemplateId !== null}
+              data-testid="button-submit-answers"
+            >
+              {generatingTemplateId ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                "Generate PDF"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -993,7 +993,8 @@ export async function fillPdfFromDatabase(
     personInCharge?: string;
     licenseType?: "temporary" | "seasonal";
   },
-  aiFieldMappings?: CachedAIFieldMapping[]
+  aiFieldMappings?: CachedAIFieldMapping[],
+  userAnswers?: Record<string, string> // User-provided answers for questions we couldn't auto-fill
 ): Promise<Uint8Array> {
   if (!townForm.fileData) {
     throw new Error(`No PDF data stored for form: ${townForm.name}`);
@@ -1150,20 +1151,27 @@ export async function fillPdfFromDatabase(
         let value: string | null = null;
         const fieldType = field.constructor.name;
 
-        // PRIORITY 1: Check cached AI mappings first (most accurate, saves API calls)
-        const aiMapping = aiMappingLookup.get(fieldName);
-        if (aiMapping && aiMapping.dataKey && dataMap[aiMapping.dataKey]) {
-          value = dataMap[aiMapping.dataKey];
-          console.log(`[PDF Service] AI mapping: "${fieldName}" -> "${aiMapping.dataKey}" = "${value?.substring(0, 50)}..."`);
+        // PRIORITY 0: Check user-provided answers first (highest priority - user explicitly answered this)
+        if (userAnswers && userAnswers[fieldName]) {
+          value = userAnswers[fieldName];
+          console.log(`[PDF Service] User answer: "${fieldName}" = "${value?.substring(0, 50)}..."`);
         }
-        // PRIORITY 2: Check manual fieldMappings from database
-        else if (fieldMappings[fieldName] && dataMap[fieldMappings[fieldName]]) {
-          value = dataMap[fieldMappings[fieldName]];
-          console.log(`[PDF Service] Manual mapping: "${fieldName}" -> "${fieldMappings[fieldName]}"`);
-        }
-        // PRIORITY 3: Fall back to heuristic matching (least reliable)
+        // PRIORITY 1: Check cached AI mappings (most accurate, saves API calls)
         else {
-          value = smartMatchFieldToData(fieldName, dataMap, eventData);
+          const aiMapping = aiMappingLookup.get(fieldName);
+          if (aiMapping && aiMapping.dataKey && dataMap[aiMapping.dataKey]) {
+            value = dataMap[aiMapping.dataKey];
+            console.log(`[PDF Service] AI mapping: "${fieldName}" -> "${aiMapping.dataKey}" = "${value?.substring(0, 50)}..."`);
+          }
+          // PRIORITY 2: Check manual fieldMappings from database
+          else if (fieldMappings[fieldName] && dataMap[fieldMappings[fieldName]]) {
+            value = dataMap[fieldMappings[fieldName]];
+            console.log(`[PDF Service] Manual mapping: "${fieldName}" -> "${fieldMappings[fieldName]}"`);
+          }
+          // PRIORITY 3: Fall back to heuristic matching (least reliable)
+          else {
+            value = smartMatchFieldToData(fieldName, dataMap, eventData);
+          }
         }
         
         if (fieldType === "PDFTextField") {
