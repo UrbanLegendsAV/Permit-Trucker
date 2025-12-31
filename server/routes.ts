@@ -1123,7 +1123,7 @@ ${prompt}`;
           // Poll for result (Datalab is async)
           console.log("Polling Datalab for result at:", datalabResult.request_check_url);
           let attempts = 0;
-          const maxAttempts = 30;
+          const maxAttempts = 60; // Increased from 30 - give Datalab 2 minutes for complex forms
           let filledPdfBase64: string | null = null;
           
           while (attempts < maxAttempts) {
@@ -1265,11 +1265,100 @@ Return ONLY valid JSON array with EXACT field names from the list above:
               console.error("Failed to cache field mappings (non-fatal):", cacheError);
             }
           } else {
-            // Fall back to local filling
+            // Datalab timed out - try Gemini for intelligent field analysis before falling back
+            console.log("Datalab timed out - trying Gemini for intelligent field analysis");
+            
             if (!parsedData) {
               return res.status(400).json({ message: "Profile has no parsed data and Datalab timed out." });
             }
-            pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+            
+            // Try Gemini analysis for checkbox and field discovery
+            try {
+              const { PDFDocument } = await import("pdf-lib");
+              const { GoogleGenerativeAI } = await import("@google/generative-ai");
+              
+              const apiKey = process.env.GOOGLE_API_KEY;
+              if (apiKey && form.fileData) {
+                const originalPdfBuffer = Buffer.from(form.fileData, "base64");
+                const originalPdf = await PDFDocument.load(originalPdfBuffer);
+                const pdfForm = originalPdf.getForm();
+                const pdfFields = pdfForm.getFields();
+                
+                const fieldInfo = pdfFields.map(f => ({
+                  name: f.getName(),
+                  type: f.constructor.name === "PDFCheckBox" ? "checkbox" : "text"
+                }));
+                
+                // Build available data keys with values for Gemini
+                const availableData: Record<string, { value: string; description: string }> = {};
+                if (parsedData.contact_info?.business_name) availableData.business_name = { value: String(parsedData.contact_info.business_name), description: "Business name" };
+                if (parsedData.contact_info?.owner_name) availableData.applicant_name = { value: String(parsedData.contact_info.owner_name), description: "Applicant/owner name" };
+                if (parsedData.operations?.water_supply_type) availableData.water_supply = { value: String(parsedData.operations.water_supply_type), description: "Water supply type" };
+                if (parsedData.operations?.toilet_facilities) availableData.toilet_facilities = { value: String(parsedData.operations.toilet_facilities), description: "Toilet facilities type" };
+                if (eventData?.licenseType) availableData.license_type = { value: eventData.licenseType, description: "License type (temporary or seasonal)" };
+                
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
+                
+                const prompt = `Analyze this PDF permit form and map checkboxes to data. Look at the visual layout to determine what each checkbox represents.
+
+PDF form fields:
+${JSON.stringify(fieldInfo, null, 2)}
+
+User's available data:
+${JSON.stringify(Object.entries(availableData).map(([k, v]) => ({ key: k, value: v.value, description: v.description })), null, 2)}
+
+For CHECKBOXES: Look at the labels NEXT TO each checkbox in the PDF. Map them to the user's data.
+For example:
+- If "Check Box1" appears next to "Temporary: 1 to 14 days" label, and user's license_type is "temporary", map it as shouldCheck: true
+- If "Check Box5" appears next to "Public Water" label, and user's water_supply is "Public", map it as shouldCheck: true
+
+Return JSON array with checkbox decisions:
+[{"fieldName": "Check Box1", "shouldCheck": true, "reason": "License type is temporary"}, ...]`;
+
+                const result = await model.generateContent([
+                  { text: prompt },
+                  { inlineData: { mimeType: "application/pdf", data: form.fileData } }
+                ]);
+                const responseText = result.response.text();
+                
+                const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                  const checkboxDecisions = JSON.parse(jsonMatch[0]) as Array<{ fieldName: string; shouldCheck: boolean; reason: string }>;
+                  console.log(`Gemini analyzed ${checkboxDecisions.length} checkbox decisions`);
+                  
+                  // Create AI mappings from Gemini's checkbox analysis
+                  const geminiMappings = fieldInfo.map(f => ({
+                    pdfFieldName: f.name,
+                    fieldType: f.type as "text" | "checkbox",
+                    label: f.name,
+                    dataKey: f.type === "checkbox" 
+                      ? (checkboxDecisions.find(d => d.fieldName === f.name)?.shouldCheck ? "_check_true" : null)
+                      : null,
+                    confidence: 0.8,
+                  }));
+                  
+                  // Cache these mappings for future use
+                  await storage.updateTownForm(formId, {
+                    datalabAnalyzed: true,
+                    aiFieldMappings: { fields: geminiMappings, lastAnalyzedAt: new Date().toISOString(), analysisSource: "gemini", coverage: 0 } as any,
+                  });
+                  console.log("Cached Gemini checkbox analysis for future use");
+                  
+                  // Fill PDF using these mappings
+                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, geminiMappings);
+                } else {
+                  console.log("Gemini analysis returned no parseable JSON, falling back to heuristic");
+                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+                }
+              } else {
+                console.log("No Gemini API key, falling back to heuristic matching");
+                pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+              }
+            } catch (geminiError) {
+              console.error("Gemini fallback failed:", geminiError);
+              pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+            }
           }
         } else {
           // Datalab returned success but no check URL - fall back
