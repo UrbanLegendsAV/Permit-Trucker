@@ -20,9 +20,12 @@ interface DatalabResponse {
 }
 
 interface DatalabResultResponse {
-  status: "pending" | "processing" | "completed" | "failed";
-  result_url?: string;
-  filled_pdf_base64?: string;
+  status: "pending" | "processing" | "complete" | "failed";
+  success?: boolean;
+  output_format?: string;
+  output_base64?: string; // Base64-encoded filled form
+  fields_filled?: string[];
+  fields_not_found?: string[];
   error?: string;
 }
 
@@ -150,11 +153,11 @@ export async function pollDatalabJob(jobId: string): Promise<SubmissionJob | nul
 
   const result = await checkDatalabResult(datalabResponse.request_check_url);
 
-  if (result.status === "completed" && result.filled_pdf_base64) {
+  if (result.status === "complete" && result.output_base64) {
     await storage.updateSubmissionJob(job.id, {
       status: "pending_review",
       datalabStatus: "completed",
-      filledPdfData: result.filled_pdf_base64,
+      filledPdfData: result.output_base64,
       previewGenerated: true,
       datalabResponse: { ...datalabResponse, result } as unknown as Record<string, unknown>,
     });

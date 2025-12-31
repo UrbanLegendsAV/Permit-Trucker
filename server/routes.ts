@@ -1131,9 +1131,9 @@ ${prompt}`;
             const pollResult = await checkDatalabResult(datalabResult.request_check_url);
             console.log(`Poll attempt ${attempts + 1}: status=${pollResult.status}`);
             
-            if (pollResult.status === "completed" && pollResult.filled_pdf_base64) {
-              console.log("Datalab completed - got filled PDF");
-              filledPdfBase64 = pollResult.filled_pdf_base64;
+            if (pollResult.status === "complete" && pollResult.output_base64) {
+              console.log(`Datalab complete - filled ${pollResult.fields_filled?.length || 0} fields, not found: ${pollResult.fields_not_found?.length || 0}`);
+              filledPdfBase64 = pollResult.output_base64;
               break;
             } else if (pollResult.status === "failed") {
               console.error("Datalab processing failed:", pollResult.error);
