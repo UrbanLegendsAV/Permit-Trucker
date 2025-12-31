@@ -850,6 +850,99 @@ function smartMatchFieldToData(
 }
 
 /**
+ * Smart checkbox matching for database forms - determines if a checkbox should be checked.
+ * Handles generic checkbox names like "Check Box1", "Check Box2" by looking at form context.
+ */
+function smartMatchCheckboxForDatabase(
+  fieldName: string,
+  dataMap: Record<string, string | null>,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): boolean {
+  const lowerField = fieldName.toLowerCase();
+  
+  // For now, if the field has a descriptive name, try to match it
+  // Temporary/Seasonal license type
+  if (lowerField.includes("temporary") && !lowerField.includes("seasonal")) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    return licenseType?.toLowerCase().includes("temporary") || false;
+  }
+  if (lowerField.includes("seasonal") && !lowerField.includes("temporary")) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    // Default to seasonal if no license type specified
+    return !licenseType || licenseType.toLowerCase().includes("seasonal");
+  }
+  
+  // Water supply checkboxes
+  if (lowerField.includes("public water") || (lowerField.includes("public") && lowerField.includes("water"))) {
+    const water = dataMap.water_supply;
+    return water?.toLowerCase().includes("public") || water?.toLowerCase().includes("municipal") || false;
+  }
+  if (lowerField.includes("self-contained") || lowerField.includes("self contained") || lowerField.includes("tank")) {
+    const water = dataMap.water_supply;
+    return water?.toLowerCase().includes("tank") || water?.toLowerCase().includes("self") || false;
+  }
+  if (lowerField.includes("private well") || lowerField.includes("well")) {
+    const water = dataMap.water_supply;
+    return water?.toLowerCase().includes("well") || false;
+  }
+  
+  // Toilet facilities
+  if (lowerField.includes("rest room") || lowerField.includes("restroom")) {
+    const toilet = dataMap.toilet_facilities;
+    return toilet?.toLowerCase().includes("restroom") || 
+           toilet?.toLowerCase().includes("facilities") || 
+           toilet?.toLowerCase().includes("event") || false;
+  }
+  if (lowerField.includes("portable") && lowerField.includes("toilet")) {
+    const toilet = dataMap.toilet_facilities;
+    return toilet?.toLowerCase().includes("portable") || false;
+  }
+  
+  // Hand washing station
+  if (lowerField.includes("temporary") && lowerField.includes("handwash")) {
+    return true; // Most mobile vendors use temporary
+  }
+  if (lowerField.includes("permanent") && lowerField.includes("handwash")) {
+    return false;
+  }
+  
+  // Yes/No patterns
+  if (lowerField === "yes" || lowerField.endsWith("_yes")) {
+    // Common yes scenarios
+    return true; // Most "Yes" checkboxes should be checked for food trucks
+  }
+  if (lowerField === "no" || lowerField.endsWith("_no")) {
+    return false;
+  }
+  
+  // Fee schedule checkboxes - match based on license type
+  if (lowerField.includes("214") && lowerField.includes("temporary")) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    return licenseType?.toLowerCase().includes("temporary") || false;
+  }
+  if (lowerField.includes("214.1") || (lowerField.includes("seasonal") && lowerField.includes("food"))) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    return !licenseType || licenseType.toLowerCase().includes("seasonal");
+  }
+  
+  // Generic "Check Box" names can't be matched without knowing what they represent
+  // These need to be mapped manually in fieldMappings or discovered through AI
+  if (lowerField.startsWith("check box") || lowerField.match(/^checkbox\d+$/)) {
+    // Can't determine what this checkbox represents
+    return false;
+  }
+  
+  return false;
+}
+
+/**
  * Fill a PDF form from the database town_forms table.
  * This uses the stored fileData (base64 PDF) and fieldMappings from the database.
  * Supports both AcroForm fields and coordinate-based filling.
@@ -899,13 +992,38 @@ export async function fillPdfFromDatabase(
   let parsedZip = getFromAny("contact_info", "zip");
   let streetAddress = getFromAny("contact_info", "address");
   
-  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
-    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+  // Parse mailing address into components if not already set
+  // Example: "126 Morningside Drive Bridgeport, CT 06606"
+  if (mailingAddress && (!streetAddress || !parsedCity || !parsedState || !parsedZip)) {
+    // Pattern: "123 Street Name City, ST 12345"
+    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
     if (match) {
-      if (!streetAddress) streetAddress = match[1].trim();
-      if (!parsedCity) parsedCity = match[2].trim();
+      const streetAndCity = match[1].trim(); // "126 Morningside Drive Bridgeport"
+      // Find the last word as the city
+      const lastSpaceIdx = streetAndCity.lastIndexOf(' ');
+      if (lastSpaceIdx > 0) {
+        if (!streetAddress) streetAddress = streetAndCity.substring(0, lastSpaceIdx).trim();
+        if (!parsedCity) parsedCity = streetAndCity.substring(lastSpaceIdx + 1).trim();
+      }
       if (!parsedState) parsedState = match[3].trim();
       if (!parsedZip) parsedZip = match[4].trim();
+    } else {
+      // Try simpler pattern: "Street, City, ST ZIP"
+      const parts = mailingAddress.split(',');
+      if (parts.length >= 2) {
+        if (!streetAddress) streetAddress = parts[0].trim();
+        // Last part should be "ST ZIP"
+        const lastPart = parts[parts.length - 1].trim();
+        const stateZipMatch = lastPart.match(/([A-Z]{2})\s*(\d{5}(?:-\d{4})?)/);
+        if (stateZipMatch) {
+          if (!parsedState) parsedState = stateZipMatch[1];
+          if (!parsedZip) parsedZip = stateZipMatch[2];
+        }
+        // City is the part before state/zip
+        if (parts.length === 3 && !parsedCity) {
+          parsedCity = parts[1].trim();
+        }
+      }
     }
   }
 
@@ -918,6 +1036,7 @@ export async function fillPdfFromDatabase(
     address: streetAddress,
     mailing_address: mailingAddress,
     city: parsedCity,
+    town: parsedCity, // "Town" is often used interchangeably with "City"
     state: parsedState,
     zip: parsedZip,
     phone: getFromAny("contact_info", "phone"),
@@ -985,15 +1104,28 @@ export async function fillPdfFromDatabase(
           value = smartMatchFieldToData(fieldName, dataMap, eventData);
         }
 
-        if (value) {
-          const fieldType = field.constructor.name;
-          if (fieldType === "PDFTextField") {
+        const fieldType = field.constructor.name;
+        
+        if (fieldType === "PDFTextField") {
+          if (value) {
             const textField = form.getTextField(fieldName);
             textField.setText(value);
             console.log(`[PDF Service] Set field "${fieldName}" = "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
+          } else {
+            console.log(`[PDF Service] No match for field: "${fieldName}"`);
+          }
+        } else if (fieldType === "PDFCheckBox") {
+          // Handle checkboxes with smart matching
+          const checkbox = form.getCheckBox(fieldName);
+          const shouldCheck = smartMatchCheckboxForDatabase(fieldName, dataMap, eventData);
+          if (shouldCheck) {
+            checkbox.check();
+            console.log(`[PDF Service] Checked checkbox: "${fieldName}"`);
+          } else {
+            console.log(`[PDF Service] Skipped checkbox: "${fieldName}"`);
           }
         } else {
-          console.log(`[PDF Service] No match for field: "${fieldName}"`);
+          console.log(`[PDF Service] Unknown field type "${fieldType}" for: "${fieldName}"`);
         }
       } catch (err) {
         console.error(`[PDF Service] Error filling field ${fieldName}:`, err);
