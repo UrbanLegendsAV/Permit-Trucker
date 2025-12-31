@@ -1030,20 +1030,20 @@ export async function fillPdfFromDatabase(
   // Parse mailing address into components if not already set
   // Example: "126 Morningside Drive Bridgeport, CT 06606"
   if (mailingAddress && (!streetAddress || !parsedCity || !parsedState || !parsedZip)) {
-    // Pattern: "123 Street Name City, ST 12345"
+    // Pattern 1: "123 Street Name City, ST 12345" - street + city before comma
+    // Regex captures: (street) (city), (ST) (ZIP)
     const match = mailingAddress.match(/^(.+?)\s+([A-Za-z]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
     if (match) {
-      const streetAndCity = match[1].trim(); // "126 Morningside Drive Bridgeport"
-      // Find the last word as the city
-      const lastSpaceIdx = streetAndCity.lastIndexOf(' ');
-      if (lastSpaceIdx > 0) {
-        if (!streetAddress) streetAddress = streetAndCity.substring(0, lastSpaceIdx).trim();
-        if (!parsedCity) parsedCity = streetAndCity.substring(lastSpaceIdx + 1).trim();
-      }
+      // match[1] = street address (e.g., "126 Morningside Drive")
+      // match[2] = city (e.g., "Bridgeport")
+      // match[3] = state (e.g., "CT")
+      // match[4] = zip (e.g., "06606")
+      if (!streetAddress) streetAddress = match[1].trim();
+      if (!parsedCity) parsedCity = match[2].trim();
       if (!parsedState) parsedState = match[3].trim();
       if (!parsedZip) parsedZip = match[4].trim();
     } else {
-      // Try simpler pattern: "Street, City, ST ZIP"
+      // Pattern 2: "Street, City, ST ZIP" - comma-separated
       const parts = mailingAddress.split(',');
       if (parts.length >= 2) {
         if (!streetAddress) streetAddress = parts[0].trim();
@@ -1057,10 +1057,19 @@ export async function fillPdfFromDatabase(
         // City is the part before state/zip
         if (parts.length === 3 && !parsedCity) {
           parsedCity = parts[1].trim();
+        } else if (parts.length === 2 && !parsedCity) {
+          // "Street, City ST ZIP" format - extract city from last part before state
+          const cityMatch = lastPart.match(/^([A-Za-z\s]+?)\s+[A-Z]{2}\s*\d{5}/);
+          if (cityMatch) {
+            parsedCity = cityMatch[1].trim();
+          }
         }
       }
     }
   }
+
+  // Debug: Log parsed address components
+  console.log(`[PDF Service] Parsed address: street="${streetAddress}", city="${parsedCity}", state="${parsedState}", zip="${parsedZip}"`);
 
   // Standard data map for form filling
   const dataMap: Record<string, string | null> = {
