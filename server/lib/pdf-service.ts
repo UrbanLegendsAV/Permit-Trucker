@@ -226,6 +226,89 @@ function matchesCheckbox(value: string | null, checkboxValue: string): boolean {
          (normalizedCheckbox === "quaternary" && normalizedValue.includes("quat"));
 }
 
+/**
+ * Smart checkbox matching - determines if a checkbox should be checked based on field name and data.
+ */
+function smartMatchCheckbox(
+  fieldName: string,
+  dataMap: Record<string, string | null>,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  }
+): boolean {
+  const lowerField = fieldName.toLowerCase();
+  
+  // Yes/No patterns - check if the field asks about something we do
+  if (lowerField.includes("yes") || lowerField === "y") {
+    // Common "yes" scenarios for food trucks
+    if (lowerField.includes("food") && lowerField.includes("prepared")) return true;
+    if (lowerField.includes("handwash") || lowerField.includes("hand wash")) return true;
+    if (lowerField.includes("sketch") || lowerField.includes("diagram")) return true;
+    return false;
+  }
+  
+  // Temporary vs Seasonal license type
+  if (lowerField.includes("temporary") || lowerField.includes("temp")) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    return licenseType?.toLowerCase().includes("temporary") || false;
+  }
+  if (lowerField.includes("seasonal")) {
+    const licenseType = eventData?.licenseType || dataMap.license_type;
+    return licenseType?.toLowerCase().includes("seasonal") || false;
+  }
+  
+  // Water supply types
+  if (lowerField.includes("public water") || lowerField.includes("municipal")) {
+    const water = dataMap.water_supply;
+    return water?.toLowerCase().includes("public") || water?.toLowerCase().includes("municipal") || false;
+  }
+  if (lowerField.includes("self-contained") || lowerField.includes("tank")) {
+    const water = dataMap.water_supply;
+    return water?.toLowerCase().includes("tank") || water?.toLowerCase().includes("self") || false;
+  }
+  
+  // Toilet facilities
+  if (lowerField.includes("portable") && lowerField.includes("toilet")) {
+    const toilet = dataMap.toilet_facilities;
+    return toilet?.toLowerCase().includes("portable") || false;
+  }
+  if (lowerField.includes("restroom") || lowerField.includes("rest room")) {
+    const toilet = dataMap.toilet_facilities;
+    return toilet?.toLowerCase().includes("restroom") || toilet?.toLowerCase().includes("facilities") || toilet?.toLowerCase().includes("event") || false;
+  }
+  
+  // Handwashing station type
+  if (lowerField.includes("temporary") && lowerField.includes("handwash")) {
+    return true; // Most mobile vendors use temporary handwash
+  }
+  if (lowerField.includes("permanent") && lowerField.includes("handwash")) {
+    return false;
+  }
+  
+  // Food prep location
+  if (lowerField.includes("on-site") || lowerField.includes("on site") || lowerField.includes("onsite")) {
+    const prep = dataMap.prep_location;
+    return prep?.toLowerCase().includes("on-site") || prep?.toLowerCase().includes("on site") || false;
+  }
+  if (lowerField.includes("licensed") && (lowerField.includes("establishment") || lowerField.includes("kitchen"))) {
+    const prep = dataMap.prep_location || dataMap.commissary_name;
+    return prep != null && prep.length > 0;
+  }
+  if (lowerField.includes("commercially made")) {
+    return true; // Default for items purchased commercially
+  }
+  if (lowerField.includes("made by organization")) {
+    return false; // Default to commercially made unless specified
+  }
+  
+  return false;
+}
+
 async function fillBethelAcroForm(
   pdfDoc: PDFDocument,
   userData: ParsedUserData,
@@ -292,9 +375,14 @@ async function fillBethelAcroForm(
   const toiletFacilities = getFromAny("operations", "toilet_facilities") || getFromAny("commissary_info", "toilet_facilities") || "";
 
   const dataMap: Record<string, string | null> = {
+    // Contact info
     "owner_name": getFromAny("contact_info", "applicant_name", "owner_name"),
+    "applicant_name": getFromAny("contact_info", "applicant_name", "owner_name"),
     "business_name": getFromAny("contact_info", "business_name"),
+    "establishment_name": getFromAny("contact_info", "business_name"),
+    "name_of_establishment": getFromAny("contact_info", "business_name"),
     "address": streetAddress,
+    "establishment_address": streetAddress,
     "mailing_address": mailingAddress || streetAddress,
     "city": parsedCity,
     "state": parsedState,
@@ -303,26 +391,59 @@ async function fillBethelAcroForm(
     "business_phone": getFromAny("contact_info", "phone"),
     "cell_phone": getFromAny("contact_info", "phone"),
     "email": getFromAny("contact_info", "email"),
+    
+    // Event data
     "event_name": eventData?.eventName || getFromAny("contact_info", "business_name"),
     "event_location": eventData?.eventAddress || null,
     "event_dates": eventData?.eventDates || null,
     "hours_of_operation": eventData?.hoursOfOperation || null,
     "person_in_charge": eventData?.personInCharge || getFromAny("contact_info", "applicant_name", "owner_name"),
+    
+    // Operations
     "water_supply": waterSupply,
     "water_supply_event": waterSupply,
     "water_other_description": waterSupply.toLowerCase().includes("other") ? waterSupply : null,
     "sanitizer_type": getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
-    "temperature_control": getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring"),
-    "food_storage": getFromAny("safety", "cold_storage_method") || "Kept in coolers with ice, minimum 12 inches off ground",
+    "sanitizing_method": getFromAny("operations", "sanitizing_method") || getFromAny("equipment_info", "sanitizing_method"),
     "sanitizer_description": getFromAny("operations", "sanitizer_type") || "Sanitizer test strips available",
-    "food_prep_description": getFromAny("menu_and_prep", "prep_location") || "",
-    "food_protection": "Food covered and protected from contamination",
-    "license_type": licenseType,
     "toilet_facilities": toiletFacilities,
+    
+    // Safety & temperature
+    "temperature_control": getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring"),
+    "temp_monitoring": getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring") || "Digital probe thermometer, checked every 2 hours",
+    "hot_holding": getFromAny("safety", "hot_holding_method") || "Hot holding with steam tables above 140°F",
+    "cold_holding": getFromAny("safety", "cold_storage_method") || "Cold holding in coolers with ice below 40°F",
+    "food_storage": getFromAny("safety", "cold_storage_method") || "Fridge and coolers, minimum 12 inches off ground",
+    "waste_water": getFromAny("safety", "waste_water_disposal") || getFromAny("equipment_info", "waste_water") || "Gray water tank, disposed at commissary",
+    "food_protection": "Food covered and protected from contamination during transport and event",
+    
+    // Food & menu
+    "menu_items": getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    "food_items": getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    "prep_location": getFromAny("menu_and_prep", "prep_location") || getFromAny("commissary_info", "commissary_name"),
+    "food_prep_description": getFromAny("menu_and_prep", "prep_location") || "",
+    "food_sources": getFromAny("menu_and_prep", "food_source_location") || getFromAny("food_info", "food_sources") || "Restaurant Depot, Costco, local suppliers",
+    "prep_methods": getFromAny("food_info", "prep_methods"),
+    
+    // Commissary
+    "commissary_name": getFromAny("commissary_info", "commissary_name"),
+    "commissary_address": getFromAny("commissary_info", "commissary_address"),
+    
+    // Vehicle
+    "vin": getFromAny("vehicle_info", "vin"),
+    "license_plate": getFromAny("vehicle_info", "license_plate"),
+    "vehicle_make": getFromAny("vehicle_info", "trailer_make"),
+    "vehicle_model": getFromAny("vehicle_info", "trailer_model"),
+    
+    // License
+    "license_type": licenseType,
+    "fee_type": licenseType,
+    
+    // Equipment
     "handwash_station": getFromAny("equipment_info", "handwash_setup") || "temporary",
+    "handwash_setup": getFromAny("equipment_info", "handwash_setup") || "Portable handwash station with soap and paper towels",
     "handwash_on_sketch": "yes",
     "food_prepared_on_site": "yes",
-    "fee_type": licenseType,
   };
 
   console.log("[PDF Service] Data map:", JSON.stringify(dataMap, null, 2));
@@ -334,16 +455,29 @@ async function fillBethelAcroForm(
     try {
       if (fieldType === "PDFTextField") {
         const textField = form.getTextField(fieldName);
+        
+        // First try hardcoded map, then smart matching
         const dataKey = BETHEL_ACRO_FIELD_MAP[fieldName];
+        let value: string | null = null;
         
         if (dataKey && dataMap[dataKey]) {
-          console.log(`[PDF Service] Setting text field "${fieldName}" to "${dataMap[dataKey]}"`);
-          textField.setText(dataMap[dataKey] || "");
+          value = dataMap[dataKey];
+        } else {
+          // Use smart matching for unmapped fields
+          value = smartMatchFieldToData(fieldName, dataMap, eventData);
+        }
+        
+        if (value) {
+          console.log(`[PDF Service] Setting text field "${fieldName}" to "${value.substring(0, 50)}${value.length > 50 ? '...' : ''}"`);
+          textField.setText(value);
+        } else {
+          console.log(`[PDF Service] No match for text field: "${fieldName}"`);
         }
       } else if (fieldType === "PDFCheckBox") {
         const checkbox = form.getCheckBox(fieldName);
         const checkboxConfig = BETHEL_CHECKBOX_MAP[fieldName];
         
+        // Try hardcoded checkbox map first
         if (checkboxConfig) {
           const dataValue = dataMap[checkboxConfig.dataField];
           if (dataValue) {
@@ -352,6 +486,13 @@ async function fillBethelAcroForm(
               console.log(`[PDF Service] Checking checkbox "${fieldName}" (${checkboxConfig.matchValue})`);
               checkbox.check();
             }
+          }
+        } else {
+          // Smart checkbox matching based on field name
+          const shouldCheck = smartMatchCheckbox(fieldName, dataMap, eventData);
+          if (shouldCheck) {
+            console.log(`[PDF Service] Smart-checking checkbox "${fieldName}"`);
+            checkbox.check();
           }
         }
       }
