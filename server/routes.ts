@@ -28,6 +28,8 @@ import { sanitizeHtml } from "./lib/sanitize";
 import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
 import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
 import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured } from "./lib/portal-automation-service";
+import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
+import { PermitType } from "../shared/validation-rules";
 import { z } from "zod";
 
 const pdfFillSchema = z.object({
@@ -708,6 +710,89 @@ ${prompt}`;
     } catch (error) {
       console.error("Error fetching permit:", error);
       res.status(500).json({ message: "Failed to fetch permit" });
+    }
+  });
+
+  app.get("/api/permits/:id/validate", isAuthenticated, async (req: any, res) => {
+    try {
+      const permit = await storage.getPermit(req.params.id);
+      if (!permit) {
+        return res.status(404).json({ message: "Permit not found" });
+      }
+      
+      if (!permit.profileId) {
+        return res.status(400).json({ message: "Permit has no associated profile" });
+      }
+      
+      const profile = await storage.getProfile(permit.profileId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const town = permit.townId ? await storage.getTown(permit.townId) : null;
+      
+      const validation = validatePermitApplication(
+        {
+          parsedDataLog: profile.parsedDataLog,
+          uploadsJson: profile.uploadsJson,
+          hasPropane: profile.hasPropane || false,
+          hasQfoCert: profile.hasQfoCert || false,
+          commissaryName: profile.commissaryName,
+          commissaryAddress: profile.commissaryAddress,
+        },
+        {
+          permitType: permit.permitType as PermitType,
+          eventName: permit.eventName,
+          eventDate: permit.eventDate,
+          eventEndDate: permit.eventEndDate,
+          eventAddress: permit.eventAddress,
+          eventCity: permit.eventCity,
+          eventContactName: permit.eventContactName,
+          eventContactPhone: permit.eventContactPhone,
+        },
+        town ? { requirementsJson: town.requirementsJson } : null
+      );
+      
+      res.json({
+        ...validation,
+        townName: town?.townName || null,
+        permitType: permit.permitType,
+      });
+    } catch (error: any) {
+      console.error("Error validating permit:", error);
+      res.status(500).json({ message: "Failed to validate permit", error: error.message });
+    }
+  });
+
+  app.get("/api/validation/requirements", isAuthenticated, async (req: any, res) => {
+    try {
+      const { permitType, townId } = req.query;
+      
+      if (!permitType || !["yearly", "temporary", "seasonal"].includes(permitType)) {
+        return res.status(400).json({ message: "Valid permitType is required (yearly, temporary, seasonal)" });
+      }
+      
+      let townRequirements = null;
+      if (townId) {
+        const town = await storage.getTown(townId);
+        if (town) {
+          townRequirements = town.requirementsJson;
+        }
+      }
+      
+      const requiredFields = getRequiredFieldsForPermitType(
+        permitType as PermitType,
+        townRequirements
+      );
+      
+      res.json({
+        permitType,
+        requiredFields,
+        townId: townId || null,
+      });
+    } catch (error: any) {
+      console.error("Error fetching requirements:", error);
+      res.status(500).json({ message: "Failed to fetch requirements", error: error.message });
     }
   });
 

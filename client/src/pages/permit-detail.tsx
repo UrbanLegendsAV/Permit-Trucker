@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
+import { PermitValidation } from "@/components/permit-validation";
 
 type PermitWithDetails = Permit & {
   town?: Town | null;
@@ -329,6 +330,10 @@ export default function PermitDetailPage() {
             </div>
           )}
         </div>
+
+        {permitId && (
+          <PermitValidation permitId={permitId} />
+        )}
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
