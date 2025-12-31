@@ -1175,6 +1175,7 @@ ${prompt}`;
                 fieldType: "text" | "checkbox";
                 label: string;
                 dataKey: string | null;
+                matchValue?: string | null; // For semantic checkbox rules
                 confidence: number;
               }> = [];
               
@@ -1195,12 +1196,17 @@ Look at the PDF and determine which field ID corresponds to which data key.
 For example, if you see "Business Name: _______" and the field ID at that position is "Text1",
 then map Text1 -> business_name.
 
-For checkboxes, determine what condition makes them get checked (e.g., a "Temporary" checkbox 
-should be checked when license_type is "temporary").
+For CHECKBOXES: Look at the label NEXT TO each checkbox to determine its meaning.
+Return a "matchValue" that the data key should contain for this checkbox to be checked.
+For example:
+- If checkbox is next to "Public Water", set dataKey: "water_supply", matchValue: "public"
+- If checkbox is next to "Temporary: 1 to 14 days", set dataKey: "license_type", matchValue: "temporary"
+- If checkbox is next to "Rest Rooms", set dataKey: "toilet_facilities", matchValue: "rest room"
 
 Return ONLY valid JSON array with EXACT field names from the list above:
 [
-  {"pdfFieldName": "exact_field_id", "dataKey": "matching_key_or_null", "label": "what the field asks for", "confidence": 0.0-1.0}
+  {"pdfFieldName": "exact_field_id", "fieldType": "text", "dataKey": "matching_key_or_null", "label": "what the field asks for", "confidence": 0.0-1.0},
+  {"pdfFieldName": "Check Box1", "fieldType": "checkbox", "dataKey": "water_supply", "matchValue": "public", "label": "Public Water", "confidence": 0.9}
 ]`;
 
                 try {
@@ -1226,6 +1232,7 @@ Return ONLY valid JSON array with EXACT field names from the list above:
                         fieldType: f.type as "text" | "checkbox",
                         label: mapping?.label || f.name,
                         dataKey: mapping?.dataKey || null,
+                        matchValue: mapping?.matchValue || null, // For semantic checkbox rules
                         confidence: mapping?.confidence || 0,
                       };
                     });
@@ -1300,21 +1307,30 @@ Return ONLY valid JSON array with EXACT field names from the list above:
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
                 
-                const prompt = `Analyze this PDF permit form and map checkboxes to data. Look at the visual layout to determine what each checkbox represents.
+                const prompt = `Analyze this PDF permit form. For each checkbox, identify what it represents by reading the label NEXT TO it.
 
 PDF form fields:
 ${JSON.stringify(fieldInfo, null, 2)}
 
-User's available data:
-${JSON.stringify(Object.entries(availableData).map(([k, v]) => ({ key: k, value: v.value, description: v.description })), null, 2)}
+Available data keys that can be matched:
+- water_supply: Type of water supply (e.g., "Public", "Self-contained", "Private well")
+- toilet_facilities: Type of toilet facilities (e.g., "Rest Rooms", "Portable toilets")
+- license_type: License type (e.g., "temporary", "seasonal")
+- handwash_setup: Handwashing setup type
 
-For CHECKBOXES: Look at the labels NEXT TO each checkbox in the PDF. Map them to the user's data.
-For example:
-- If "Check Box1" appears next to "Temporary: 1 to 14 days" label, and user's license_type is "temporary", map it as shouldCheck: true
-- If "Check Box5" appears next to "Public Water" label, and user's water_supply is "Public", map it as shouldCheck: true
+For each CHECKBOX, tell me:
+1. What label appears next to it in the PDF
+2. Which data key it relates to
+3. What value that data key should contain for this checkbox to be checked
 
-Return JSON array with checkbox decisions:
-[{"fieldName": "Check Box1", "shouldCheck": true, "reason": "License type is temporary"}, ...]`;
+Return JSON array with checkbox RULES (not decisions):
+[
+  {"fieldName": "Check Box1", "label": "Self-contained / Home", "dataKey": "water_supply", "matchValue": "self-contained"},
+  {"fieldName": "Check Box2", "label": "Public Water", "dataKey": "water_supply", "matchValue": "public"},
+  {"fieldName": "Check Box3", "label": "Rest Rooms", "dataKey": "toilet_facilities", "matchValue": "rest room"}
+]
+
+IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it. We will evaluate against real data later.`;
 
                 const result = await model.generateContent([
                   { text: prompt },
@@ -1324,28 +1340,35 @@ Return JSON array with checkbox decisions:
                 
                 const jsonMatch = responseText.match(/\[[\s\S]*\]/);
                 if (jsonMatch) {
-                  const checkboxDecisions = JSON.parse(jsonMatch[0]) as Array<{ fieldName: string; shouldCheck: boolean; reason: string }>;
-                  console.log(`Gemini analyzed ${checkboxDecisions.length} checkbox decisions`);
+                  const checkboxRules = JSON.parse(jsonMatch[0]) as Array<{ 
+                    fieldName: string; 
+                    label: string; 
+                    dataKey: string; 
+                    matchValue: string;
+                  }>;
+                  console.log(`Gemini discovered ${checkboxRules.length} checkbox semantic rules`);
                   
-                  // Create AI mappings from Gemini's checkbox analysis
-                  const geminiMappings = fieldInfo.map(f => ({
-                    pdfFieldName: f.name,
-                    fieldType: f.type as "text" | "checkbox",
-                    label: f.name,
-                    dataKey: f.type === "checkbox" 
-                      ? (checkboxDecisions.find(d => d.fieldName === f.name)?.shouldCheck ? "_check_true" : null)
-                      : null,
-                    confidence: 0.8,
-                  }));
+                  // Create AI mappings with semantic rules for checkboxes
+                  const geminiMappings = fieldInfo.map(f => {
+                    const rule = checkboxRules.find(r => r.fieldName === f.name);
+                    return {
+                      pdfFieldName: f.name,
+                      fieldType: f.type as "text" | "checkbox",
+                      label: rule?.label || f.name,
+                      dataKey: rule?.dataKey || null,
+                      matchValue: rule?.matchValue || null, // Store the condition value
+                      confidence: rule ? 0.9 : 0.5,
+                    };
+                  });
                   
-                  // Cache these mappings for future use
+                  // Cache these semantic mappings for future use
                   await storage.updateTownForm(formId, {
                     datalabAnalyzed: true,
                     aiFieldMappings: { fields: geminiMappings, lastAnalyzedAt: new Date().toISOString(), analysisSource: "gemini", coverage: 0 } as any,
                   });
-                  console.log("Cached Gemini checkbox analysis for future use");
+                  console.log("Cached Gemini checkbox semantic rules for future use");
                   
-                  // Fill PDF using these mappings
+                  // Fill PDF using semantic rules evaluated against real data
                   pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, geminiMappings);
                 } else {
                   console.log("Gemini analysis returned no parseable JSON, falling back to heuristic");

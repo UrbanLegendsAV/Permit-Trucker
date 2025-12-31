@@ -972,6 +972,7 @@ export interface CachedAIFieldMapping {
   fieldType: "text" | "checkbox";
   label: string;
   dataKey: string | null;
+  matchValue?: string | null; // For checkboxes: the value that dataKey should contain to check this box
   confidence: number;
 }
 
@@ -1174,21 +1175,25 @@ export async function fillPdfFromDatabase(
             console.log(`[PDF Service] No data for field: "${fieldName}"`);
           }
         } else if (fieldType === "PDFCheckBox") {
-          // Handle checkboxes - check AI mapping first
+          // Handle checkboxes - evaluate semantic rules against REAL profile data
           const checkbox = form.getCheckBox(fieldName);
           let shouldCheck = false;
           
-          if (aiMapping && aiMapping.dataKey) {
-            // Special marker from Gemini checkbox analysis - means "check this box"
-            if (aiMapping.dataKey === "_check_true") {
-              shouldCheck = true;
-              console.log(`[PDF Service] Gemini checkbox decision: "${fieldName}" = CHECK`);
-            } else if (dataMap[aiMapping.dataKey]) {
-              // If AI says this checkbox maps to a data key, check if that data exists and is truthy
-              const checkboxValue = dataMap[aiMapping.dataKey];
-              shouldCheck = !!checkboxValue && checkboxValue.toLowerCase() !== "false" && checkboxValue.toLowerCase() !== "no";
-              console.log(`[PDF Service] AI checkbox: "${fieldName}" -> "${aiMapping.dataKey}" = ${shouldCheck}`);
+          if (aiMapping && aiMapping.dataKey && aiMapping.matchValue) {
+            // Semantic rule: check if user's data matches the required value
+            const userValue = dataMap[aiMapping.dataKey];
+            if (userValue) {
+              // Case-insensitive partial match
+              shouldCheck = userValue.toLowerCase().includes(aiMapping.matchValue.toLowerCase());
+              console.log(`[PDF Service] Semantic checkbox: "${fieldName}" (${aiMapping.label}) - dataKey="${aiMapping.dataKey}" userValue="${userValue}" matchValue="${aiMapping.matchValue}" -> ${shouldCheck}`);
+            } else {
+              console.log(`[PDF Service] Semantic checkbox: "${fieldName}" - no data for key "${aiMapping.dataKey}"`);
             }
+          } else if (aiMapping && aiMapping.dataKey) {
+            // Simple boolean check - data key exists and is truthy
+            const checkboxValue = dataMap[aiMapping.dataKey];
+            shouldCheck = !!checkboxValue && checkboxValue.toLowerCase() !== "false" && checkboxValue.toLowerCase() !== "no";
+            console.log(`[PDF Service] AI checkbox: "${fieldName}" -> "${aiMapping.dataKey}" = ${shouldCheck}`);
           } else {
             // Fall back to heuristic matching
             shouldCheck = smartMatchCheckboxForDatabase(fieldName, dataMap, eventData);
