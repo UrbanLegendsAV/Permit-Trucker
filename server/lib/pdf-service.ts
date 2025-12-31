@@ -448,7 +448,8 @@ async function fillBethelAcroForm(
     "food_prepared_on_site": "yes",
   };
 
-  console.log("[PDF Service] Data map:", JSON.stringify(dataMap, null, 2));
+  // Log field count only - avoid logging full data map with potentially large values
+  console.log(`[PDF Service] Data map has ${Object.keys(dataMap).length} fields ready for form filling`);
 
   for (const field of fields) {
     const fieldName = field.getName();

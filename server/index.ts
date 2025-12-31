@@ -74,7 +74,16 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        // Only log summary to avoid massive base64 data dumps
+        if (Array.isArray(capturedJsonResponse)) {
+          logLine += ` :: [${capturedJsonResponse.length} items]`;
+        } else if (typeof capturedJsonResponse === 'object' && capturedJsonResponse !== null) {
+          const keys = Object.keys(capturedJsonResponse);
+          logLine += ` :: {${keys.slice(0, 5).join(', ')}${keys.length > 5 ? '...' : ''}}`;
+        } else {
+          const jsonStr = JSON.stringify(capturedJsonResponse);
+          logLine += ` :: ${jsonStr.length > 100 ? jsonStr.substring(0, 100) + '...' : jsonStr}`;
+        }
       }
 
       log(logLine);
