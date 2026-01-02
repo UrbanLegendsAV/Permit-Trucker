@@ -1567,26 +1567,80 @@ For text fields that require descriptive answers about food safety practices, se
         }
       }
 
-      // Build available data from profile
+      // Build available data from profile - include ALL extracted fields
       const availableData: Record<string, string> = {};
+      
+      // Contact info
       if (parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
       if (parsedData?.contact_info?.applicant_name?.value) availableData.applicant_name = parsedData.contact_info.applicant_name.value;
+      if (parsedData?.contact_info?.owner_name?.value) availableData.owner_name = parsedData.contact_info.owner_name.value;
       if (parsedData?.contact_info?.phone?.value) availableData.phone = parsedData.contact_info.phone.value;
       if (parsedData?.contact_info?.email?.value) availableData.email = parsedData.contact_info.email.value;
       if (parsedData?.contact_info?.mailing_address?.value) availableData.address = parsedData.contact_info.mailing_address.value;
+      if (parsedData?.contact_info?.mailing_address?.value) availableData.mailing_address = parsedData.contact_info.mailing_address.value;
+      
+      // License info
+      if (parsedData?.license_info?.license_number?.value) availableData.license_number = parsedData.license_info.license_number.value;
+      if (parsedData?.license_info?.license_type?.value) availableData.license_type_profile = parsedData.license_info.license_type.value;
+      if (parsedData?.license_info?.issuing_authority?.value) availableData.issuing_authority = parsedData.license_info.issuing_authority.value;
+      if (parsedData?.license_info?.valid_from?.value) availableData.valid_from = parsedData.license_info.valid_from.value;
+      if (parsedData?.license_info?.valid_through?.value) availableData.valid_through = parsedData.license_info.valid_through.value;
+      if (parsedData?.license_info?.towns_covered?.value) availableData.towns_covered = parsedData.license_info.towns_covered.value;
+      
+      // Operations
       if (parsedData?.operations?.water_supply_type?.value) availableData.water_supply = parsedData.operations.water_supply_type.value;
+      if (parsedData?.operations?.sanitizer_type?.value) availableData.sanitizer_type = parsedData.operations.sanitizer_type.value;
+      if (parsedData?.operations?.sanitizing_method?.value) availableData.sanitizing_method = parsedData.operations.sanitizing_method.value;
+      if (parsedData?.operations?.toilet_facilities?.value) availableData.toilet_facilities_profile = parsedData.operations.toilet_facilities.value;
+      
+      // Safety
       if (parsedData?.safety?.hot_holding_method?.value) availableData.hot_holding = parsedData.safety.hot_holding_method.value;
       if (parsedData?.safety?.cold_storage_method?.value) availableData.cold_storage = parsedData.safety.cold_storage_method.value;
+      if (parsedData?.safety?.waste_water_disposal?.value) availableData.waste_water = parsedData.safety.waste_water_disposal.value;
+      if (parsedData?.safety?.temperature_monitoring_method?.value) availableData.temp_monitoring = parsedData.safety.temperature_monitoring_method.value;
+      
+      // Menu & Prep
+      if (parsedData?.menu_and_prep?.food_items_list?.value) availableData.menu_items = parsedData.menu_and_prep.food_items_list.value;
+      if (parsedData?.menu_and_prep?.food_items_list?.value) availableData.food_items = parsedData.menu_and_prep.food_items_list.value;
+      if (parsedData?.menu_and_prep?.prep_location?.value) availableData.prep_location = parsedData.menu_and_prep.prep_location.value;
+      if (parsedData?.menu_and_prep?.prep_location?.value) availableData.commissary_address = parsedData.menu_and_prep.prep_location.value;
+      if (parsedData?.menu_and_prep?.food_source_location?.value) availableData.food_sources = parsedData.menu_and_prep.food_source_location.value;
+      
+      // Commissary info
+      if (parsedData?.commissary_info?.commissary_name?.value) availableData.commissary_name = parsedData.commissary_info.commissary_name.value;
+      if (parsedData?.commissary_info?.commissary_address?.value) availableData.commissary_address = parsedData.commissary_info.commissary_address.value;
+      
+      // Vehicle info
+      if (parsedData?.vehicle_info?.vin?.value) availableData.vin = parsedData.vehicle_info.vin.value;
+      if (parsedData?.vehicle_info?.license_plate?.value) availableData.license_plate = parsedData.vehicle_info.license_plate.value;
+      if (parsedData?.vehicle_info?.trailer_make?.value) availableData.vehicle_make = parsedData.vehicle_info.trailer_make.value;
+      if (parsedData?.vehicle_info?.trailer_model?.value) availableData.vehicle_model = parsedData.vehicle_info.trailer_model.value;
+      if (parsedData?.vehicle_info?.trailer_year?.value) availableData.vehicle_year = parsedData.vehicle_info.trailer_year.value;
+      
+      // Equipment info
+      if (parsedData?.equipment_info?.handwash_setup?.value) availableData.handwash_setup = parsedData.equipment_info.handwash_setup.value;
+      if (parsedData?.equipment_info?.refrigeration?.value) availableData.refrigeration = parsedData.equipment_info.refrigeration.value;
+      if (parsedData?.equipment_info?.cooking_equipment?.value) availableData.cooking_equipment = parsedData.equipment_info.cooking_equipment.value;
+      
+      // Certifications
+      if (parsedData?.certifications?.food_manager_cert?.value) availableData.food_manager_cert = parsedData.certifications.food_manager_cert.value;
+      if (parsedData?.certifications?.cert_expiration?.value) availableData.cert_expiration = parsedData.certifications.cert_expiration.value;
+      
+      // Event data from permit
       if (eventData?.eventName) availableData.event_name = eventData.eventName;
       if (eventData?.eventAddress) availableData.event_location = eventData.eventAddress;
       if (eventData?.eventDates) availableData.event_dates = eventData.eventDates;
+      if (eventData?.hoursOfOperation) availableData.hours_of_operation = eventData.hoursOfOperation;
+      if (eventData?.personInCharge) availableData.person_in_charge = eventData.personInCharge;
       
       // Food truck defaults (industry knowledge)
       availableData.license_type = eventData?.licenseType || "temporary";
-      availableData.toilet_facilities = "portable";
+      availableData.toilet_facilities = parsedData?.operations?.toilet_facilities?.value || "portable";
       availableData.handwash_type = "temporary";
       availableData.foods_prepared_onsite = "yes";
       availableData.handwash_sketch_yes = "yes";
+      
+      console.log(`[Analyze] Available data keys: ${Object.keys(availableData).join(", ")}`);
 
       // Find unanswered questions
       const unansweredQuestions: Array<{
@@ -1603,12 +1657,32 @@ For text fields that require descriptive answers about food safety practices, se
         
         // Include if: needs user input OR has no dataKey OR dataKey has no data
         if (field.fieldType === "text" && (needsInput || !field.dataKey || !hasData)) {
-          // Skip if it's a common auto-filled field type
-          const autoFilledKeys = ["business_name", "applicant_name", "phone", "email", "address", 
-            "event_name", "event_location", "event_dates", "license_type", "toilet_facilities",
-            "handwash_type", "foods_prepared_onsite", "water_supply", "hot_holding", "cold_storage"];
+          // Skip if it's a common auto-filled field type - comprehensive list matching all profile data
+          const autoFilledKeys = [
+            // Contact info
+            "business_name", "applicant_name", "owner_name", "phone", "email", "address", "mailing_address",
+            // License info
+            "license_number", "license_type", "license_type_profile", "issuing_authority", "valid_from", "valid_through", "towns_covered",
+            // Operations
+            "water_supply", "sanitizer_type", "sanitizing_method", "toilet_facilities", "toilet_facilities_profile",
+            // Safety
+            "hot_holding", "cold_storage", "waste_water", "temp_monitoring",
+            // Menu & Prep
+            "menu_items", "food_items", "prep_location", "food_sources", "commissary_address", "commissary_name",
+            // Vehicle
+            "vin", "license_plate", "vehicle_make", "vehicle_model", "vehicle_year",
+            // Equipment
+            "handwash_setup", "refrigeration", "cooking_equipment",
+            // Certifications
+            "food_manager_cert", "cert_expiration",
+            // Event data
+            "event_name", "event_location", "event_dates", "hours_of_operation", "person_in_charge",
+            // Defaults
+            "handwash_type", "foods_prepared_onsite", "handwash_sketch_yes"
+          ];
           
           if (field.dataKey && autoFilledKeys.includes(field.dataKey) && hasData) {
+            console.log(`[Analyze] Auto-filling field "${field.pdfFieldName}" with "${field.dataKey}"`);
             continue; // Skip - this will be auto-filled
           }
           
