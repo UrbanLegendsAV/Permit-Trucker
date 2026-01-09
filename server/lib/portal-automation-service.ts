@@ -1,7 +1,8 @@
 import { storage } from "../storage";
-import type { SubmissionJob, DataVault, PortalCredential, Town } from "@shared/schema";
+import type { SubmissionJob, DataVault, PortalCredential, Town, TownForm, Profile } from "@shared/schema";
 import { getVaultDataForPdfFill } from "./vault-service";
 import crypto from "crypto";
+import type { Page, Browser } from "playwright";
 
 const ENCRYPTION_KEY = process.env.PORTAL_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
@@ -395,4 +396,420 @@ export async function approveAndSubmit(jobId: string): Promise<{ success: boolea
   }
 
   return { success: false, error: "Unknown submission type" };
+}
+
+// SeamlessDocs-specific field mappings
+const SEAMLESSDOCS_FIELD_MAPPINGS: Record<string, { vaultFields: string[]; selectors: string[]; type: "text" | "select" | "checkbox" | "radio" }> = {
+  businessName: {
+    vaultFields: ["business_name"],
+    selectors: [
+      'input[name*="business" i]',
+      'input[name*="company" i]',
+      'input[placeholder*="business" i]',
+      'input[aria-label*="business" i]',
+      '[data-field*="business" i] input',
+    ],
+    type: "text",
+  },
+  ownerName: {
+    vaultFields: ["owner_name", "applicant_name"],
+    selectors: [
+      'input[name*="owner" i]',
+      'input[name*="applicant" i]',
+      'input[name*="name" i]:not([name*="business" i]):not([name*="event" i])',
+      'input[placeholder*="owner" i]',
+      '[data-field*="owner" i] input',
+      '[data-field*="applicant" i] input',
+    ],
+    type: "text",
+  },
+  email: {
+    vaultFields: ["email"],
+    selectors: [
+      'input[type="email"]',
+      'input[name*="email" i]',
+      'input[placeholder*="email" i]',
+    ],
+    type: "text",
+  },
+  phone: {
+    vaultFields: ["phone"],
+    selectors: [
+      'input[type="tel"]',
+      'input[name*="phone" i]',
+      'input[name*="telephone" i]',
+      'input[placeholder*="phone" i]',
+    ],
+    type: "text",
+  },
+  address: {
+    vaultFields: ["address", "mailing_address"],
+    selectors: [
+      'input[name*="address" i]:not([name*="email" i])',
+      'input[name*="street" i]',
+      'input[placeholder*="address" i]',
+      '[data-field*="address" i] input',
+    ],
+    type: "text",
+  },
+  city: {
+    vaultFields: ["city", "mailing_city"],
+    selectors: [
+      'input[name*="city" i]',
+      'input[placeholder*="city" i]',
+    ],
+    type: "text",
+  },
+  state: {
+    vaultFields: ["state", "mailing_state"],
+    selectors: [
+      'select[name*="state" i]',
+      'input[name*="state" i]',
+    ],
+    type: "text",
+  },
+  zip: {
+    vaultFields: ["zip", "mailing_zip"],
+    selectors: [
+      'input[name*="zip" i]',
+      'input[name*="postal" i]',
+    ],
+    type: "text",
+  },
+  licenseNumber: {
+    vaultFields: ["license_number"],
+    selectors: [
+      'input[name*="license" i]',
+      'input[name*="permit" i]:not([name*="type" i])',
+      'input[placeholder*="license" i]',
+    ],
+    type: "text",
+  },
+  menuItems: {
+    vaultFields: ["food_items_list", "menu_items"],
+    selectors: [
+      'textarea[name*="menu" i]',
+      'textarea[name*="food" i]',
+      'input[name*="menu" i]',
+      '[data-field*="menu" i] textarea',
+      '[data-field*="menu" i] input',
+    ],
+    type: "text",
+  },
+  vehicleInfo: {
+    vaultFields: ["trailer_make", "trailer_model", "vin"],
+    selectors: [
+      'input[name*="vehicle" i]',
+      'input[name*="truck" i]',
+      'input[name*="trailer" i]',
+      'textarea[name*="vehicle" i]',
+    ],
+    type: "text",
+  },
+};
+
+interface PortalAutomationResult {
+  success: boolean;
+  error?: string;
+  filledFields: string[];
+  screenshotBase64?: string;
+  portalUrl: string;
+  formStatus: "draft_saved" | "submitted" | "pending_user_action" | "error";
+  navigationLog: PortalNavigationStep[];
+}
+
+export interface FormPortalSubmissionOptions {
+  profileId: string;
+  formId: string;
+  permitId: string;
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+  };
+  userAnswers?: Record<string, string>;
+  submitForm?: boolean; // If false, just fill and save draft
+}
+
+// Get profile data in a flat format for form filling
+function getProfileDataFlat(profile: Profile): Record<string, string> {
+  const data: Record<string, string> = {};
+  
+  // Parse parsedDataLog if available
+  const parsedLog = profile.parsedDataLog as Record<string, any> | null;
+  if (parsedLog) {
+    // Flatten all categories
+    const categories = ["contact_info", "license_info", "operations", "safety", "menu_and_prep", "vehicle_info", "equipment_info", "certifications", "commissary_info", "food_info"];
+    for (const category of categories) {
+      const categoryData = parsedLog[category];
+      if (categoryData && typeof categoryData === "object") {
+        for (const [key, val] of Object.entries(categoryData)) {
+          if (val && typeof val === "object" && "value" in val && val.value) {
+            data[key] = String(val.value);
+          } else if (typeof val === "string" && val) {
+            data[key] = val;
+          }
+        }
+      }
+    }
+  }
+  
+  // Add from extractedData if available
+  const extractedData = profile.extractedData as Record<string, string | undefined> | null;
+  if (extractedData) {
+    if (extractedData.businessName) data.business_name = extractedData.businessName;
+    if (extractedData.ownerName) data.owner_name = extractedData.ownerName;
+    if (extractedData.licensePlate) data.license_plate = extractedData.licensePlate;
+    if (extractedData.vin) data.vin = extractedData.vin;
+    if (extractedData.licenseNumber) data.license_number = extractedData.licenseNumber;
+  }
+  
+  // Add vehicle info
+  if (profile.vehicleType) data.vehicle_type = profile.vehicleType;
+  if (profile.vinPlate) data.vin_plate = profile.vinPlate;
+  if (profile.vehicleName) data.vehicle_name = profile.vehicleName;
+  
+  return data;
+}
+
+// Fill SeamlessDocs form fields
+async function fillSeamlessDocsFields(
+  page: Page,
+  profileData: Record<string, string>,
+  eventData?: FormPortalSubmissionOptions["eventData"],
+  userAnswers?: Record<string, string>
+): Promise<string[]> {
+  const filledFields: string[] = [];
+  
+  // Combine all data sources (user answers have highest priority)
+  const allData = { ...profileData };
+  if (eventData) {
+    if (eventData.eventName) allData.event_name = eventData.eventName;
+    if (eventData.eventAddress) allData.event_address = eventData.eventAddress;
+    if (eventData.eventDates) allData.event_dates = eventData.eventDates;
+    if (eventData.hoursOfOperation) allData.hours_of_operation = eventData.hoursOfOperation;
+  }
+  if (userAnswers) {
+    Object.assign(allData, userAnswers);
+  }
+  
+  // Wait for form to load
+  await page.waitForTimeout(2000);
+  
+  // Try to fill each mapped field
+  for (const [fieldName, mapping] of Object.entries(SEAMLESSDOCS_FIELD_MAPPINGS)) {
+    // Find the value from our data
+    let value: string | null = null;
+    for (const vaultField of mapping.vaultFields) {
+      if (allData[vaultField]) {
+        value = allData[vaultField];
+        break;
+      }
+    }
+    if (!value) continue;
+    
+    // Try each selector
+    for (const selector of mapping.selectors) {
+      try {
+        const element = await page.$(selector);
+        if (element && await element.isVisible()) {
+          const tagName = await element.evaluate(el => el.tagName.toLowerCase());
+          
+          if (tagName === "select") {
+            // For selects, try to select by text
+            await element.selectOption({ label: value }).catch(() => {});
+            filledFields.push(fieldName);
+            console.log(`[SeamlessDocs] Filled ${fieldName} (select) with: ${value}`);
+            break;
+          } else if (tagName === "textarea" || tagName === "input") {
+            const currentValue = await element.inputValue().catch(() => "");
+            if (!currentValue || currentValue.trim() === "") {
+              await element.fill(value);
+              filledFields.push(fieldName);
+              console.log(`[SeamlessDocs] Filled ${fieldName} with: ${value}`);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+  
+  // Also try generic field matching based on labels
+  try {
+    const labels = await page.$$("label");
+    for (const label of labels) {
+      const labelText = (await label.textContent())?.toLowerCase() || "";
+      const forAttr = await label.getAttribute("for");
+      
+      if (!forAttr) continue;
+      
+      const input = await page.$(`#${forAttr}`);
+      if (!input || !(await input.isVisible())) continue;
+      
+      // Try to match label text to our data
+      for (const [key, value] of Object.entries(allData)) {
+        if (!value) continue;
+        const keyWords = key.replace(/_/g, " ").toLowerCase().split(" ");
+        const matches = keyWords.some(word => word.length > 2 && labelText.includes(word));
+        
+        if (matches) {
+          const currentValue = await input.inputValue().catch(() => "");
+          if (!currentValue || currentValue.trim() === "") {
+            try {
+              await input.fill(value);
+              filledFields.push(`label:${key}`);
+              console.log(`[SeamlessDocs] Filled by label match: ${key} with: ${value}`);
+            } catch (e) {
+              // Ignore fill errors
+            }
+          }
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    console.log("[SeamlessDocs] Label matching error:", e);
+  }
+  
+  return filledFields;
+}
+
+// Main form portal submission function
+export async function executeFormPortalSubmission(
+  options: FormPortalSubmissionOptions
+): Promise<PortalAutomationResult> {
+  const { profileId, formId, permitId, eventData, userAnswers, submitForm = false } = options;
+  const navigationLog: PortalNavigationStep[] = [];
+  
+  const logStep = (step: string, success: boolean, error?: string) => {
+    navigationLog.push({ step, timestamp: new Date().toISOString(), success, error });
+  };
+  
+  // Get form and profile data
+  const form = await storage.getTownFormById(formId);
+  if (!form) {
+    logStep("initialization", false, "Form not found");
+    return { success: false, error: "Form not found", filledFields: [], portalUrl: "", formStatus: "error", navigationLog };
+  }
+  
+  const portalUrl = form.externalUrl || form.sourceUrl || "";
+  if (!portalUrl || (!portalUrl.includes("seamlessdocs") && !portalUrl.includes("opengov") && !portalUrl.includes("viewpoint"))) {
+    logStep("initialization", false, "No valid portal URL found");
+    return { success: false, error: "Form does not have a portal URL configured", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+  }
+  
+  const profile = await storage.getProfile(profileId);
+  if (!profile) {
+    logStep("initialization", false, "Profile not found");
+    return { success: false, error: "Profile not found", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+  }
+  
+  logStep("initialization", true);
+  
+  let browser: Browser | null = null;
+  let screenshotBase64: string | undefined;
+  
+  try {
+    const { chromium } = await import("playwright");
+    
+    browser = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    });
+    logStep("browser_launch", true);
+    
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    });
+    const page = await context.newPage();
+    
+    // Navigate to portal
+    console.log(`[Portal] Navigating to: ${portalUrl}`);
+    await page.goto(portalUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForLoadState("networkidle").catch(() => {});
+    logStep("navigate_portal", true);
+    
+    // Get flattened profile data
+    const profileData = getProfileDataFlat(profile);
+    console.log(`[Portal] Profile data keys: ${Object.keys(profileData).join(", ")}`);
+    
+    // Fill form fields
+    const filledFields = await fillSeamlessDocsFields(page, profileData, eventData, userAnswers);
+    logStep(`filled_${filledFields.length}_fields`, true);
+    
+    // Take screenshot
+    const screenshot = await page.screenshot({ type: "png", fullPage: false });
+    screenshotBase64 = screenshot.toString("base64");
+    logStep("screenshot_captured", true);
+    
+    let formStatus: PortalAutomationResult["formStatus"] = "pending_user_action";
+    
+    // If submit requested, try to submit
+    if (submitForm) {
+      try {
+        const submitButton = await page.$('button[type="submit"], button:has-text("Submit"), input[type="submit"]');
+        if (submitButton && await submitButton.isVisible()) {
+          await submitButton.click();
+          await page.waitForLoadState("networkidle").catch(() => {});
+          await page.waitForTimeout(2000);
+          formStatus = "submitted";
+          logStep("form_submitted", true);
+        } else {
+          logStep("submit_button_not_found", false, "Could not find submit button");
+          formStatus = "pending_user_action";
+        }
+      } catch (e) {
+        logStep("submit_failed", false, String(e));
+        formStatus = "pending_user_action";
+      }
+    }
+    
+    await browser.close();
+    browser = null;
+    
+    return {
+      success: true,
+      filledFields,
+      screenshotBase64,
+      portalUrl,
+      formStatus,
+      navigationLog,
+    };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logStep("automation_error", false, errorMessage);
+    
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    
+    return {
+      success: false,
+      error: errorMessage,
+      filledFields: [],
+      portalUrl,
+      formStatus: "error",
+      navigationLog,
+    };
+  }
+}
+
+// Check if a form supports portal automation
+export function isPortalForm(form: TownForm): boolean {
+  const url = form.externalUrl || form.sourceUrl || "";
+  return url.includes("seamlessdocs") || url.includes("opengov") || url.includes("viewpoint");
+}
+
+// Detect portal provider from URL
+export function detectPortalProvider(url: string): "seamlessdocs" | "opengov" | "viewpoint" | "unknown" {
+  if (url.includes("seamlessdocs")) return "seamlessdocs";
+  if (url.includes("opengov")) return "opengov";
+  if (url.includes("viewpoint")) return "viewpoint";
+  return "unknown";
 }
