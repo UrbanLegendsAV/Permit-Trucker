@@ -27,7 +27,7 @@ import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limite
 import { sanitizeHtml } from "./lib/sanitize";
 import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
 import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
-import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured } from "./lib/portal-automation-service";
+import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured, executeFormPortalSubmission, isPortalForm, detectPortalProvider } from "./lib/portal-automation-service";
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
 import { PermitType } from "../shared/validation-rules";
 import { z } from "zod";
@@ -2798,6 +2798,94 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error executing automation:", error);
       res.status(500).json({ message: "Failed to execute automation" });
+    }
+  });
+
+  // Form-level portal submission (V1 - SeamlessDocs, OpenGov, ViewPoint)
+  app.post("/api/towns/:townId/forms/:formId/portal-submit", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as Express.User;
+      const { townId, formId } = req.params;
+      const { profileId, permitId, eventData, userAnswers, submitForm } = req.body;
+
+      if (!profileId) {
+        return res.status(400).json({ message: "Profile ID is required" });
+      }
+
+      // Verify profile belongs to user
+      const profile = await storage.getProfile(profileId);
+      if (!profile || profile.userId !== user.id) {
+        return res.status(403).json({ message: "Profile not found or access denied" });
+      }
+
+      // Verify form exists and has portal URL
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      if (!isPortalForm(form)) {
+        return res.status(400).json({ message: "This form does not support portal automation" });
+      }
+
+      console.log(`[Portal Submit] Starting portal automation for form ${formId}, profile ${profileId}`);
+
+      // Execute portal automation
+      const result = await executeFormPortalSubmission({
+        profileId,
+        formId,
+        permitId: permitId || "",
+        eventData,
+        userAnswers,
+        submitForm: submitForm === true,
+      });
+
+      if (!result.success) {
+        console.error(`[Portal Submit] Automation failed: ${result.error}`);
+        return res.status(400).json({ 
+          message: result.error || "Portal automation failed",
+          navigationLog: result.navigationLog,
+        });
+      }
+
+      console.log(`[Portal Submit] Automation completed. Filled ${result.filledFields.length} fields.`);
+
+      res.json({
+        success: true,
+        portalUrl: result.portalUrl,
+        filledFields: result.filledFields,
+        formStatus: result.formStatus,
+        screenshotBase64: result.screenshotBase64,
+        navigationLog: result.navigationLog,
+        provider: detectPortalProvider(result.portalUrl),
+      });
+    } catch (error) {
+      console.error("Error in portal submission:", error);
+      res.status(500).json({ message: "Failed to execute portal submission" });
+    }
+  });
+
+  // Check if a form supports portal automation
+  app.get("/api/towns/:townId/forms/:formId/portal-info", isAuthenticated, async (req, res) => {
+    try {
+      const { townId, formId } = req.params;
+
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      const isPortal = isPortalForm(form);
+      const portalUrl = form.externalUrl || form.sourceUrl || "";
+
+      res.json({
+        isPortalForm: isPortal,
+        portalUrl: isPortal ? portalUrl : null,
+        provider: isPortal ? detectPortalProvider(portalUrl) : null,
+      });
+    } catch (error) {
+      console.error("Error checking portal info:", error);
+      res.status(500).json({ message: "Failed to check portal info" });
     }
   });
 
