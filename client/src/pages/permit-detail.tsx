@@ -51,6 +51,9 @@ import {
   Utensils,
   Package,
   Trash2,
+  ExternalLink,
+  Globe,
+  Send,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -82,6 +85,16 @@ export default function PermitDetailPage() {
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [pendingFormId, setPendingFormId] = useState<string | null>(null);
   const [analyzingForm, setAnalyzingForm] = useState(false);
+  const [portalSubmitting, setPortalSubmitting] = useState<string | null>(null);
+  const [portalResult, setPortalResult] = useState<{
+    success: boolean;
+    portalUrl: string;
+    filledFields: string[];
+    screenshotBase64?: string;
+    formStatus: string;
+    provider: string;
+  } | null>(null);
+  const [showPortalResult, setShowPortalResult] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -171,6 +184,72 @@ export default function PermitDetailPage() {
   // Check if a form can be auto-filled (has fileData and is marked fillable)
   const canAutoFill = (form: TownForm): boolean => {
     return !!(form.isFillable && form.fileData);
+  };
+
+  // Check if a form supports portal automation (SeamlessDocs, OpenGov, ViewPoint)
+  const isPortalForm = (form: TownForm): boolean => {
+    const url = form.externalUrl || form.sourceUrl || "";
+    return url.includes("seamlessdocs") || url.includes("opengov") || url.includes("viewpoint");
+  };
+
+  // Get portal provider name
+  const getPortalProvider = (form: TownForm): string => {
+    const url = form.externalUrl || form.sourceUrl || "";
+    if (url.includes("seamlessdocs")) return "SeamlessDocs";
+    if (url.includes("opengov")) return "OpenGov";
+    if (url.includes("viewpoint")) return "ViewPoint";
+    return "Portal";
+  };
+
+  // Handle portal submission
+  const handlePortalSubmit = async (formId: string) => {
+    if (!permit?.profileId || !permit?.townId) {
+      toast({
+        title: "Missing Information",
+        description: "Please ensure you have a profile and town linked to this permit.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPortalSubmitting(formId);
+
+    try {
+      const response = await fetch(`/api/towns/${permit.townId}/forms/${formId}/portal-submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          profileId: permit.profileId,
+          permitId: permit.id,
+          eventData: getEventData(),
+          userAnswers: {},
+          submitForm: false, // V1: Just fill the form, don't submit yet
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Portal automation failed");
+      }
+
+      setPortalResult(result);
+      setShowPortalResult(true);
+      
+      toast({
+        title: "Form Filled Successfully",
+        description: `Filled ${result.filledFields.length} fields on ${result.provider}. Click the link to review and submit.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Portal Submission Failed",
+        description: error.message || "Failed to fill portal form. Please try again or fill manually.",
+        variant: "destructive",
+      });
+    } finally {
+      setPortalSubmitting(null);
+    }
   };
 
   // Format event data helper
@@ -640,8 +719,8 @@ export default function PermitDetailPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {form.fileData ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {form.fileData && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -656,7 +735,14 @@ export default function PermitDetailPage() {
                               <Download className="w-4 h-4 mr-2" />
                               Download
                             </Button>
-                          ) : (
+                          )}
+                          {isPortalForm(form) && (
+                            <Badge variant="outline" className="text-xs">
+                              <Globe className="w-3 h-3 mr-1" />
+                              {getPortalProvider(form)}
+                            </Badge>
+                          )}
+                          {!form.fileData && !isPortalForm(form) && (
                             <Badge variant="secondary">Not Available</Badge>
                           )}
                         </div>
@@ -730,6 +816,70 @@ export default function PermitDetailPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Portal Submission Section */}
+            {townForms.filter((f) => isPortalForm(f)).length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Globe className="w-5 h-5" />
+                    Submit via Portal
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Auto-fill and submit your permit application directly to the town's online portal.
+                  </p>
+                  {!profile?.parsedDataLog ? (
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                      <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                        Your profile needs analyzed documents before using portal submission.
+                      </p>
+                      <Button 
+                        variant="outline" 
+                        className="mt-3" 
+                        onClick={() => setLocation("/profile")}
+                      >
+                        Go to Profile
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Select a portal to auto-fill your application:
+                      </p>
+                      <div className="grid gap-2">
+                        {townForms
+                          .filter((form) => isPortalForm(form))
+                          .map((form) => (
+                            <Button
+                              key={form.id}
+                              onClick={() => handlePortalSubmit(form.id)}
+                              disabled={portalSubmitting !== null}
+                              variant="outline"
+                              className="justify-start h-auto py-3"
+                              data-testid={`button-portal-submit-${form.id}`}
+                            >
+                              {portalSubmitting === form.id ? (
+                                <Loader2 className="w-4 h-4 mr-3 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4 mr-3" />
+                              )}
+                              <div className="text-left flex-1">
+                                <div className="font-medium">{form.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {getPortalProvider(form)} Portal
+                                </div>
+                              </div>
+                              <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
+                            </Button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-4 mt-4">
@@ -875,6 +1025,70 @@ export default function PermitDetailPage() {
               ) : (
                 "Generate PDF"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Portal Result Modal */}
+      <Dialog open={showPortalResult} onOpenChange={setShowPortalResult}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              Portal Form Filled
+            </DialogTitle>
+            <DialogDescription>
+              Your permit application has been auto-filled on {portalResult?.provider}.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {portalResult?.screenshotBase64 && (
+              <div className="border rounded-md overflow-hidden">
+                <img 
+                  src={`data:image/png;base64,${portalResult.screenshotBase64}`}
+                  alt="Portal form preview"
+                  className="w-full h-auto"
+                />
+              </div>
+            )}
+            
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Fields Filled:</p>
+              <div className="flex flex-wrap gap-1">
+                {portalResult?.filledFields.map((field) => (
+                  <Badge key={field} variant="secondary" className="text-xs">
+                    {field.replace(/_/g, " ")}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3 bg-muted rounded-md">
+              <p className="text-sm text-muted-foreground">
+                Click the button below to open the portal and review your application before submitting.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowPortalResult(false)}
+            >
+              Close
+            </Button>
+            <Button 
+              onClick={() => {
+                if (portalResult?.portalUrl) {
+                  window.open(portalResult.portalUrl, "_blank");
+                }
+              }}
+              data-testid="button-open-portal"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Open Portal
             </Button>
           </DialogFooter>
         </DialogContent>
