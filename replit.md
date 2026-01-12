@@ -84,3 +84,76 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 - **DOMPurify**: XSS sanitization.
 - **express-rate-limit**: API rate limiting middleware.
 - **crypto (Node.js)**: Used for encrypting sensitive credentials.
+
+---
+
+## Progress Report (Last Updated: January 12, 2026)
+
+### ✅ FULLY WORKING (Tested & Live)
+
+| Feature | Status |
+|---------|--------|
+| Authentication | Working - Replit Auth + Passport.js |
+| Permit CRUD | Working - create, edit, delete, status updates |
+| Town Database | Working - 169 CT towns seeded with requirements |
+| Profile Management | Working - create profiles, upload documents |
+| Document Upload & AI Extraction | Working - Gemini extracts data to parsedDataLog |
+| Pioneer Badge System | Working - awards badges for contributions |
+| PDF Download | Working - download original town PDFs |
+
+### ⚠️ CODE COMPLETE BUT UNTESTED
+
+| Feature | What's Missing |
+|---------|----------------|
+| PDF Auto-Fill (Datalab AI) | No recent end-to-end test after refactors |
+| Portal Automation V1 | Playwright code exists, never run against real SeamlessDocs form |
+| Permit Packet Generator | Compiles but no smoke test evidence |
+
+### 🔧 PARTIALLY IMPLEMENTED
+
+| Feature | What's Done | What's Missing |
+|---------|-------------|----------------|
+| Data Vault Sync | Populates core fields | Multi-document conflict resolution |
+| Portal Credentials | Encryption works | No UI to manage credentials |
+
+### ❌ NOT STARTED
+- Automated portal form submission (click Submit)
+- CAPTCHA detection/handling
+- ViewPoint-specific portal automation
+- Analytics/telemetry
+
+### 🐛 KNOWN ISSUES
+1. Portal automation only has SeamlessDocs heuristics
+2. No retry/backoff for brittle automation
+3. Stale town cache after updates
+
+### 📍 WHERE WORK LEFT OFF
+
+**Last Session:** Portal Automation V1 + Questionnaire Bug Fix (Jan 12, 2026)
+
+**What Was Done:**
+1. Created `executeFormPortalSubmission()` in `portal-automation-service.ts`
+2. Added API endpoint `POST /api/towns/:townId/forms/:formId/portal-submit`
+3. Added "Submit via Portal" UI in permit-detail.tsx with result modal
+4. Added Brookfield SeamlessDocs form: `https://brookfieldct.seamlessdocs.com/f/TempFoodLicense`
+5. **BUG FIX:** Questionnaire was asking questions user already had answers for
+   - Cause: Key mismatch - Gemini assigns `owner_name` but profile has `applicant_name`
+   - Fix: Added alias fallbacks in routes.ts (lines 1579-1602)
+
+**What Was NOT Done:**
+- Did not run Playwright against real SeamlessDocs form
+- Did not verify fields actually get filled
+
+**Immediate Next Steps:**
+1. User should test "Generate PDF Packet" on Bethel - should skip questions with known answers
+2. Test portal automation on Brookfield SeamlessDocs
+3. Verify PDF auto-fill still works with Datalab
+
+### 📁 Key Files
+| Purpose | File |
+|---------|------|
+| Portal Automation | `server/lib/portal-automation-service.ts` |
+| PDF Generation | `server/lib/pdf-service.ts` |
+| API Routes | `server/routes.ts` |
+| Permit UI | `client/src/pages/permit-detail.tsx` |
+| Schema | `shared/schema.ts` |

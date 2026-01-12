@@ -1567,17 +1567,37 @@ For text fields that require descriptive answers about food safety practices, se
         }
       }
 
-      // Build available data from profile - include ALL extracted fields
+      // Build available data from profile - include ALL extracted fields with ALIAS FALLBACKS
       const availableData: Record<string, string> = {};
       
-      // Contact info
+      // Contact info - with cross-aliasing for owner_name/applicant_name
       if (parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
-      if (parsedData?.contact_info?.applicant_name?.value) availableData.applicant_name = parsedData.contact_info.applicant_name.value;
-      if (parsedData?.contact_info?.owner_name?.value) availableData.owner_name = parsedData.contact_info.owner_name.value;
-      if (parsedData?.contact_info?.phone?.value) availableData.phone = parsedData.contact_info.phone.value;
-      if (parsedData?.contact_info?.email?.value) availableData.email = parsedData.contact_info.email.value;
-      if (parsedData?.contact_info?.mailing_address?.value) availableData.address = parsedData.contact_info.mailing_address.value;
-      if (parsedData?.contact_info?.mailing_address?.value) availableData.mailing_address = parsedData.contact_info.mailing_address.value;
+      
+      // Owner/Applicant name aliasing - both keys point to whatever data exists
+      const ownerOrApplicant = parsedData?.contact_info?.owner_name?.value || parsedData?.contact_info?.applicant_name?.value;
+      if (ownerOrApplicant) {
+        availableData.owner_name = ownerOrApplicant;
+        availableData.applicant_name = ownerOrApplicant;
+        availableData.name = ownerOrApplicant;
+        availableData.contact_name = ownerOrApplicant;
+        availableData.operator_name = ownerOrApplicant;
+      }
+      
+      if (parsedData?.contact_info?.phone?.value) {
+        availableData.phone = parsedData.contact_info.phone.value;
+        availableData.telephone = parsedData.contact_info.phone.value;
+        availableData.contact_phone = parsedData.contact_info.phone.value;
+      }
+      if (parsedData?.contact_info?.email?.value) {
+        availableData.email = parsedData.contact_info.email.value;
+        availableData.contact_email = parsedData.contact_info.email.value;
+      }
+      if (parsedData?.contact_info?.mailing_address?.value) {
+        availableData.address = parsedData.contact_info.mailing_address.value;
+        availableData.mailing_address = parsedData.contact_info.mailing_address.value;
+        availableData.street_address = parsedData.contact_info.mailing_address.value;
+        availableData.business_address = parsedData.contact_info.mailing_address.value;
+      }
       
       // License info
       if (parsedData?.license_info?.license_number?.value) availableData.license_number = parsedData.license_info.license_number.value;
@@ -1657,10 +1677,13 @@ For text fields that require descriptive answers about food safety practices, se
         
         // Include if: needs user input OR has no dataKey OR dataKey has no data
         if (field.fieldType === "text" && (needsInput || !field.dataKey || !hasData)) {
-          // Skip if it's a common auto-filled field type - comprehensive list matching all profile data
+          // Skip if it's a common auto-filled field type - comprehensive list with ALIASES
           const autoFilledKeys = [
-            // Contact info
-            "business_name", "applicant_name", "owner_name", "phone", "email", "address", "mailing_address",
+            // Contact info + aliases
+            "business_name", "applicant_name", "owner_name", "name", "contact_name", "operator_name",
+            "phone", "telephone", "contact_phone",
+            "email", "contact_email",
+            "address", "mailing_address", "street_address", "business_address",
             // License info
             "license_number", "license_type", "license_type_profile", "issuing_authority", "valid_from", "valid_through", "towns_covered",
             // Operations
