@@ -1568,6 +1568,82 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
     }
   });
 
+  // Helper function to infer data key from field label using heuristics
+  function inferDataKeyFromLabel(label: string, availableData: Record<string, string>): string | null {
+    const labelLower = label.toLowerCase();
+    
+    // Event-related fields
+    if ((labelLower.includes("event") && labelLower.includes("name")) || 
+        labelLower.includes("organization") || labelLower.includes("business name")) {
+      if (availableData.event_name) return "event_name";
+      if (availableData.business_name) return "business_name";
+    }
+    if (labelLower.includes("location") || (labelLower.includes("event") && labelLower.includes("address"))) {
+      if (availableData.event_location) return "event_location";
+      if (availableData.address) return "address";
+    }
+    if (labelLower.includes("hours") || labelLower.includes("operation")) {
+      if (availableData.hours_of_operation) return "hours_of_operation";
+    }
+    if (labelLower.includes("date")) {
+      if (availableData.event_dates) return "event_dates";
+    }
+    
+    // Contact info
+    if (labelLower.includes("applicant") || labelLower.includes("owner") || 
+        (labelLower.includes("name") && !labelLower.includes("business") && !labelLower.includes("event"))) {
+      if (availableData.owner_name) return "owner_name";
+      if (availableData.applicant_name) return "applicant_name";
+    }
+    if (labelLower.includes("phone") || labelLower.includes("telephone")) {
+      if (availableData.phone) return "phone";
+    }
+    if (labelLower.includes("email")) {
+      if (availableData.email) return "email";
+    }
+    if (labelLower.includes("address") && !labelLower.includes("event") && !labelLower.includes("location")) {
+      if (availableData.mailing_address) return "mailing_address";
+      if (availableData.address) return "address";
+    }
+    
+    // License/permit info
+    if (labelLower.includes("license") && labelLower.includes("number")) {
+      if (availableData.license_number) return "license_number";
+    }
+    
+    // Vehicle info
+    if (labelLower.includes("vin")) {
+      if (availableData.vin) return "vin";
+    }
+    if (labelLower.includes("license plate") || labelLower.includes("plate number")) {
+      if (availableData.license_plate) return "license_plate";
+    }
+    if (labelLower.includes("vehicle") && labelLower.includes("make")) {
+      if (availableData.vehicle_make) return "vehicle_make";
+    }
+    if (labelLower.includes("vehicle") && labelLower.includes("model")) {
+      if (availableData.vehicle_model) return "vehicle_model";
+    }
+    if (labelLower.includes("vehicle") && labelLower.includes("year")) {
+      if (availableData.vehicle_year) return "vehicle_year";
+    }
+    
+    // Menu and food
+    if (labelLower.includes("menu") || labelLower.includes("food item")) {
+      if (availableData.menu_items) return "menu_items";
+    }
+    if (labelLower.includes("commissary") || labelLower.includes("prep location")) {
+      if (availableData.commissary_address) return "commissary_address";
+    }
+    
+    // Certifications
+    if (labelLower.includes("food manager") || labelLower.includes("servsafe") || labelLower.includes("certification")) {
+      if (availableData.food_manager_cert) return "food_manager_cert";
+    }
+    
+    return null;
+  }
+
   // Analyze form and return unanswered questions for the user to fill in
   app.post("/api/towns/:townId/forms/:formId/analyze-questions", isAuthenticated, async (req: any, res) => {
     try {
@@ -1815,6 +1891,14 @@ For text fields that require descriptive answers about food safety practices, se
           if (field.dataKey && autoFilledKeys.includes(field.dataKey) && hasData) {
             console.log(`[Analyze] Auto-filling field "${field.pdfFieldName}" with "${field.dataKey}"`);
             continue; // Skip - this will be auto-filled
+          }
+          
+          // HEURISTIC: Try to match field label to available data keys even without explicit mapping
+          const labelLower = field.label?.toLowerCase() || field.pdfFieldName?.toLowerCase() || "";
+          const inferredDataKey = inferDataKeyFromLabel(labelLower, availableData);
+          if (inferredDataKey && availableData[inferredDataKey]) {
+            console.log(`[Analyze] Heuristic match: "${field.pdfFieldName}" label="${field.label}" -> inferred "${inferredDataKey}"`);
+            continue; // Skip - we can auto-fill this via heuristics
           }
           
           unansweredQuestions.push({
