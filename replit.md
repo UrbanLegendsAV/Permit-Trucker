@@ -129,23 +129,28 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 
 ### 📍 WHERE WORK LEFT OFF
 
-**Last Session:** Portal Automation V1 + Questionnaire Bug Fix (Jan 12, 2026)
+**Last Session:** User Answer Persistence Fix (Jan 13, 2026)
 
 **What Was Done:**
-1. Created `executeFormPortalSubmission()` in `portal-automation-service.ts`
-2. Added API endpoint `POST /api/towns/:townId/forms/:formId/portal-submit`
-3. Added "Submit via Portal" UI in permit-detail.tsx with result modal
-4. Added Brookfield SeamlessDocs form: `https://brookfieldct.seamlessdocs.com/f/TempFoodLicense`
-5. **BUG FIX:** Questionnaire was asking questions user already had answers for
-   - Cause: Key mismatch - Gemini assigns `owner_name` but profile has `applicant_name`
-   - Fix: Added alias fallbacks in routes.ts (lines 1579-1602)
+1. **CRITICAL FIX:** User answers now persist through document re-analysis
+   - Added `userOverrides` field to profiles schema - stores user-edited values with highest priority
+   - Updated `parsed-data/edit` endpoint to save to BOTH parsedDataLog AND userOverrides
+   - Updated `saveParsedDataToProfile()` to preserve fields with status="verified" AND skip null/empty AI values
+   - Updated analyze-questions to check userOverrides FIRST when building available data
+
+2. **DOCUMENT TRACKING:** Already-analyzed documents are now skipped
+   - Documents get `analyzedAt` timestamp after analysis
+   - Parse-all-documents endpoint skips documents with `analyzedAt` (unless `forceReanalyze: true`)
+   - User gets message: "All X documents have already been analyzed. Your saved answers are preserved."
+
+3. **DATA PRIORITY CHAIN:** userOverrides > manually-edited parsedDataLog > AI-extracted data
 
 **What Was NOT Done:**
 - Did not run Playwright against real SeamlessDocs form
-- Did not verify fields actually get filled
+- Did not verify PDF auto-fill with Datalab
 
 **Immediate Next Steps:**
-1. User should test "Generate PDF Packet" on Bethel - should skip questions with known answers
+1. User should test: Save answer → Upload new doc → Analyze → Verify previous answers preserved
 2. Test portal automation on Brookfield SeamlessDocs
 3. Verify PDF auto-fill still works with Datalab
 
