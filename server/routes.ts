@@ -232,7 +232,7 @@ function parseAndNormalizeGeminiResponse(result: GenerateContentResult): Record<
   return parsedData;
 }
 
-// Save parsed data to profile
+// Save parsed data to profile - PRESERVES user-edited fields (status: "verified")
 async function saveParsedDataToProfile(profileId: string, parsedData: Record<string, unknown>): Promise<void> {
   const profile = await storage.getProfile(profileId);
   if (profile) {
@@ -240,12 +240,59 @@ async function saveParsedDataToProfile(profileId: string, parsedData: Record<str
       ? profile.parsedDataLog as Record<string, unknown>
       : {};
     
-    const timestampedData = {
-      ...parsedData,
-      _parsedAt: new Date().toISOString()
-    };
+    // Deep merge that preserves user-edited fields
+    const mergedData: Record<string, unknown> = { ...existingData };
     
-    const mergedData = { ...existingData, ...timestampedData };
+    for (const [category, newCategoryData] of Object.entries(parsedData)) {
+      // Skip metadata fields
+      if (category.startsWith('_')) {
+        mergedData[category] = newCategoryData;
+        continue;
+      }
+      
+      if (typeof newCategoryData !== 'object' || newCategoryData === null) {
+        mergedData[category] = newCategoryData;
+        continue;
+      }
+      
+      // Get existing category data
+      const existingCategory = (mergedData[category] && typeof mergedData[category] === 'object')
+        ? mergedData[category] as Record<string, { value: unknown; confidence: number; source_text: unknown; status?: string }>
+        : {};
+      
+      const newCategory = newCategoryData as Record<string, { value: unknown; confidence: number; source_text: unknown; status?: string }>;
+      const mergedCategory = { ...existingCategory };
+      
+      for (const [field, newFieldData] of Object.entries(newCategory)) {
+        const existingField = existingCategory[field];
+        
+        // PRESERVE user-edited fields - don't overwrite if status is "verified" and source is "manually edited"
+        if (existingField && 
+            existingField.status === "verified" && 
+            existingField.source_text === "manually edited") {
+          console.log(`[SaveData] Preserving user-edited field: ${category}.${field}`);
+          // Keep existing user-edited data
+          continue;
+        }
+        
+        // Skip null/empty values from AI - don't overwrite existing data with nothing
+        const newValue = newFieldData?.value;
+        if (newValue === null || newValue === undefined || newValue === "" || newValue === "N/A" || newValue === "not found") {
+          if (existingField?.value) {
+            console.log(`[SaveData] Preserving existing value for ${category}.${field} (new value is empty)`);
+            continue; // Keep existing data
+          }
+        }
+        
+        // Only update if we have new meaningful data
+        mergedCategory[field] = newFieldData;
+      }
+      
+      mergedData[category] = mergedCategory;
+    }
+    
+    mergedData._parsedAt = new Date().toISOString();
+    
     await storage.updateProfile(profileId, { parsedDataLog: mergedData });
   }
 }
@@ -493,10 +540,11 @@ export async function registerRoutes(
     }
   });
 
-  // Multi-document parsing - analyzes ALL documents for a profile together
+  // Multi-document parsing - analyzes only NEW documents (skips already-analyzed ones)
   app.post("/api/profiles/:id/parse-all-documents", isAuthenticated, documentParseRateLimiter, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const { forceReanalyze } = req.body; // Optional: force re-analyze all documents
       const profile = await storage.getProfile(id);
       
       if (!profile) {
@@ -519,13 +567,22 @@ export async function registerRoutes(
       // Build prompt with targeted hints
       const prompt = buildGoldenQuestionsPrompt();
 
-      // Prepare all document parts for multi-document analysis
+      // Prepare document parts - SKIP already-analyzed documents unless forceReanalyze
       const documentParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
       const documentDescriptions: string[] = [];
+      const analyzedDocIndices: number[] = [];
+      let skippedCount = 0;
 
       for (let i = 0; i < documents.length; i++) {
         const doc = documents[i];
         if (!doc.type) continue;
+        
+        // Skip already-analyzed documents (they have analyzedAt timestamp)
+        if (doc.analyzedAt && !forceReanalyze) {
+          console.log(`[ParseAll] Skipping already-analyzed document: ${doc.name}`);
+          skippedCount++;
+          continue;
+        }
         
         // Extract base64 data - either from base64 field or from url data URI
         let base64Data = doc.base64;
@@ -548,10 +605,20 @@ export async function registerRoutes(
             data: base64Data
           }
         });
-        documentDescriptions.push(`Document ${i + 1}: ${doc.name || 'Unnamed'} (${doc.folder || 'Uncategorized'})`);
+        documentDescriptions.push(`Document ${documentParts.length}: ${doc.name || 'Unnamed'} (${doc.folder || 'Uncategorized'})`);
+        analyzedDocIndices.push(i);
       }
 
+      // If all documents were already analyzed, return early
       if (documentParts.length === 0) {
+        if (skippedCount > 0) {
+          return res.json({ 
+            success: true, 
+            message: `All ${skippedCount} documents have already been analyzed. Your saved answers are preserved.`,
+            documentsAnalyzed: 0,
+            documentsSkipped: skippedCount
+          });
+        }
         return res.status(400).json({ message: "No valid document data found" });
       }
 
@@ -588,14 +655,28 @@ ${prompt}`;
         return res.status(500).json({ message: "Failed to parse AI response" });
       }
 
-      // Save to profile
+      // Save to profile (preserves user-edited fields)
       await saveParsedDataToProfile(id, parsedData);
+      
+      // Mark analyzed documents with timestamp
+      const updatedDocuments = [...documents];
+      const now = new Date().toISOString();
+      for (const docIndex of analyzedDocIndices) {
+        updatedDocuments[docIndex] = {
+          ...updatedDocuments[docIndex],
+          analyzedAt: now
+        };
+      }
+      await storage.updateProfile(id, { 
+        uploadsJson: { documents: updatedDocuments } 
+      });
 
       res.json({ 
         success: true, 
         parsedData,
         documentsAnalyzed: documentParts.length,
-        message: `Successfully analyzed ${documentParts.length} documents`
+        documentsSkipped: skippedCount,
+        message: `Analyzed ${documentParts.length} new documents${skippedCount > 0 ? `, skipped ${skippedCount} already-analyzed` : ''}. Your saved answers are preserved.`
       });
     } catch (error: any) {
       console.error("Error parsing all documents:", error);
@@ -644,7 +725,8 @@ ${prompt}`;
     }
   });
 
-  // Edit a specific field in parsed data
+  // Edit a specific field in parsed data - saves to BOTH parsedDataLog and userOverrides
+  // userOverrides has highest priority and survives AI re-analysis
   app.patch("/api/profiles/:id/parsed-data/edit", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -680,9 +762,21 @@ ${prompt}`;
       parsedData[category] = categoryData;
       parsedData._editedAt = new Date().toISOString();
 
-      await storage.updateProfile(id, { parsedDataLog: parsedData });
+      // Also save to userOverrides - this survives AI re-analysis
+      const userOverrides = (profile.userOverrides && typeof profile.userOverrides === 'object')
+        ? { ...profile.userOverrides as Record<string, { value: string; savedAt: string; fieldName?: string }> }
+        : {};
       
-      res.json({ success: true, message: "Field updated successfully" });
+      const overrideKey = `${category}.${field}`;
+      userOverrides[overrideKey] = {
+        value: String(value),
+        savedAt: new Date().toISOString(),
+        fieldName: field
+      };
+
+      await storage.updateProfile(id, { parsedDataLog: parsedData, userOverrides });
+      
+      res.json({ success: true, message: "Field updated and saved to user overrides" });
     } catch (error: any) {
       console.error("Error editing field:", error);
       res.status(500).json({ message: "Failed to edit field", error: error.message });
@@ -1567,98 +1661,112 @@ For text fields that require descriptive answers about food safety practices, se
         }
       }
 
-      // Build available data from profile - include ALL extracted fields with ALIAS FALLBACKS
+      // Build available data from profile - PRIORITY: userOverrides > parsedDataLog
       const availableData: Record<string, string> = {};
       
-      // Contact info - with cross-aliasing for owner_name/applicant_name
-      if (parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
+      // FIRST: Load userOverrides (highest priority - user-provided answers)
+      const userOverrides = profile.userOverrides as Record<string, { value: string; savedAt: string; fieldName?: string }> | null;
+      if (userOverrides) {
+        for (const [key, override] of Object.entries(userOverrides)) {
+          // Keys are in format "category.field" - extract the field name
+          const fieldName = override.fieldName || key.split('.').pop() || key;
+          if (override.value) {
+            availableData[fieldName] = override.value;
+            console.log(`[Analyze] Using userOverride for ${fieldName}: ${override.value.substring(0, 50)}...`);
+          }
+        }
+      }
       
-      // Owner/Applicant name aliasing - both keys point to whatever data exists
+      // SECOND: Add from parsedDataLog (only if not already set by userOverrides)
+      // Contact info - with cross-aliasing for owner_name/applicant_name
+      if (!availableData.business_name && parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
+      
+      // Owner/Applicant name aliasing - both keys point to whatever data exists (only if not in userOverrides)
       const ownerOrApplicant = parsedData?.contact_info?.owner_name?.value || parsedData?.contact_info?.applicant_name?.value;
       if (ownerOrApplicant) {
-        availableData.owner_name = ownerOrApplicant;
-        availableData.applicant_name = ownerOrApplicant;
-        availableData.name = ownerOrApplicant;
-        availableData.contact_name = ownerOrApplicant;
-        availableData.operator_name = ownerOrApplicant;
+        if (!availableData.owner_name) availableData.owner_name = ownerOrApplicant;
+        if (!availableData.applicant_name) availableData.applicant_name = ownerOrApplicant;
+        if (!availableData.name) availableData.name = ownerOrApplicant;
+        if (!availableData.contact_name) availableData.contact_name = ownerOrApplicant;
+        if (!availableData.operator_name) availableData.operator_name = ownerOrApplicant;
       }
       
       if (parsedData?.contact_info?.phone?.value) {
-        availableData.phone = parsedData.contact_info.phone.value;
-        availableData.telephone = parsedData.contact_info.phone.value;
-        availableData.contact_phone = parsedData.contact_info.phone.value;
+        if (!availableData.phone) availableData.phone = parsedData.contact_info.phone.value;
+        if (!availableData.telephone) availableData.telephone = parsedData.contact_info.phone.value;
+        if (!availableData.contact_phone) availableData.contact_phone = parsedData.contact_info.phone.value;
       }
       if (parsedData?.contact_info?.email?.value) {
-        availableData.email = parsedData.contact_info.email.value;
-        availableData.contact_email = parsedData.contact_info.email.value;
+        if (!availableData.email) availableData.email = parsedData.contact_info.email.value;
+        if (!availableData.contact_email) availableData.contact_email = parsedData.contact_info.email.value;
       }
       if (parsedData?.contact_info?.mailing_address?.value) {
-        availableData.address = parsedData.contact_info.mailing_address.value;
-        availableData.mailing_address = parsedData.contact_info.mailing_address.value;
-        availableData.street_address = parsedData.contact_info.mailing_address.value;
-        availableData.business_address = parsedData.contact_info.mailing_address.value;
+        if (!availableData.address) availableData.address = parsedData.contact_info.mailing_address.value;
+        if (!availableData.mailing_address) availableData.mailing_address = parsedData.contact_info.mailing_address.value;
+        if (!availableData.street_address) availableData.street_address = parsedData.contact_info.mailing_address.value;
+        if (!availableData.business_address) availableData.business_address = parsedData.contact_info.mailing_address.value;
       }
       
-      // License info
-      if (parsedData?.license_info?.license_number?.value) availableData.license_number = parsedData.license_info.license_number.value;
-      if (parsedData?.license_info?.license_type?.value) availableData.license_type_profile = parsedData.license_info.license_type.value;
-      if (parsedData?.license_info?.issuing_authority?.value) availableData.issuing_authority = parsedData.license_info.issuing_authority.value;
-      if (parsedData?.license_info?.valid_from?.value) availableData.valid_from = parsedData.license_info.valid_from.value;
-      if (parsedData?.license_info?.valid_through?.value) availableData.valid_through = parsedData.license_info.valid_through.value;
-      if (parsedData?.license_info?.towns_covered?.value) availableData.towns_covered = parsedData.license_info.towns_covered.value;
+      // License info (only if not already set from userOverrides)
+      if (!availableData.license_number && parsedData?.license_info?.license_number?.value) availableData.license_number = parsedData.license_info.license_number.value;
+      if (!availableData.license_type_profile && parsedData?.license_info?.license_type?.value) availableData.license_type_profile = parsedData.license_info.license_type.value;
+      if (!availableData.issuing_authority && parsedData?.license_info?.issuing_authority?.value) availableData.issuing_authority = parsedData.license_info.issuing_authority.value;
+      if (!availableData.valid_from && parsedData?.license_info?.valid_from?.value) availableData.valid_from = parsedData.license_info.valid_from.value;
+      if (!availableData.valid_through && parsedData?.license_info?.valid_through?.value) availableData.valid_through = parsedData.license_info.valid_through.value;
+      if (!availableData.towns_covered && parsedData?.license_info?.towns_covered?.value) availableData.towns_covered = parsedData.license_info.towns_covered.value;
       
-      // Operations
-      if (parsedData?.operations?.water_supply_type?.value) availableData.water_supply = parsedData.operations.water_supply_type.value;
-      if (parsedData?.operations?.sanitizer_type?.value) availableData.sanitizer_type = parsedData.operations.sanitizer_type.value;
-      if (parsedData?.operations?.sanitizing_method?.value) availableData.sanitizing_method = parsedData.operations.sanitizing_method.value;
-      if (parsedData?.operations?.toilet_facilities?.value) availableData.toilet_facilities_profile = parsedData.operations.toilet_facilities.value;
+      // Operations (only if not already set from userOverrides)
+      if (!availableData.water_supply && parsedData?.operations?.water_supply_type?.value) availableData.water_supply = parsedData.operations.water_supply_type.value;
+      if (!availableData.sanitizer_type && parsedData?.operations?.sanitizer_type?.value) availableData.sanitizer_type = parsedData.operations.sanitizer_type.value;
+      if (!availableData.sanitizing_method && parsedData?.operations?.sanitizing_method?.value) availableData.sanitizing_method = parsedData.operations.sanitizing_method.value;
+      if (!availableData.toilet_facilities_profile && parsedData?.operations?.toilet_facilities?.value) availableData.toilet_facilities_profile = parsedData.operations.toilet_facilities.value;
       
-      // Safety
-      if (parsedData?.safety?.hot_holding_method?.value) availableData.hot_holding = parsedData.safety.hot_holding_method.value;
-      if (parsedData?.safety?.cold_storage_method?.value) availableData.cold_storage = parsedData.safety.cold_storage_method.value;
-      if (parsedData?.safety?.waste_water_disposal?.value) availableData.waste_water = parsedData.safety.waste_water_disposal.value;
-      if (parsedData?.safety?.temperature_monitoring_method?.value) availableData.temp_monitoring = parsedData.safety.temperature_monitoring_method.value;
+      // Safety (only if not already set from userOverrides)
+      if (!availableData.hot_holding && parsedData?.safety?.hot_holding_method?.value) availableData.hot_holding = parsedData.safety.hot_holding_method.value;
+      if (!availableData.cold_storage && parsedData?.safety?.cold_storage_method?.value) availableData.cold_storage = parsedData.safety.cold_storage_method.value;
+      if (!availableData.waste_water && parsedData?.safety?.waste_water_disposal?.value) availableData.waste_water = parsedData.safety.waste_water_disposal.value;
+      if (!availableData.temp_monitoring && parsedData?.safety?.temperature_monitoring_method?.value) availableData.temp_monitoring = parsedData.safety.temperature_monitoring_method.value;
       
-      // Menu & Prep
-      if (parsedData?.menu_and_prep?.food_items_list?.value) availableData.menu_items = parsedData.menu_and_prep.food_items_list.value;
-      if (parsedData?.menu_and_prep?.food_items_list?.value) availableData.food_items = parsedData.menu_and_prep.food_items_list.value;
-      if (parsedData?.menu_and_prep?.prep_location?.value) availableData.prep_location = parsedData.menu_and_prep.prep_location.value;
-      if (parsedData?.menu_and_prep?.prep_location?.value) availableData.commissary_address = parsedData.menu_and_prep.prep_location.value;
-      if (parsedData?.menu_and_prep?.food_source_location?.value) availableData.food_sources = parsedData.menu_and_prep.food_source_location.value;
+      // Menu & Prep (only if not already set from userOverrides)
+      if (!availableData.menu_items && parsedData?.menu_and_prep?.food_items_list?.value) availableData.menu_items = parsedData.menu_and_prep.food_items_list.value;
+      if (!availableData.food_items && parsedData?.menu_and_prep?.food_items_list?.value) availableData.food_items = parsedData.menu_and_prep.food_items_list.value;
+      if (!availableData.prep_location && parsedData?.menu_and_prep?.prep_location?.value) availableData.prep_location = parsedData.menu_and_prep.prep_location.value;
+      if (!availableData.commissary_address && parsedData?.menu_and_prep?.prep_location?.value) availableData.commissary_address = parsedData.menu_and_prep.prep_location.value;
+      if (!availableData.food_sources && parsedData?.menu_and_prep?.food_source_location?.value) availableData.food_sources = parsedData.menu_and_prep.food_source_location.value;
       
-      // Commissary info
-      if (parsedData?.commissary_info?.commissary_name?.value) availableData.commissary_name = parsedData.commissary_info.commissary_name.value;
-      if (parsedData?.commissary_info?.commissary_address?.value) availableData.commissary_address = parsedData.commissary_info.commissary_address.value;
+      // Commissary info (only if not already set from userOverrides)
+      if (!availableData.commissary_name && parsedData?.commissary_info?.commissary_name?.value) availableData.commissary_name = parsedData.commissary_info.commissary_name.value;
+      if (!availableData.commissary_address && parsedData?.commissary_info?.commissary_address?.value) availableData.commissary_address = parsedData.commissary_info.commissary_address.value;
       
-      // Vehicle info
-      if (parsedData?.vehicle_info?.vin?.value) availableData.vin = parsedData.vehicle_info.vin.value;
-      if (parsedData?.vehicle_info?.license_plate?.value) availableData.license_plate = parsedData.vehicle_info.license_plate.value;
-      if (parsedData?.vehicle_info?.trailer_make?.value) availableData.vehicle_make = parsedData.vehicle_info.trailer_make.value;
-      if (parsedData?.vehicle_info?.trailer_model?.value) availableData.vehicle_model = parsedData.vehicle_info.trailer_model.value;
-      if (parsedData?.vehicle_info?.trailer_year?.value) availableData.vehicle_year = parsedData.vehicle_info.trailer_year.value;
+      // Vehicle info (only if not already set from userOverrides)
+      if (!availableData.vin && parsedData?.vehicle_info?.vin?.value) availableData.vin = parsedData.vehicle_info.vin.value;
+      if (!availableData.license_plate && parsedData?.vehicle_info?.license_plate?.value) availableData.license_plate = parsedData.vehicle_info.license_plate.value;
+      if (!availableData.vehicle_make && parsedData?.vehicle_info?.trailer_make?.value) availableData.vehicle_make = parsedData.vehicle_info.trailer_make.value;
+      if (!availableData.vehicle_model && parsedData?.vehicle_info?.trailer_model?.value) availableData.vehicle_model = parsedData.vehicle_info.trailer_model.value;
+      if (!availableData.vehicle_year && parsedData?.vehicle_info?.trailer_year?.value) availableData.vehicle_year = parsedData.vehicle_info.trailer_year.value;
       
-      // Equipment info
-      if (parsedData?.equipment_info?.handwash_setup?.value) availableData.handwash_setup = parsedData.equipment_info.handwash_setup.value;
-      if (parsedData?.equipment_info?.refrigeration?.value) availableData.refrigeration = parsedData.equipment_info.refrigeration.value;
-      if (parsedData?.equipment_info?.cooking_equipment?.value) availableData.cooking_equipment = parsedData.equipment_info.cooking_equipment.value;
+      // Equipment info (only if not already set from userOverrides)
+      if (!availableData.handwash_setup && parsedData?.equipment_info?.handwash_setup?.value) availableData.handwash_setup = parsedData.equipment_info.handwash_setup.value;
+      if (!availableData.refrigeration && parsedData?.equipment_info?.refrigeration?.value) availableData.refrigeration = parsedData.equipment_info.refrigeration.value;
+      if (!availableData.cooking_equipment && parsedData?.equipment_info?.cooking_equipment?.value) availableData.cooking_equipment = parsedData.equipment_info.cooking_equipment.value;
       
-      // Certifications
-      if (parsedData?.certifications?.food_manager_cert?.value) availableData.food_manager_cert = parsedData.certifications.food_manager_cert.value;
-      if (parsedData?.certifications?.cert_expiration?.value) availableData.cert_expiration = parsedData.certifications.cert_expiration.value;
+      // Certifications (only if not already set from userOverrides)
+      if (!availableData.food_manager_cert && parsedData?.certifications?.food_manager_cert?.value) availableData.food_manager_cert = parsedData.certifications.food_manager_cert.value;
+      if (!availableData.cert_expiration && parsedData?.certifications?.cert_expiration?.value) availableData.cert_expiration = parsedData.certifications.cert_expiration.value;
       
-      // Event data from permit
-      if (eventData?.eventName) availableData.event_name = eventData.eventName;
-      if (eventData?.eventAddress) availableData.event_location = eventData.eventAddress;
-      if (eventData?.eventDates) availableData.event_dates = eventData.eventDates;
-      if (eventData?.hoursOfOperation) availableData.hours_of_operation = eventData.hoursOfOperation;
-      if (eventData?.personInCharge) availableData.person_in_charge = eventData.personInCharge;
+      // Event data from permit (only if not already set from userOverrides)
+      if (!availableData.event_name && eventData?.eventName) availableData.event_name = eventData.eventName;
+      if (!availableData.event_location && eventData?.eventAddress) availableData.event_location = eventData.eventAddress;
+      if (!availableData.event_dates && eventData?.eventDates) availableData.event_dates = eventData.eventDates;
+      if (!availableData.hours_of_operation && eventData?.hoursOfOperation) availableData.hours_of_operation = eventData.hoursOfOperation;
+      if (!availableData.person_in_charge && eventData?.personInCharge) availableData.person_in_charge = eventData.personInCharge;
       
-      // Food truck defaults (industry knowledge)
-      availableData.license_type = eventData?.licenseType || "temporary";
-      availableData.toilet_facilities = parsedData?.operations?.toilet_facilities?.value || "portable";
-      availableData.handwash_type = "temporary";
-      availableData.foods_prepared_onsite = "yes";
-      availableData.handwash_sketch_yes = "yes";
+      // Food truck defaults (industry knowledge) - only if not already set
+      if (!availableData.license_type) availableData.license_type = eventData?.licenseType || "temporary";
+      if (!availableData.toilet_facilities) availableData.toilet_facilities = parsedData?.operations?.toilet_facilities?.value || "portable";
+      if (!availableData.handwash_type) availableData.handwash_type = "temporary";
+      if (!availableData.foods_prepared_onsite) availableData.foods_prepared_onsite = "yes";
+      if (!availableData.handwash_sketch_yes) availableData.handwash_sketch_yes = "yes";
       
       console.log(`[Analyze] Available data keys: ${Object.keys(availableData).join(", ")}`);
 

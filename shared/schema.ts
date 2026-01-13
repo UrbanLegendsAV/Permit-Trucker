@@ -37,7 +37,7 @@ export const profiles = pgTable("profiles", {
   hasQfoCert: boolean("has_qfo_cert").default(false),
   commissaryName: varchar("commissary_name", { length: 200 }),
   commissaryAddress: text("commissary_address"),
-  uploadsJson: jsonb("uploads_json").$type<{ documents: Array<{ name: string; type: string; url: string; folder?: string; base64?: string }> }>(),
+  uploadsJson: jsonb("uploads_json").$type<{ documents: Array<{ name: string; type: string; url: string; folder?: string; base64?: string; contentHash?: string; analyzedAt?: string }> }>(),
   extractedData: jsonb("extracted_data").$type<{
     vin?: string;
     licensePlate?: string;
@@ -48,6 +48,7 @@ export const profiles = pgTable("profiles", {
     rawText?: string;
   }>(),
   parsedDataLog: jsonb("parsed_data_log").$type<Record<string, unknown>>(),
+  userOverrides: jsonb("user_overrides").$type<Record<string, { value: string; savedAt: string; fieldName?: string }>>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
