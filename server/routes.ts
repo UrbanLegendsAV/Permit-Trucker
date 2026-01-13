@@ -1845,6 +1845,8 @@ For text fields that require descriptive answers about food safety practices, se
       if (!availableData.handwash_sketch_yes) availableData.handwash_sketch_yes = "yes";
       
       console.log(`[Analyze] Available data keys: ${Object.keys(availableData).join(", ")}`);
+      console.log(`[Analyze] eventData received:`, JSON.stringify(eventData));
+      console.log(`[Analyze] Event values - name: "${availableData.event_name}", location: "${availableData.event_location}", hours: "${availableData.hours_of_operation}"`);
 
       // Find unanswered questions
       const unansweredQuestions: Array<{
@@ -1896,8 +1898,9 @@ For text fields that require descriptive answers about food safety practices, se
           // HEURISTIC: Try to match field label to available data keys even without explicit mapping
           const labelLower = field.label?.toLowerCase() || field.pdfFieldName?.toLowerCase() || "";
           const inferredDataKey = inferDataKeyFromLabel(labelLower, availableData);
+          console.log(`[Analyze] Checking field "${field.pdfFieldName}" label="${field.label}" dataKey="${field.dataKey}" hasData=${hasData} inferredKey="${inferredDataKey}"`);
           if (inferredDataKey && availableData[inferredDataKey]) {
-            console.log(`[Analyze] Heuristic match: "${field.pdfFieldName}" label="${field.label}" -> inferred "${inferredDataKey}"`);
+            console.log(`[Analyze] Heuristic match: "${field.pdfFieldName}" label="${field.label}" -> inferred "${inferredDataKey}" = "${availableData[inferredDataKey]}"`);
             continue; // Skip - we can auto-fill this via heuristics
           }
           
