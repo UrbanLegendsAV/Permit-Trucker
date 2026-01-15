@@ -158,3 +158,34 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return;
   }
 };
+
+// Flexible auth middleware that supports both OIDC and email/password auth
+export const isAuthenticatedFlexible: RequestHandler = async (req, res, next) => {
+  // Check for email-based auth first (stored in session)
+  if ((req.session as any)?.userId) {
+    return next();
+  }
+  
+  // Fall back to OIDC auth check
+  const user = req.user as any;
+  if (req.isAuthenticated() && user?.expires_at) {
+    const now = Math.floor(Date.now() / 1000);
+    if (now <= user.expires_at) {
+      return next();
+    }
+
+    const refreshToken = user.refresh_token;
+    if (refreshToken) {
+      try {
+        const config = await getOidcConfig();
+        const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
+        updateUserSession(user, tokenResponse);
+        return next();
+      } catch (error) {
+        // Fall through to unauthorized
+      }
+    }
+  }
+  
+  return res.status(401).json({ message: "Unauthorized" });
+};

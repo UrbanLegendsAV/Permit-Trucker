@@ -6,12 +6,19 @@ import { eq } from "drizzle-orm";
 // (IMPORTANT) These user operations are mandatory for Replit Auth.
 export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  createUserWithPassword(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User>;
 }
 
 class AuthStorage implements IAuthStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
   }
 
@@ -25,6 +32,20 @@ class AuthStorage implements IAuthStorage {
           ...userData,
           updatedAt: new Date(),
         },
+      })
+      .returning();
+    return user;
+  }
+
+  async createUserWithPassword(email: string, passwordHash: string, firstName?: string, lastName?: string): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        authProvider: "email",
       })
       .returning();
     return user;

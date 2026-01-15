@@ -1,6 +1,48 @@
 import { db } from "./db";
 import { towns, configs, profiles, publicProfiles, reviews } from "@shared/schema";
+import { users } from "@shared/models/auth";
 import { runFullCTSeed } from "./seed-ct-towns";
+import bcrypt from "bcrypt";
+import { eq } from "drizzle-orm";
+
+// Seed the default user for email/password login
+async function seedDefaultUser() {
+  const email = "23luis.leite@gmail.com";
+  const password = "Permittracker2025!";
+  
+  try {
+    // Check if user already exists
+    const [existingUser] = await db.select().from(users).where(eq(users.email, email));
+    
+    if (existingUser) {
+      // Update password if user exists but doesn't have password
+      if (!existingUser.passwordHash) {
+        const passwordHash = await bcrypt.hash(password, 10);
+        await db.update(users)
+          .set({ passwordHash, authProvider: "email" })
+          .where(eq(users.email, email));
+        console.log(`Updated password for user: ${email}`);
+      } else {
+        console.log(`User ${email} already exists with password`);
+      }
+      return;
+    }
+    
+    // Create new user
+    const passwordHash = await bcrypt.hash(password, 10);
+    await db.insert(users).values({
+      email,
+      passwordHash,
+      firstName: "Luis",
+      lastName: "Leite",
+      authProvider: "email",
+      role: "owner",
+    });
+    console.log(`Created default user: ${email}`);
+  } catch (error) {
+    console.error("Error seeding default user:", error);
+  }
+}
 
 const ctTowns = [
   {
@@ -633,6 +675,9 @@ export async function seedTowns() {
     }
     
     await runFullCTSeed();
+    
+    // Seed default email/password user
+    await seedDefaultUser();
   } catch (error) {
     console.error("Error seeding:", error);
   }
