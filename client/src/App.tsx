@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import Landing from "@/pages/landing";
+import AuthPage from "@/pages/auth";
 import Dashboard from "@/pages/dashboard";
 import Onboarding from "@/pages/onboarding";
 import NewPermit from "@/pages/new-permit";
@@ -37,6 +38,7 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={isAuthenticated ? Dashboard : Discover} />
+      <Route path="/auth" component={AuthPage} />
       <Route path="/discover" component={Discover} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/onboarding" component={Onboarding} />

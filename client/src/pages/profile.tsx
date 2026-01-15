@@ -24,7 +24,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      window.location.href = "/api/login";
+      window.location.href = "/auth";
     }
   }, [authLoading, isAuthenticated]);
 

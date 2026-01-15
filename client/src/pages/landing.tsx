@@ -64,7 +64,7 @@ export default function LandingPage() {
               <Button 
                 size="lg" 
                 className="h-14 px-8 text-lg font-semibold"
-                onClick={() => window.location.href = "/api/login"}
+                onClick={() => window.location.href = "/auth"}
                 data-testid="button-get-started"
               >
                 Get Started Free

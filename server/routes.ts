@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticatedFlexible } from "./replit_integrations/auth";
+const isAuthenticated = isAuthenticatedFlexible; // Use flexible auth for all routes to support both OIDC and email
 import { 
   insertProfileSchema, 
   insertPermitSchema, 
@@ -328,6 +329,19 @@ const getClientIp = (req: Request): string => {
          "unknown";
 };
 
+// Helper to get user ID from both auth methods (OIDC and email)
+const getUserId = (req: any): string | null => {
+  // Check for email-based auth first (stored in session)
+  if (req.session?.userId) {
+    return req.session.userId;
+  }
+  // Fall back to OIDC auth
+  if (req.user?.claims?.sub) {
+    return req.user.claims.sub;
+  }
+  return null;
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -337,7 +351,8 @@ export async function registerRoutes(
 
   app.get("/api/profiles", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const profiles = await storage.getProfiles(userId);
       res.json(profiles);
     } catch (error) {
@@ -361,7 +376,8 @@ export async function registerRoutes(
 
   app.post("/api/profiles", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const data = { ...req.body, userId };
       const parsed = insertProfileSchema.safeParse(data);
       
@@ -785,7 +801,8 @@ ${prompt}`;
 
   app.get("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const permits = await storage.getPermits(userId);
       res.json(permits);
     } catch (error) {
@@ -892,7 +909,8 @@ ${prompt}`;
 
   app.post("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       
       // Convert date strings to Date objects
       const eventDate = req.body.eventDate ? new Date(req.body.eventDate) : null;
@@ -2079,7 +2097,8 @@ For text fields that require descriptive answers about food safety practices, se
 
   app.get("/api/badges", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const badges = await storage.getBadges(userId);
       res.json(badges);
     } catch (error) {
@@ -2124,7 +2143,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Get user's own public profile settings
   app.get("/api/my-public-profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const profile = await storage.getPublicProfileByUser(userId);
       res.json(profile || null);
     } catch (error) {
@@ -2136,7 +2156,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Create or update public profile
   app.post("/api/public-profiles", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const existing = await storage.getPublicProfileByUser(userId);
       
       if (existing) {
@@ -2231,7 +2252,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Get current user's role
   app.get("/api/me/role", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const role = await storage.getUserRole(userId);
       res.json({ role: role || "user" });
     } catch (error) {
@@ -2258,7 +2280,8 @@ For text fields that require descriptive answers about food safety practices, se
       if (!key || value === undefined) {
         return res.status(400).json({ message: "Key and value are required" });
       }
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const config = await storage.setConfig(key, String(value), description, userId);
       res.json(config);
     } catch (error) {
@@ -2391,7 +2414,8 @@ For text fields that require descriptive answers about food safety practices, se
   app.patch("/api/admin/forms/:id/upload", isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { fileData, fileName, fileType } = req.body;
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
       if (!fileData || !fileName) {
         return res.status(400).json({ message: "File data and file name are required" });
@@ -2501,7 +2525,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Submit a request for a new town (any authenticated user)
   app.post("/api/town-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const parsed = insertTownRequestSchema.safeParse({
         ...req.body,
         userId,
@@ -2664,10 +2689,11 @@ For text fields that require descriptive answers about food safety practices, se
   // Sync parsed data to vault
   app.post("/api/vault/sync/:profileId", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const profile = await storage.getProfile(req.params.profileId);
       
-      if (!profile || profile.userId !== user.id) {
+      if (!profile || profile.userId !== userId) {
         return res.status(404).json({ message: "Profile not found" });
       }
 
@@ -2686,8 +2712,9 @@ For text fields that require descriptive answers about food safety practices, se
   // Get user's vault
   app.get("/api/vault", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
-      const vault = await storage.getDataVaultByUserId(user.id);
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const vault = await storage.getDataVaultByUserId(userId);
       
       if (!vault) {
         return res.status(404).json({ message: "No vault found" });
@@ -2704,14 +2731,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Get vault completeness score
   app.get("/api/vault/:id/completeness", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const vault = await storage.getDataVault(req.params.id);
       
       if (!vault) {
         return res.status(404).json({ message: "Vault not found" });
       }
       
-      if (vault.userId !== user.id) {
+      if (vault.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
       
@@ -2726,14 +2754,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Get vault data formatted for PDF filling
   app.get("/api/vault/:id/pdf-fields", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const vault = await storage.getDataVault(req.params.id);
       
       if (!vault) {
         return res.status(404).json({ message: "Vault not found" });
       }
 
-      if (vault.userId !== user.id) {
+      if (vault.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -2748,7 +2777,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Create a PDF fill submission job
   app.post("/api/submissions/pdf-fill", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const validation = pdfFillSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -2758,12 +2788,12 @@ For text fields that require descriptive answers about food safety practices, se
       const { permitId, townId, vaultId, pdfBase64, pdfFilename } = validation.data;
 
       const vault = await storage.getDataVault(vaultId);
-      if (!vault || vault.userId !== user.id) {
+      if (!vault || vault.userId !== userId) {
         return res.status(403).json({ message: "Vault not found or access denied" });
       }
 
       const job = await createPdfFillJob(
-        user.id,
+        userId,
         permitId,
         townId,
         vaultId,
@@ -2785,7 +2815,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Start auto PDF fill using town's configured form
   app.post("/api/submissions/auto-fill", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const validation = autoFillSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -2795,11 +2826,11 @@ For text fields that require descriptive answers about food safety practices, se
       const { permitId, townId, vaultId } = validation.data;
 
       const vault = await storage.getDataVault(vaultId);
-      if (!vault || vault.userId !== user.id) {
+      if (!vault || vault.userId !== userId) {
         return res.status(403).json({ message: "Vault not found or access denied" });
       }
 
-      const result = await startAutoPdfFill(user.id, permitId, townId, vaultId);
+      const result = await startAutoPdfFill(userId, permitId, townId, vaultId);
       
       if (!result.success) {
         return res.status(400).json({ message: result.error });
@@ -2815,14 +2846,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Poll Datalab job status
   app.get("/api/submissions/:jobId/poll", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const existingJob = await storage.getSubmissionJob(req.params.jobId);
       
       if (!existingJob) {
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (existingJob.userId !== user.id) {
+      if (existingJob.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -2842,8 +2874,9 @@ For text fields that require descriptive answers about food safety practices, se
   // Get user's submission jobs
   app.get("/api/submissions", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
-      const jobs = await storage.getSubmissionJobsByUser(user.id);
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const jobs = await storage.getSubmissionJobsByUser(userId);
       res.json(jobs);
     } catch (error) {
       console.error("Error fetching submissions:", error);
@@ -2854,14 +2887,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Get submission job by ID
   app.get("/api/submissions/:jobId", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const job = await storage.getSubmissionJob(req.params.jobId);
       
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (job.userId !== user.id) {
+      if (job.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -2875,14 +2909,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Get filled PDF data for download/preview
   app.get("/api/submissions/:jobId/pdf", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const job = await storage.getSubmissionJob(req.params.jobId);
       
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (job.userId !== user.id) {
+      if (job.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -2902,14 +2937,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Approve and submit a job
   app.post("/api/submissions/:jobId/approve", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const job = await storage.getSubmissionJob(req.params.jobId);
       
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (job.userId !== user.id) {
+      if (job.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -2929,7 +2965,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Store portal credentials (encrypted)
   app.post("/api/portal-credentials", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       
       if (!isEncryptionConfigured()) {
         return res.status(503).json({ message: "Credential storage is not configured on this server" });
@@ -2943,7 +2980,7 @@ For text fields that require descriptive answers about food safety practices, se
       
       const { townId, username, password } = validation.data;
 
-      const credential = await storePortalCredentials(user.id, townId, username, password);
+      const credential = await storePortalCredentials(userId, townId, username, password);
       res.json({ id: credential.id, townId: credential.townId });
     } catch (error) {
       console.error("Error storing credentials:", error);
@@ -2954,7 +2991,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Create portal automation job
   app.post("/api/submissions/portal-automation", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const validation = portalAutomationSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -2964,17 +3002,17 @@ For text fields that require descriptive answers about food safety practices, se
       const { permitId, townId, vaultId, credentialId } = validation.data;
 
       const vault = await storage.getDataVault(vaultId);
-      if (!vault || vault.userId !== user.id) {
+      if (!vault || vault.userId !== userId) {
         return res.status(403).json({ message: "Vault not found or access denied" });
       }
 
       const credential = await storage.getPortalCredential(credentialId);
-      if (!credential || credential.userId !== user.id) {
+      if (!credential || credential.userId !== userId) {
         return res.status(403).json({ message: "Credential not found or access denied" });
       }
 
       const job = await createPortalAutomationJob(
-        user.id,
+        userId,
         permitId,
         townId,
         vaultId,
@@ -2995,14 +3033,15 @@ For text fields that require descriptive answers about food safety practices, se
   // Execute portal automation
   app.post("/api/submissions/:jobId/execute", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const job = await storage.getSubmissionJob(req.params.jobId);
       
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (job.userId !== user.id) {
+      if (job.userId !== userId) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -3022,7 +3061,8 @@ For text fields that require descriptive answers about food safety practices, se
   // Form-level portal submission (V1 - SeamlessDocs, OpenGov, ViewPoint)
   app.post("/api/towns/:townId/forms/:formId/portal-submit", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as Express.User;
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { townId, formId } = req.params;
       const { profileId, permitId, eventData, userAnswers, submitForm } = req.body;
 
@@ -3032,7 +3072,7 @@ For text fields that require descriptive answers about food safety practices, se
 
       // Verify profile belongs to user
       const profile = await storage.getProfile(profileId);
-      if (!profile || profile.userId !== user.id) {
+      if (!profile || profile.userId !== userId) {
         return res.status(403).json({ message: "Profile not found or access denied" });
       }
 

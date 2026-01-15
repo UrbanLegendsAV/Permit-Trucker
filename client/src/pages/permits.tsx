@@ -20,7 +20,7 @@ export default function PermitsPage() {
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      window.location.href = "/api/login";
+      window.location.href = "/auth";
     }
   }, [authLoading, isAuthenticated]);
 
