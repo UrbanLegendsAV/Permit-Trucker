@@ -63,20 +63,28 @@ export function registerAuthRoutes(app: Express): void {
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      // Set session
+      // Set session and save it explicitly
       (req.session as any).userId = user.id;
       (req.session as any).authProvider = "email";
       
-      res.json({ 
-        message: "Login successful",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          profileImageUrl: user.profileImageUrl,
-          role: user.role,
+      // Explicitly save session to ensure it's persisted before response
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
         }
+        
+        res.json({ 
+          message: "Login successful",
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profileImageUrl: user.profileImageUrl,
+            role: user.role,
+          }
+        });
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -113,19 +121,27 @@ export function registerAuthRoutes(app: Express): void {
         lastName
       );
 
-      // Set session
+      // Set session and save it explicitly
       (req.session as any).userId = user.id;
       (req.session as any).authProvider = "email";
 
-      res.status(201).json({ 
-        message: "Registration successful",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
+      // Explicitly save session to ensure it's persisted before response
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
         }
+        
+        res.status(201).json({ 
+          message: "Registration successful",
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+          }
+        });
       });
     } catch (error) {
       console.error("Registration error:", error);
