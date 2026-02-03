@@ -129,34 +129,46 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 
 ### 📍 WHERE WORK LEFT OFF
 
-**Last Session:** User Answer Persistence Fix (Jan 13, 2026)
+**Last Session:** Automatic Form Discovery Feature (Feb 03, 2026)
 
 **What Was Done:**
-1. **CRITICAL FIX:** User answers now persist through document re-analysis
-   - Added `userOverrides` field to profiles schema - stores user-edited values with highest priority
-   - Updated `parsed-data/edit` endpoint to save to BOTH parsedDataLog AND userOverrides
-   - Updated `saveParsedDataToProfile()` to preserve fields with status="verified" AND skip null/empty AI values
-   - Updated analyze-questions to check userOverrides FIRST when building available data
+1. **NEW FEATURE: Automatic Form Discovery**
+   - Created `server/lib/form-discovery-service.ts` - AI-powered service to find permit PDFs on town websites
+   - Uses Gemini AI to search for official permit application forms
+   - Automatically downloads discovered PDFs and stores them in `town_forms` table
+   - Marks forms as AI-discovered (`isAiDiscovered=true`)
 
-2. **DOCUMENT TRACKING:** Already-analyzed documents are now skipped
-   - Documents get `analyzedAt` timestamp after analysis
-   - Parse-all-documents endpoint skips documents with `analyzedAt` (unless `forceReanalyze: true`)
-   - User gets message: "All X documents have already been analyzed. Your saved answers are preserved."
+2. **Auto-Discovery Integration**
+   - `GET /api/towns/:townId/forms` now auto-triggers discovery when no forms exist for a town
+   - Runs discovery in background to avoid blocking the response
+   - Returns `discoveryStarted: true` or `discoveryInProgress: true` status to frontend
+   - Includes deduplication to prevent concurrent discoveries for the same town
 
-3. **DATA PRIORITY CHAIN:** userOverrides > manually-edited parsedDataLog > AI-extracted data
+3. **Manual Discovery Endpoint**
+   - `POST /api/towns/:townId/discover-forms` - Manually trigger form discovery
+   - Supports `force: true` to re-discover even if forms already exist
+   - Returns detailed results including forms found, downloaded, and source URLs
+
+4. **Error Handling & Safety**
+   - Checks if `GOOGLE_API_KEY` is configured before attempting discovery
+   - Uses in-memory tracking to prevent duplicate concurrent discoveries
+   - Timeout protection on PDF downloads (30 seconds)
+   - Graceful cleanup on errors
 
 **What Was NOT Done:**
-- Did not run Playwright against real SeamlessDocs form
-- Did not verify PDF auto-fill with Datalab
+- Did not fully test the discovery feature end-to-end (user should test by visiting a permit for a town with no forms)
+- Frontend does not yet poll/refresh when discovery is in progress
 
 **Immediate Next Steps:**
-1. User should test: Save answer → Upload new doc → Analyze → Verify previous answers preserved
-2. Test portal automation on Brookfield SeamlessDocs
-3. Verify PDF auto-fill still works with Datalab
+1. User should test: Start a permit for West Hartford → Observe auto-discovery triggered → Refresh to see discovered forms
+2. Consider adding frontend polling to auto-refresh when `discoveryStarted: true`
+3. Test portal automation on Brookfield SeamlessDocs
+4. Verify PDF auto-fill still works with Datalab
 
 ### 📁 Key Files
 | Purpose | File |
 |---------|------|
+| Form Discovery | `server/lib/form-discovery-service.ts` |
 | Portal Automation | `server/lib/portal-automation-service.ts` |
 | PDF Generation | `server/lib/pdf-service.ts` |
 | API Routes | `server/routes.ts` |

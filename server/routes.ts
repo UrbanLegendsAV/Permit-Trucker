@@ -24,6 +24,7 @@ import {
   type ParsedUserData 
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
+import { formDiscoveryService } from "./lib/form-discovery-service";
 import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
 import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
@@ -1055,15 +1056,64 @@ ${prompt}`;
   });
 
   // New endpoint - returns forms from database for a specific town
+  // Auto-discovers forms if none exist
   app.get("/api/towns/:townId/forms", isAuthenticated, async (req, res) => {
     try {
       const { townId } = req.params;
+      const { autoDiscover } = req.query;
       const town = await storage.getTown(townId);
       if (!town) {
         return res.status(404).json({ message: "Town not found" });
       }
 
-      const forms = await storage.getTownForms(townId);
+      let forms = await storage.getTownForms(townId);
+      
+      // Auto-discover forms if none exist and not explicitly disabled
+      if (forms.length === 0 && autoDiscover !== 'false') {
+        // Check if discovery service is configured
+        if (!formDiscoveryService.isConfigured()) {
+          console.log(`[Forms] No forms for ${town.townName}, but discovery service not configured (missing GOOGLE_API_KEY)`);
+          return res.json({
+            townId,
+            townName: town.townName,
+            forms: [],
+            fillableForms: [],
+            discoveryStarted: false,
+            message: `No forms found for ${town.townName}. Form discovery is not available.`,
+          });
+        }
+
+        // Check if discovery is already in progress
+        if (formDiscoveryService.isDiscoveryActive(townId)) {
+          console.log(`[Forms] Discovery already in progress for ${town.townName}`);
+          return res.json({
+            townId,
+            townName: town.townName,
+            forms: [],
+            fillableForms: [],
+            discoveryInProgress: true,
+            message: `Searching for forms for ${town.townName}... Please refresh in a few seconds.`,
+          });
+        }
+
+        console.log(`[Forms] No forms for ${town.townName}, triggering auto-discovery...`);
+        
+        // Run discovery in background and return immediately with discovery status
+        formDiscoveryService.discoverFormsForTown(townId).then(result => {
+          console.log(`[Forms] Auto-discovery completed for ${town.townName}: ${result.formsDownloaded} forms found`);
+        }).catch(err => {
+          console.error(`[Forms] Auto-discovery failed for ${town.townName}:`, err);
+        });
+        
+        return res.json({
+          townId,
+          townName: town.townName,
+          forms: [],
+          fillableForms: [],
+          discoveryStarted: true,
+          message: `No forms found for ${town.townName}. Searching town website for permit forms...`,
+        });
+      }
       
       // Return full TownForm objects so frontend can access all properties
       res.json({
@@ -1075,6 +1125,65 @@ ${prompt}`;
     } catch (error) {
       console.error("Error fetching town forms:", error);
       res.status(500).json({ message: "Failed to fetch town forms" });
+    }
+  });
+
+  // Manual form discovery endpoint
+  app.post("/api/towns/:townId/discover-forms", isAuthenticated, async (req, res) => {
+    try {
+      const { townId } = req.params;
+      const { force } = req.body;
+      
+      const town = await storage.getTown(townId);
+      if (!town) {
+        return res.status(404).json({ message: "Town not found" });
+      }
+
+      // Check if discovery service is configured
+      if (!formDiscoveryService.isConfigured()) {
+        return res.status(503).json({ 
+          success: false,
+          message: "Form discovery service is not available (GOOGLE_API_KEY not configured)",
+        });
+      }
+
+      // Check if discovery is already in progress
+      if (formDiscoveryService.isDiscoveryActive(townId)) {
+        return res.status(409).json({
+          success: false,
+          message: `Discovery already in progress for ${town.townName}. Please wait.`,
+        });
+      }
+
+      // Check if forms already exist (unless force is true)
+      const existingForms = await storage.getTownForms(townId);
+      if (existingForms.length > 0 && !force) {
+        return res.json({
+          success: true,
+          message: `${town.townName} already has ${existingForms.length} forms. Use force=true to re-discover.`,
+          formsDiscovered: 0,
+          formsDownloaded: 0,
+          forms: existingForms.map(f => ({ name: f.name, url: f.externalUrl, downloaded: !!f.fileData })),
+        });
+      }
+
+      console.log(`[Forms] Manual discovery requested for ${town.townName} (force: ${force || false})`);
+      const result = await formDiscoveryService.discoverFormsForTown(townId, { force: !!force });
+      
+      res.json({
+        success: result.success,
+        message: result.success 
+          ? `Discovered ${result.formsDiscovered} forms for ${town.townName}, downloaded ${result.formsDownloaded}`
+          : result.error,
+        formsDiscovered: result.formsDiscovered,
+        formsDownloaded: result.formsDownloaded,
+        forms: result.forms,
+        townWebsite: result.townWebsite,
+        healthDeptWebsite: result.healthDeptWebsite,
+      });
+    } catch (error: any) {
+      console.error("Error discovering forms:", error);
+      res.status(500).json({ message: "Failed to discover forms", error: error.message });
     }
   });
 
