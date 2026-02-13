@@ -1,0 +1,88 @@
+IMPORTANT: You just spent an hour manually downloading West Hartford's PDFs and inserting them into the database. That was a band-aid. There are 169 Connecticut towns in the database. We cannot manually find and insert PDFs for each one.
+
+The form discovery service (`server/lib/form-discovery-service.ts`) STILL uses the broken approach of asking Gemini to guess URLs. You proved this doesn't work — West Hartford's AI-guessed URLs were all fake (404s and unreachable hosts). Meanwhile, a simple Google search finds the real PDFs instantly.
+
+I need you to REPLACE the discovery service with one that actually works. Here is the exact approach:
+
+**Install cheerio:** `npm install cheerio @types/cheerio`
+
+**The new discovery service must do this, in order:**
+
+**STEP 1: Build seed URLs for the town**
+
+For a town like "West Hartford", build these URLs to check:
+- The town's `portalUrl` from our database (e.g., whbh.org/environmental-health/food-service/)
+- The town's health district website from the `health_districts` table
+- Common CT patterns: `https://www.westhartfordct.gov`, `https://westhartfordct.gov`
+- Common department paths appended to the .gov domain:
+  - `/town-departments/health-district/online-forms`
+  - `/departments/health/permits`
+  - `/health/food-service`
+  - `/permits`
+  - `/online-forms`
+
+Also look up the health district for this town from the `health_districts` table and add its website as a seed URL.
+
+**STEP 2: Fetch each seed URL and parse the HTML**
+
+Use `fetch()` to get the page HTML. Use `cheerio` to parse it. Extract ALL `<a href="...">` links.
+
+Categorize each link:
+- If href ends in `.pdf` → add to `pdfLinks` list
+- If href or link text contains food/permit/mobile/vendor/truck/temporary/application/form keywords → add to `subpageLinks` list
+
+Handle relative URLs: if href starts with `/`, resolve it against the page's base URL.
+Handle cross-domain links: PDFs on `resources.finalsite.net`, `seamlessdocs.com`, etc. are VALID. Do not filter by domain.
+
+**STEP 3: Crawl subpage links ONE level deep**
+
+For each URL in `subpageLinks` (limit to first 10), fetch and parse the HTML the same way. Collect any additional PDF links.
+
+This catches the common pattern: town homepage → health department page → online forms page → actual PDFs.
+
+**STEP 4: Validate each PDF URL**
+
+For each discovered PDF URL:
+- Send a HEAD request with a 10-second timeout
+- Check that status is 200 and content-type contains "application/pdf" or "octet-stream"
+- Skip any URL that returns 404, 403, 406, or non-PDF content
+
+**STEP 5: Use Gemini to CLASSIFY (not discover)**
+
+Send the list of validated PDF URLs (with their link text and source page) to Gemini and ask:
+
+"Here are PDF documents found on government websites for [Town Name], CT. Which ones are food truck, mobile food vendor, or temporary food establishment permit applications? Return ONLY the relevant ones as JSON."
+
+This is the correct use of AI: classifying documents that have already been found, not generating URLs from imagination.
+
+**STEP 6: Download, check fillability, store**
+
+For each classified PDF:
+1. Download the full content
+2. Base64 encode it
+3. Use pdf-lib to check for AcroForm fields → set isFillable accordingly
+4. Check if a form with the same sourceUrl already exists in town_forms → skip if duplicate
+5. Insert into town_forms with fileData, sourceUrl, name, isFillable, and isAiDiscovered=true
+
+**STEP 7: Prevent infinite re-discovery**
+
+Add an in-memory map or database flag: `lastDiscoveryAttempt[townId] = timestamp`. Don't re-run discovery for the same town within 24 hours, even if no forms were found.
+
+**Here is a concrete example of what should happen for West Hartford:**
+
+1. Seed URLs include `https://www.westhartfordct.gov/town-departments/health-district/online-forms`
+2. Fetching that page returns HTML with links to:
+   - `https://resources.finalsite.net/.../temp-food-permit.pdf`
+   - `https://resources.finalsite.net/.../Mobile-Vending-Plan-Review-Application.pdf`
+   - `https://resources.finalsite.net/.../FOODESTABLISHMENTAPPLICATION.pdf`
+   - etc.
+3. HEAD requests confirm these are valid PDFs
+4. Gemini classifies which are food truck relevant
+5. PDFs are downloaded and stored in town_forms
+6. User sees real, downloadable, fillable forms
+
+**DELETE the old Gemini URL-guessing code entirely.** The `buildDiscoveryPrompt()` function that asks Gemini to invent URLs must be removed. Replace it completely with the crawl-then-classify approach above.
+
+**ALSO:** After rewriting the service, test it by triggering discovery for West Hartford. Clear the existing West Hartford forms first (they were manually inserted). The new system should find the same PDFs automatically.
+
+This is the #1 priority. Every town will be broken until this is fixed. Do not take shortcuts — do not manually insert forms for individual towns. Fix the system.
