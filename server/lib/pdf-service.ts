@@ -685,10 +685,180 @@ export function getTemplateById(templateId: string): FormTemplate | undefined {
 }
 
 /**
+ * Build a complete data map from parsed profile data, vault data, and event data.
+ * This is the single source of truth for all field matching in both the questionnaire
+ * analyzer and the PDF filler.
+ */
+export function buildDataMapFromParsedData(
+  parsedData: ParsedUserData | null,
+  vaultData?: DataVault | null,
+  eventData?: {
+    eventName?: string;
+    eventAddress?: string;
+    eventDates?: string;
+    hoursOfOperation?: string;
+    personInCharge?: string;
+    licenseType?: "temporary" | "seasonal";
+  },
+  userOverrides?: Record<string, { value: string; savedAt: string; fieldName?: string }> | null,
+): Record<string, string | null> {
+  const getFieldValue = (data: ParsedUserData | null, category: string, field: string): string | null => {
+    if (!data) return null;
+    const cat = (data as any)[category];
+    if (!cat || typeof cat !== 'object') return null;
+    const fieldObj = cat[field];
+    if (fieldObj && typeof fieldObj === 'object' && 'value' in fieldObj) {
+      return fieldObj.value || null;
+    }
+    return null;
+  };
+
+  const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
+    for (const field of fieldNames) {
+      const value = getFieldValue(parsedData, category, field);
+      if (value) return value;
+    }
+    return null;
+  };
+
+  const mailingAddress = getFromAny("contact_info", "mailing_address");
+  let parsedCity = getFromAny("contact_info", "city");
+  let parsedState = getFromAny("contact_info", "state");
+  let parsedZip = getFromAny("contact_info", "zip");
+  let streetAddress = getFromAny("contact_info", "address");
+
+  if (mailingAddress && (!parsedCity || !parsedState || !parsedZip)) {
+    const match = mailingAddress.match(/^(.+?)\s+([A-Za-z\s]+),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+    if (match) {
+      if (!streetAddress) streetAddress = match[1].trim();
+      if (!parsedCity) parsedCity = match[2].trim();
+      if (!parsedState) parsedState = match[3].trim();
+      if (!parsedZip) parsedZip = match[4].trim();
+    } else {
+      const simpleMatch = mailingAddress.match(/^(.+?),\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$/);
+      if (simpleMatch) {
+        const addressParts = simpleMatch[1].trim();
+        const lastSpaceIdx = addressParts.lastIndexOf(' ');
+        if (lastSpaceIdx > 0) {
+          if (!streetAddress) streetAddress = addressParts.substring(0, lastSpaceIdx).trim();
+          if (!parsedCity) parsedCity = addressParts.substring(lastSpaceIdx + 1).trim();
+        } else {
+          if (!parsedCity) parsedCity = addressParts;
+        }
+        if (!parsedState) parsedState = simpleMatch[2].trim();
+        if (!parsedZip) parsedZip = simpleMatch[3].trim();
+      } else if (!streetAddress) {
+        streetAddress = mailingAddress;
+      }
+    }
+  }
+
+  const dataMap: Record<string, string | null> = {
+    business_name: getFromAny("contact_info", "business_name"),
+    owner_name: getFromAny("contact_info", "owner_name", "applicant_name"),
+    applicant_name: getFromAny("contact_info", "applicant_name", "owner_name"),
+    address: streetAddress,
+    mailing_address: mailingAddress,
+    city: parsedCity,
+    town: parsedCity,
+    state: parsedState,
+    zip: parsedZip,
+    phone: getFromAny("contact_info", "phone"),
+    email: getFromAny("contact_info", "email"),
+    city_state_zip: [parsedCity, parsedState, parsedZip].filter(Boolean).join(", "),
+    vin: getFromAny("vehicle_info", "vin"),
+    license_plate: getFromAny("vehicle_info", "license_plate"),
+    vehicle_make: getFromAny("vehicle_info", "trailer_make"),
+    vehicle_model: getFromAny("vehicle_info", "trailer_model"),
+    vehicle_year: getFromAny("vehicle_info", "trailer_year"),
+    water_supply: getFromAny("operations", "water_supply_type") || getFromAny("equipment_info", "water_supply"),
+    sanitizer_type: getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
+    sanitizing_method: getFromAny("operations", "sanitizing_method"),
+    toilet_facilities: getFromAny("operations", "toilet_facilities") || getFromAny("commissary_info", "toilet_facilities"),
+    handwash_setup: getFromAny("equipment_info", "handwash_setup"),
+    refrigeration: getFromAny("equipment_info", "refrigeration"),
+    cooking_equipment: getFromAny("equipment_info", "cooking_equipment"),
+    temp_monitoring: getFromAny("safety", "temperature_monitoring_method") || getFromAny("equipment_info", "temp_monitoring"),
+    hot_holding: getFromAny("safety", "hot_holding_method"),
+    cold_storage: getFromAny("safety", "cold_storage_method"),
+    waste_water: getFromAny("safety", "waste_water_disposal") || getFromAny("equipment_info", "waste_water"),
+    garbage_disposal: getFromAny("safety", "garbage_disposal"),
+    menu_items: getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    food_items: getFromAny("menu_and_prep", "food_items_list") || getFromAny("food_info", "menu_items"),
+    prep_location: getFromAny("menu_and_prep", "prep_location"),
+    food_sources: getFromAny("menu_and_prep", "food_source_location") || getFromAny("food_info", "food_sources"),
+    prep_methods: getFromAny("food_info", "prep_methods"),
+    food_storage: getFromAny("safety", "cold_storage_method"),
+    commissary_name: getFromAny("commissary_info", "commissary_name"),
+    commissary_address: getFromAny("commissary_info", "commissary_address"),
+    food_manager_cert: getFromAny("certifications", "food_manager_cert"),
+    cert_expiration: getFromAny("certifications", "cert_expiration"),
+    license_number: getFromAny("license_info", "license_number") || getFromAny("certifications", "license_number"),
+    event_name: eventData?.eventName || null,
+    event_location: eventData?.eventAddress || null,
+    event_dates: eventData?.eventDates || null,
+    hours_of_operation: eventData?.hoursOfOperation || null,
+    person_in_charge: eventData?.personInCharge || null,
+    license_type: eventData?.licenseType || null,
+  };
+
+  if (vaultData) {
+    const vaultOverrides: Record<string, string | null> = {
+      business_name: vaultData.businessName,
+      owner_name: vaultData.ownerName,
+      applicant_name: vaultData.ownerName,
+      address: vaultData.mailingStreet,
+      mailing_address: [vaultData.mailingStreet, vaultData.mailingCity, vaultData.mailingState, vaultData.mailingZip].filter(Boolean).join(', ') || null,
+      city: vaultData.mailingCity,
+      town: vaultData.mailingCity,
+      state: vaultData.mailingState,
+      zip: vaultData.mailingZip,
+      phone: vaultData.phone,
+      email: vaultData.email,
+      vin: vaultData.vehicleVin,
+      license_plate: vaultData.vehicleLicensePlate,
+      vehicle_make: vaultData.vehicleMake,
+      vehicle_model: vaultData.vehicleModel,
+      vehicle_year: vaultData.vehicleYear,
+      water_supply: vaultData.waterSupplyType,
+      sanitizer_type: vaultData.sanitizerType,
+      hot_holding: vaultData.hotHoldingMethod,
+      cold_storage: vaultData.coldHoldingMethod,
+      commissary_name: vaultData.commissaryName,
+      commissary_address: vaultData.commissaryAddress,
+      food_handler_cert: vaultData.foodHandlerCertNumber,
+      prep_location: vaultData.prepLocationAddress,
+      menu_items: vaultData.foodItemsList?.join(', ') || null,
+      food_items: vaultData.foodItemsList?.join(', ') || null,
+      food_sources: vaultData.foodSourceLocations?.join(', ') || null,
+    };
+    if (vaultData.mailingCity && vaultData.mailingState && vaultData.mailingZip) {
+      vaultOverrides.city_state_zip = `${vaultData.mailingCity}, ${vaultData.mailingState} ${vaultData.mailingZip}`;
+    }
+    for (const [key, value] of Object.entries(vaultOverrides)) {
+      if (value) {
+        dataMap[key] = value;
+      }
+    }
+  }
+
+  if (userOverrides) {
+    for (const [key, override] of Object.entries(userOverrides)) {
+      const fieldName = override.fieldName || key.split('.').pop() || key;
+      if (override.value) {
+        dataMap[fieldName] = override.value;
+      }
+    }
+  }
+
+  return dataMap;
+}
+
+/**
  * Smart field name matching for PDF forms.
  * Maps common PDF field name patterns to our standardized data keys.
  */
-function smartMatchFieldToData(
+export function smartMatchFieldToData(
   fieldName: string,
   dataMap: Record<string, string | null>,
   eventData?: {
@@ -813,15 +983,16 @@ function smartMatchFieldToData(
   if (lowerField.includes("water") && lowerField.includes("supply")) {
     return dataMap.water_supply;
   }
-  if (lowerField.includes("sanitizer") || lowerField.includes("sanitiz")) {
-    return dataMap.sanitizer_type;
+  if (lowerField.includes("sanitizer") || lowerField.includes("sanitiz") || lowerField.includes("utensil wash") || lowerField.includes("warewash")) {
+    return dataMap.sanitizer_type || dataMap.sanitizing_method;
   }
   if (lowerField.includes("toilet") || lowerField.includes("restroom")) {
     return dataMap.toilet_facilities;
   }
   
   // Food/Menu patterns - NO hardcoded defaults, only real profile data
-  if (lowerField.includes("food item") || lowerField.includes("menu item") || lowerField.includes("list all food")) {
+  if (lowerField.includes("food item") || lowerField.includes("menu item") || lowerField.includes("list all food") ||
+      lowerField.includes("food and beverage") || lowerField.includes("prepared and served") || lowerField.includes("foods to be")) {
     return dataMap.menu_items || dataMap.food_items || null;
   }
   if (lowerField.includes("food") && lowerField.includes("purchased")) {
@@ -833,11 +1004,16 @@ function smartMatchFieldToData(
   if (lowerField.includes("temperature") && (lowerField.includes("monitor") || lowerField.includes("describe"))) {
     return dataMap.temp_monitoring || null;
   }
-  if (lowerField.includes("food") && lowerField.includes("prepared") || lowerField.includes("prep location") || lowerField.includes("preparation")) {
+  if (lowerField.includes("food") && lowerField.includes("prepared") || lowerField.includes("prep location") || lowerField.includes("preparation") ||
+      lowerField.includes("tfe site") || lowerField.includes("prepared at")) {
     return dataMap.prep_location || dataMap.commissary_name || null;
   }
   if (lowerField.includes("source") || lowerField.includes("where made") || lowerField.includes("where purchased")) {
     return dataMap.food_sources || dataMap.commissary_name || null;
+  }
+  // Transport patterns
+  if (lowerField.includes("transport") && (lowerField.includes("food") || lowerField.includes("frozen") || lowerField.includes("cold") || lowerField.includes("hot"))) {
+    return dataMap.hot_holding || dataMap.cold_storage || null;
   }
   
   // Hot/cold holding patterns - NO hardcoded defaults
@@ -857,8 +1033,8 @@ function smartMatchFieldToData(
   }
   
   // Handwashing patterns - NO hardcoded defaults
-  if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash")) {
-    return dataMap.handwash_setup || null;
+  if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash") || lowerField.includes("hand washing")) {
+    return dataMap.handwash_setup || dataMap.sanitizing_method || null;
   }
   
   // Direct key match as fallback

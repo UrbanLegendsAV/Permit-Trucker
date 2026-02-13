@@ -1,0 +1,64 @@
+The "Additional Information Needed" questionnaire is asking users questions that their profile data ALREADY answers. This is a bad user experience — the user uploaded documents, Gemini parsed them at 95-100% confidence, but the questionnaire ignores all that parsed data.
+
+**THE ROOT CAUSE:**
+
+Find the `analyze-questions` endpoint: `POST /api/towns/:townId/forms/:formId/analyze-questions` in `server/routes.ts`. This endpoint:
+1. Reads the PDF form fields
+2. Compares them against the user's data (vault or profile)
+3. Returns a list of "unanswered" fields as questions
+
+The problem is in step 2 — the matching between PDF field names and user data keys is too strict. For example:
+- PDF field: "1. List all food and beverage items to be prepared and served (Line 1)"
+- User data key: "menu_items" with value "Platters (Main Platter, Picanha, etc.)"
+- These SHOULD match, but the matcher doesn't recognize them as the same thing
+
+**FIX PART 1 — Improve the field-to-data matching in analyze-questions:**
+
+The analyze-questions endpoint needs to use the SAME smart matching logic as the actual PDF filling. Look at `smartMatchFieldToData()` in `pdf-service.ts` (the big if/else chain around lines 691-873). The analyze-questions endpoint should use this same function to determine which fields CAN be filled.
+
+Specifically:
+- For each PDF form field, run it through smartMatchFieldToData() with the user's full data map
+- If smartMatchFieldToData returns a match → this field is ANSWERED, don't ask about it
+- If smartMatchFieldToData returns no match → this field is genuinely missing, add it to questions list
+
+**FIX PART 2 — Build a COMPLETE data map before comparing:**
+
+The user's data comes from multiple sources. Before checking which fields are missing, build a comprehensive data map that includes EVERYTHING:
+
+```typescript
+function buildCompleteDataMap(profile: any, vault: any, parsedDataLog: any): Record<string, string> {
+  const data: Record<string, string> = {};
+  
+  // From profile basic fields
+  if (profile.businessName) data.business_name = profile.businessName;
+  if (profile.ownerName) data.owner_name = profile.ownerName;
+  // ... all profile fields
+  
+  // From parsedDataLog (Gemini-extracted data) — this is the richest source
+  if (parsedDataLog) {
+    const parsed = typeof parsedDataLog === 'string' ? JSON.parse(parsedDataLog) : parsedDataLog;
+    
+    // Flatten all categories: operations, safety, menu_and_prep, license_info
+    for (const [category, fields] of Object.entries(parsed)) {
+      if (typeof fields === 'object' && fields !== null) {
+        for (const [key, fieldData] of Object.entries(fields as any)) {
+          if (fieldData?.value) {
+            data[key] = fieldData.value;
+            // Also store with category prefix for broader matching
+            data[`${category}_${key}`] = fieldData.value;
+          }
+        }
+      }
+    }
+  }
+  
+  // From vault (if exists, overwrites with curated data)
+  if (vault) {
+    if (vault.businessName) data.business_name = vault.businessName;
+    if (vault.menuItems) data.menu_items = vault.menuItems;
+    if (vault.foodSource) data.food_source = vault.foodSource;
+    // ... all vault fields
+  }
+  
+  return data;
+}

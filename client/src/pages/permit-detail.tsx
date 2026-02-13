@@ -86,6 +86,7 @@ export default function PermitDetailPage() {
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [pendingFormId, setPendingFormId] = useState<string | null>(null);
   const [analyzingForm, setAnalyzingForm] = useState(false);
+  const [autoFilledCount, setAutoFilledCount] = useState(0);
   const [showPortalAssist, setShowPortalAssist] = useState(false);
   const [portalAssistFormId, setPortalAssistFormId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -320,8 +321,8 @@ export default function PermitDetailPage() {
         const analysis = await analyzeResponse.json();
         
         if (analysis.unansweredQuestions && analysis.unansweredQuestions.length > 0) {
-          // Show questionnaire modal
           setUnansweredQuestions(analysis.unansweredQuestions);
+          setAutoFilledCount(analysis.answeredFields || 0);
           setUserAnswers({});
           setPendingFormId(formId);
           setShowQuestionnaire(true);
@@ -769,6 +770,21 @@ export default function PermitDetailPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
+                          {form.fileData && form.isFillable && (
+                            <Button
+                              size="sm"
+                              disabled={generatingTemplateId !== null}
+                              onClick={() => handleGeneratePacket(form.id)}
+                              data-testid={`button-generate-form-${form.id}`}
+                            >
+                              {generatingTemplateId === form.id ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <FileText className="w-4 h-4 mr-2" />
+                              )}
+                              Generate
+                            </Button>
+                          )}
                           {form.fileData && (
                             <Button
                               variant="outline"
@@ -1077,7 +1093,12 @@ export default function PermitDetailPage() {
           <DialogHeader>
             <DialogTitle>Additional Information Needed</DialogTitle>
             <DialogDescription>
-              Please answer the following questions to complete your permit application.
+              {autoFilledCount > 0 && (
+                <span className="block mb-2 text-green-600 dark:text-green-400 font-medium" data-testid="text-auto-filled-count">
+                  {autoFilledCount} {autoFilledCount === 1 ? 'field' : 'fields'} will be auto-filled from your profile
+                </span>
+              )}
+              Please answer the remaining {unansweredQuestions.length} {unansweredQuestions.length === 1 ? 'question' : 'questions'} below.
             </DialogDescription>
           </DialogHeader>
           

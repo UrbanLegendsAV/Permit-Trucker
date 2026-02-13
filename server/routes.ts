@@ -21,6 +21,8 @@ import {
   getTemplateById,
   fillPdfFromDatabase,
   townFormToTemplate,
+  buildDataMapFromParsedData,
+  smartMatchFieldToData,
   type ParsedUserData 
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
@@ -1844,81 +1846,7 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
     }
   });
 
-  // Helper function to infer data key from field label using heuristics
-  function inferDataKeyFromLabel(label: string, availableData: Record<string, string>): string | null {
-    const labelLower = label.toLowerCase();
-    
-    // Event-related fields
-    if ((labelLower.includes("event") && labelLower.includes("name")) || 
-        labelLower.includes("organization") || labelLower.includes("business name")) {
-      if (availableData.event_name) return "event_name";
-      if (availableData.business_name) return "business_name";
-    }
-    if (labelLower.includes("location") || (labelLower.includes("event") && labelLower.includes("address"))) {
-      if (availableData.event_location) return "event_location";
-      if (availableData.address) return "address";
-    }
-    if (labelLower.includes("hours") || labelLower.includes("operation")) {
-      if (availableData.hours_of_operation) return "hours_of_operation";
-    }
-    if (labelLower.includes("date")) {
-      if (availableData.event_dates) return "event_dates";
-    }
-    
-    // Contact info
-    if (labelLower.includes("applicant") || labelLower.includes("owner") || 
-        (labelLower.includes("name") && !labelLower.includes("business") && !labelLower.includes("event"))) {
-      if (availableData.owner_name) return "owner_name";
-      if (availableData.applicant_name) return "applicant_name";
-    }
-    if (labelLower.includes("phone") || labelLower.includes("telephone")) {
-      if (availableData.phone) return "phone";
-    }
-    if (labelLower.includes("email")) {
-      if (availableData.email) return "email";
-    }
-    if (labelLower.includes("address") && !labelLower.includes("event") && !labelLower.includes("location")) {
-      if (availableData.mailing_address) return "mailing_address";
-      if (availableData.address) return "address";
-    }
-    
-    // License/permit info
-    if (labelLower.includes("license") && labelLower.includes("number")) {
-      if (availableData.license_number) return "license_number";
-    }
-    
-    // Vehicle info
-    if (labelLower.includes("vin")) {
-      if (availableData.vin) return "vin";
-    }
-    if (labelLower.includes("license plate") || labelLower.includes("plate number")) {
-      if (availableData.license_plate) return "license_plate";
-    }
-    if (labelLower.includes("vehicle") && labelLower.includes("make")) {
-      if (availableData.vehicle_make) return "vehicle_make";
-    }
-    if (labelLower.includes("vehicle") && labelLower.includes("model")) {
-      if (availableData.vehicle_model) return "vehicle_model";
-    }
-    if (labelLower.includes("vehicle") && labelLower.includes("year")) {
-      if (availableData.vehicle_year) return "vehicle_year";
-    }
-    
-    // Menu and food
-    if (labelLower.includes("menu") || labelLower.includes("food item")) {
-      if (availableData.menu_items) return "menu_items";
-    }
-    if (labelLower.includes("commissary") || labelLower.includes("prep location")) {
-      if (availableData.commissary_address) return "commissary_address";
-    }
-    
-    // Certifications
-    if (labelLower.includes("food manager") || labelLower.includes("servsafe") || labelLower.includes("certification")) {
-      if (availableData.food_manager_cert) return "food_manager_cert";
-    }
-    
-    return null;
-  }
+  // inferDataKeyFromLabel removed — replaced by smartMatchFieldToData from pdf-service
 
   // Analyze form and return unanswered questions for the user to fill in
   app.post("/api/towns/:townId/forms/:formId/analyze-questions", isAuthenticated, async (req: any, res) => {
@@ -2013,118 +1941,33 @@ For text fields that require descriptive answers about food safety practices, se
         }
       }
 
-      // Build available data from profile - PRIORITY: userOverrides > parsedDataLog
-      const availableData: Record<string, string> = {};
-      
-      // FIRST: Load userOverrides (highest priority - user-provided answers)
+      // Build complete data map using the SAME logic as PDF filling
       const userOverrides = profile.userOverrides as Record<string, { value: string; savedAt: string; fieldName?: string }> | null;
-      if (userOverrides) {
-        for (const [key, override] of Object.entries(userOverrides)) {
-          // Keys are in format "category.field" - extract the field name
-          const fieldName = override.fieldName || key.split('.').pop() || key;
-          if (override.value) {
-            availableData[fieldName] = override.value;
-            console.log(`[Analyze] Using userOverride for ${fieldName}: ${override.value.substring(0, 50)}...`);
-          }
-        }
-      }
       
-      // SECOND: Add from parsedDataLog (only if not already set by userOverrides)
-      // Contact info - with cross-aliasing for owner_name/applicant_name
-      if (!availableData.business_name && parsedData?.contact_info?.business_name?.value) availableData.business_name = parsedData.contact_info.business_name.value;
-      
-      // Owner/Applicant name aliasing - both keys point to whatever data exists (only if not in userOverrides)
-      const ownerOrApplicant = parsedData?.contact_info?.owner_name?.value || parsedData?.contact_info?.applicant_name?.value;
-      if (ownerOrApplicant) {
-        if (!availableData.owner_name) availableData.owner_name = ownerOrApplicant;
-        if (!availableData.applicant_name) availableData.applicant_name = ownerOrApplicant;
-        if (!availableData.name) availableData.name = ownerOrApplicant;
-        if (!availableData.contact_name) availableData.contact_name = ownerOrApplicant;
-        if (!availableData.operator_name) availableData.operator_name = ownerOrApplicant;
-      }
-      
-      if (parsedData?.contact_info?.phone?.value) {
-        if (!availableData.phone) availableData.phone = parsedData.contact_info.phone.value;
-        if (!availableData.telephone) availableData.telephone = parsedData.contact_info.phone.value;
-        if (!availableData.contact_phone) availableData.contact_phone = parsedData.contact_info.phone.value;
-      }
-      if (parsedData?.contact_info?.email?.value) {
-        if (!availableData.email) availableData.email = parsedData.contact_info.email.value;
-        if (!availableData.contact_email) availableData.contact_email = parsedData.contact_info.email.value;
-      }
-      if (parsedData?.contact_info?.mailing_address?.value) {
-        if (!availableData.address) availableData.address = parsedData.contact_info.mailing_address.value;
-        if (!availableData.mailing_address) availableData.mailing_address = parsedData.contact_info.mailing_address.value;
-        if (!availableData.street_address) availableData.street_address = parsedData.contact_info.mailing_address.value;
-        if (!availableData.business_address) availableData.business_address = parsedData.contact_info.mailing_address.value;
-      }
-      
-      // License info (only if not already set from userOverrides)
-      if (!availableData.license_number && parsedData?.license_info?.license_number?.value) availableData.license_number = parsedData.license_info.license_number.value;
-      if (!availableData.license_type_profile && parsedData?.license_info?.license_type?.value) availableData.license_type_profile = parsedData.license_info.license_type.value;
-      if (!availableData.issuing_authority && parsedData?.license_info?.issuing_authority?.value) availableData.issuing_authority = parsedData.license_info.issuing_authority.value;
-      if (!availableData.valid_from && parsedData?.license_info?.valid_from?.value) availableData.valid_from = parsedData.license_info.valid_from.value;
-      if (!availableData.valid_through && parsedData?.license_info?.valid_through?.value) availableData.valid_through = parsedData.license_info.valid_through.value;
-      if (!availableData.towns_covered && parsedData?.license_info?.towns_covered?.value) availableData.towns_covered = parsedData.license_info.towns_covered.value;
-      
-      // Operations (only if not already set from userOverrides)
-      if (!availableData.water_supply && parsedData?.operations?.water_supply_type?.value) availableData.water_supply = parsedData.operations.water_supply_type.value;
-      if (!availableData.sanitizer_type && parsedData?.operations?.sanitizer_type?.value) availableData.sanitizer_type = parsedData.operations.sanitizer_type.value;
-      if (!availableData.sanitizing_method && parsedData?.operations?.sanitizing_method?.value) availableData.sanitizing_method = parsedData.operations.sanitizing_method.value;
-      if (!availableData.toilet_facilities_profile && parsedData?.operations?.toilet_facilities?.value) availableData.toilet_facilities_profile = parsedData.operations.toilet_facilities.value;
-      
-      // Safety (only if not already set from userOverrides)
-      if (!availableData.hot_holding && parsedData?.safety?.hot_holding_method?.value) availableData.hot_holding = parsedData.safety.hot_holding_method.value;
-      if (!availableData.cold_storage && parsedData?.safety?.cold_storage_method?.value) availableData.cold_storage = parsedData.safety.cold_storage_method.value;
-      if (!availableData.waste_water && parsedData?.safety?.waste_water_disposal?.value) availableData.waste_water = parsedData.safety.waste_water_disposal.value;
-      if (!availableData.temp_monitoring && parsedData?.safety?.temperature_monitoring_method?.value) availableData.temp_monitoring = parsedData.safety.temperature_monitoring_method.value;
-      
-      // Menu & Prep (only if not already set from userOverrides)
-      if (!availableData.menu_items && parsedData?.menu_and_prep?.food_items_list?.value) availableData.menu_items = parsedData.menu_and_prep.food_items_list.value;
-      if (!availableData.food_items && parsedData?.menu_and_prep?.food_items_list?.value) availableData.food_items = parsedData.menu_and_prep.food_items_list.value;
-      if (!availableData.prep_location && parsedData?.menu_and_prep?.prep_location?.value) availableData.prep_location = parsedData.menu_and_prep.prep_location.value;
-      if (!availableData.commissary_address && parsedData?.menu_and_prep?.prep_location?.value) availableData.commissary_address = parsedData.menu_and_prep.prep_location.value;
-      if (!availableData.food_sources && parsedData?.menu_and_prep?.food_source_location?.value) availableData.food_sources = parsedData.menu_and_prep.food_source_location.value;
-      
-      // Commissary info (only if not already set from userOverrides)
-      if (!availableData.commissary_name && parsedData?.commissary_info?.commissary_name?.value) availableData.commissary_name = parsedData.commissary_info.commissary_name.value;
-      if (!availableData.commissary_address && parsedData?.commissary_info?.commissary_address?.value) availableData.commissary_address = parsedData.commissary_info.commissary_address.value;
-      
-      // Vehicle info (only if not already set from userOverrides)
-      if (!availableData.vin && parsedData?.vehicle_info?.vin?.value) availableData.vin = parsedData.vehicle_info.vin.value;
-      if (!availableData.license_plate && parsedData?.vehicle_info?.license_plate?.value) availableData.license_plate = parsedData.vehicle_info.license_plate.value;
-      if (!availableData.vehicle_make && parsedData?.vehicle_info?.trailer_make?.value) availableData.vehicle_make = parsedData.vehicle_info.trailer_make.value;
-      if (!availableData.vehicle_model && parsedData?.vehicle_info?.trailer_model?.value) availableData.vehicle_model = parsedData.vehicle_info.trailer_model.value;
-      if (!availableData.vehicle_year && parsedData?.vehicle_info?.trailer_year?.value) availableData.vehicle_year = parsedData.vehicle_info.trailer_year.value;
-      
-      // Equipment info (only if not already set from userOverrides)
-      if (!availableData.handwash_setup && parsedData?.equipment_info?.handwash_setup?.value) availableData.handwash_setup = parsedData.equipment_info.handwash_setup.value;
-      if (!availableData.refrigeration && parsedData?.equipment_info?.refrigeration?.value) availableData.refrigeration = parsedData.equipment_info.refrigeration.value;
-      if (!availableData.cooking_equipment && parsedData?.equipment_info?.cooking_equipment?.value) availableData.cooking_equipment = parsedData.equipment_info.cooking_equipment.value;
-      
-      // Certifications (only if not already set from userOverrides)
-      if (!availableData.food_manager_cert && parsedData?.certifications?.food_manager_cert?.value) availableData.food_manager_cert = parsedData.certifications.food_manager_cert.value;
-      if (!availableData.cert_expiration && parsedData?.certifications?.cert_expiration?.value) availableData.cert_expiration = parsedData.certifications.cert_expiration.value;
-      
-      // Event data from permit (only if not already set from userOverrides)
-      if (!availableData.event_name && eventData?.eventName) availableData.event_name = eventData.eventName;
-      if (!availableData.event_location && eventData?.eventAddress) availableData.event_location = eventData.eventAddress;
-      if (!availableData.event_dates && eventData?.eventDates) availableData.event_dates = eventData.eventDates;
-      if (!availableData.hours_of_operation && eventData?.hoursOfOperation) availableData.hours_of_operation = eventData.hoursOfOperation;
-      if (!availableData.person_in_charge && eventData?.personInCharge) availableData.person_in_charge = eventData.personInCharge;
-      
-      // Food truck defaults (industry knowledge) - only if not already set
-      if (!availableData.license_type) availableData.license_type = eventData?.licenseType || "temporary";
-      if (!availableData.toilet_facilities) availableData.toilet_facilities = parsedData?.operations?.toilet_facilities?.value || "portable";
-      if (!availableData.handwash_type) availableData.handwash_type = "temporary";
-      if (!availableData.foods_prepared_onsite) availableData.foods_prepared_onsite = "yes";
-      if (!availableData.handwash_sketch_yes) availableData.handwash_sketch_yes = "yes";
-      
-      console.log(`[Analyze] Available data keys: ${Object.keys(availableData).join(", ")}`);
-      console.log(`[Analyze] eventData received:`, JSON.stringify(eventData));
-      console.log(`[Analyze] Event values - name: "${availableData.event_name}", location: "${availableData.event_location}", hours: "${availableData.hours_of_operation}"`);
+      // Get vault data for additional overrides
+      let vaultData = null;
+      try {
+        vaultData = await storage.getDataVaultByProfileId(profileId);
+      } catch { /* vault may not exist */ }
 
-      // Find unanswered questions
+      const dataMap = buildDataMapFromParsedData(
+        parsedData,
+        vaultData,
+        eventData ? {
+          eventName: eventData.eventName,
+          eventAddress: eventData.eventAddress,
+          eventDates: eventData.eventDates,
+          hoursOfOperation: eventData.hoursOfOperation,
+          personInCharge: eventData.personInCharge,
+          licenseType: eventData.licenseType,
+        } : undefined,
+        userOverrides,
+      );
+
+      const filledDataKeys = Object.keys(dataMap).filter(k => dataMap[k]);
+      console.log(`[Analyze] Complete data map has ${filledDataKeys.length} filled keys: ${filledDataKeys.join(", ")}`);
+
+      // Use smartMatchFieldToData to determine which fields can be auto-filled
       const unansweredQuestions: Array<{
         fieldName: string;
         fieldType: "text" | "checkbox";
@@ -2133,68 +1976,39 @@ For text fields that require descriptive answers about food safety practices, se
         currentValue?: string;
       }> = [];
 
+      let autoFilledCount = 0;
+
       for (const field of fields) {
-        const needsInput = (field as any).needsUserInput;
-        const hasData = field.dataKey && availableData[field.dataKey];
+        if (field.fieldType !== "text") continue;
+
+        // Try the field's AI-assigned dataKey first
+        const hasDirectMatch = field.dataKey && dataMap[field.dataKey];
         
-        // Include if: needs user input OR has no dataKey OR dataKey has no data
-        if (field.fieldType === "text" && (needsInput || !field.dataKey || !hasData)) {
-          // Skip if it's a common auto-filled field type - comprehensive list with ALIASES
-          const autoFilledKeys = [
-            // Contact info + aliases
-            "business_name", "applicant_name", "owner_name", "name", "contact_name", "operator_name",
-            "phone", "telephone", "contact_phone",
-            "email", "contact_email",
-            "address", "mailing_address", "street_address", "business_address",
-            // License info
-            "license_number", "license_type", "license_type_profile", "issuing_authority", "valid_from", "valid_through", "towns_covered",
-            // Operations
-            "water_supply", "sanitizer_type", "sanitizing_method", "toilet_facilities", "toilet_facilities_profile",
-            // Safety
-            "hot_holding", "cold_storage", "waste_water", "temp_monitoring",
-            // Menu & Prep
-            "menu_items", "food_items", "prep_location", "food_sources", "commissary_address", "commissary_name",
-            // Vehicle
-            "vin", "license_plate", "vehicle_make", "vehicle_model", "vehicle_year",
-            // Equipment
-            "handwash_setup", "refrigeration", "cooking_equipment",
-            // Certifications
-            "food_manager_cert", "cert_expiration",
-            // Event data
-            "event_name", "event_location", "event_dates", "hours_of_operation", "person_in_charge",
-            // Defaults
-            "handwash_type", "foods_prepared_onsite", "handwash_sketch_yes"
-          ];
-          
-          if (field.dataKey && autoFilledKeys.includes(field.dataKey) && hasData) {
-            console.log(`[Analyze] Auto-filling field "${field.pdfFieldName}" with "${field.dataKey}"`);
-            continue; // Skip - this will be auto-filled
-          }
-          
-          // HEURISTIC: Try to match field label to available data keys even without explicit mapping
-          const labelLower = field.label?.toLowerCase() || field.pdfFieldName?.toLowerCase() || "";
-          const inferredDataKey = inferDataKeyFromLabel(labelLower, availableData);
-          console.log(`[Analyze] Checking field "${field.pdfFieldName}" label="${field.label}" dataKey="${field.dataKey}" hasData=${hasData} inferredKey="${inferredDataKey}"`);
-          if (inferredDataKey && availableData[inferredDataKey]) {
-            console.log(`[Analyze] Heuristic match: "${field.pdfFieldName}" label="${field.label}" -> inferred "${inferredDataKey}" = "${availableData[inferredDataKey]}"`);
-            continue; // Skip - we can auto-fill this via heuristics
-          }
-          
-          unansweredQuestions.push({
-            fieldName: field.pdfFieldName,
-            fieldType: field.fieldType,
-            label: field.label,
-            dataKey: field.dataKey,
-            currentValue: field.dataKey ? availableData[field.dataKey] : undefined,
-          });
+        // Then use smartMatchFieldToData on both the PDF field name AND the label
+        const matchByFieldName = smartMatchFieldToData(field.pdfFieldName, dataMap, eventData);
+        const matchByLabel = field.label ? smartMatchFieldToData(field.label, dataMap, eventData) : null;
+
+        if (hasDirectMatch || matchByFieldName || matchByLabel) {
+          autoFilledCount++;
+          console.log(`[Analyze] Auto-fill: "${field.pdfFieldName}" label="${field.label}" matched=${hasDirectMatch ? 'dataKey' : matchByFieldName ? 'fieldName' : 'label'}`);
+          continue;
         }
+
+        unansweredQuestions.push({
+          fieldName: field.pdfFieldName,
+          fieldType: field.fieldType,
+          label: field.label,
+          dataKey: field.dataKey,
+        });
       }
+
+      console.log(`[Analyze] Result: ${autoFilledCount} auto-filled, ${unansweredQuestions.length} unanswered out of ${fields.length} total`);
 
       res.json({
         formId,
         formName: form.name,
         totalFields: fields.length,
-        answeredFields: fields.length - unansweredQuestions.length,
+        answeredFields: autoFilledCount,
         unansweredQuestions,
         hasAllAnswers: unansweredQuestions.length === 0,
       });
