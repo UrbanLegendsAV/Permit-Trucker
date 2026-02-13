@@ -1147,6 +1147,96 @@ ${prompt}`;
     }
   });
 
+  // Fetch PDF from sourceUrl for a form that was discovered but not downloaded
+  app.post("/api/towns/:townId/forms/:formId/fetch-pdf", isAuthenticated, async (req, res) => {
+    try {
+      const { townId, formId } = req.params;
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      if (form.fileData) {
+        return res.json({ success: true, message: "PDF already available", alreadyAvailable: true });
+      }
+
+      const sourceUrl = form.sourceUrl || form.externalUrl;
+      if (!sourceUrl) {
+        return res.status(400).json({ message: "No source URL available for this form" });
+      }
+
+      console.log(`[Forms] Fetching PDF from source: ${sourceUrl}`);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        const response = await fetch(sourceUrl, {
+          signal: controller.signal,
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/pdf,application/octet-stream,*/*',
+          },
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          console.warn(`[Forms] Source URL returned HTTP ${response.status}: ${sourceUrl}`);
+          return res.status(502).json({ 
+            message: `The source website returned an error (HTTP ${response.status}). The form may have been moved or removed.`,
+            sourceUrl,
+          });
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        const isPdf = contentType.includes('pdf') || contentType.includes('octet-stream') || sourceUrl.toLowerCase().endsWith('.pdf');
+        if (!isPdf) {
+          return res.status(400).json({ 
+            message: `The source URL did not return a PDF file. You may need to download it manually from the town website.`,
+            sourceUrl,
+          });
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const base64 = buffer.toString('base64');
+
+        let isFillable = false;
+        try {
+          const { PDFDocument } = await import('pdf-lib');
+          const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+          const pdfForm = pdfDoc.getForm();
+          isFillable = pdfForm.getFields().length > 0;
+        } catch {}
+
+        await storage.updateTownForm(formId, {
+          fileData: base64,
+          fileName: sourceUrl.split('/').pop() || 'form.pdf',
+          fileType: 'application/pdf',
+          isFillable,
+        });
+
+        console.log(`[Forms] Successfully fetched and stored PDF for form ${form.name} (fillable: ${isFillable})`);
+
+        res.json({
+          success: true,
+          message: `PDF downloaded successfully`,
+          isFillable,
+          fileName: sourceUrl.split('/').pop() || 'form.pdf',
+        });
+      } catch (fetchErr: any) {
+        clearTimeout(timeout);
+        if (fetchErr.name === 'AbortError') {
+          return res.status(504).json({ message: "PDF download timed out (30s)" });
+        }
+        throw fetchErr;
+      }
+    } catch (error: any) {
+      console.error("Error fetching form PDF:", error);
+      res.status(500).json({ message: "Failed to fetch PDF", error: error.message });
+    }
+  });
+
   // Manual form discovery endpoint
   app.post("/api/towns/:townId/discover-forms", isAuthenticated, async (req, res) => {
     try {

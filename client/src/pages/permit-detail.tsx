@@ -89,6 +89,7 @@ export default function PermitDetailPage() {
   const [showPortalAssist, setShowPortalAssist] = useState(false);
   const [portalAssistFormId, setPortalAssistFormId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [fetchingFormId, setFetchingFormId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -748,9 +749,16 @@ export default function PermitDetailPage() {
                           <div>
                             <p className="font-medium">{form.name}</p>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm text-muted-foreground">
-                                {form.category?.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
-                              </span>
+                              {form.category && (
+                                <span className="text-sm text-muted-foreground">
+                                  {form.category.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+                                </span>
+                              )}
+                              {!form.category && (
+                                <span className="text-sm text-muted-foreground">
+                                  {form.isAiDiscovered ? "AI Discovered" : "Permit Form"}
+                                </span>
+                              )}
                               {form.fileData && form.isFillable && (
                                 <Badge variant="outline" className="text-xs">Fillable Form</Badge>
                               )}
@@ -777,13 +785,58 @@ export default function PermitDetailPage() {
                               Download
                             </Button>
                           )}
+                          {form.sourceUrl && !form.fileData && !isPortalForm(form) && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={fetchingFormId === form.id}
+                                onClick={async () => {
+                                  setFetchingFormId(form.id);
+                                  try {
+                                    const res = await apiRequest("POST", `/api/towns/${permit?.townId}/forms/${form.id}/fetch-pdf`);
+                                    const data = await res.json();
+                                    if (data.success) {
+                                      toast({ title: "PDF Ready", description: `${form.name} is now available.` });
+                                      queryClient.invalidateQueries({ queryKey: ["/api/towns", permit?.townId, "forms"] });
+                                    }
+                                  } catch {
+                                    toast({ 
+                                      title: "Could not fetch PDF", 
+                                      description: "The source may be unavailable. Try visiting the town website directly.",
+                                      variant: "destructive",
+                                    });
+                                  } finally {
+                                    setFetchingFormId(null);
+                                  }
+                                }}
+                                data-testid={`button-fetch-pdf-${form.id}`}
+                              >
+                                {fetchingFormId === form.id ? (
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4 mr-2" />
+                                )}
+                                {fetchingFormId === form.id ? "Fetching..." : "Fetch PDF"}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => window.open(form.sourceUrl!, '_blank')}
+                                title="Open source URL"
+                                data-testid={`button-visit-source-${form.id}`}
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          )}
                           {isPortalForm(form) && (
                             <Badge variant="outline" className="text-xs">
                               <Globe className="w-3 h-3 mr-1" />
                               {getPortalProvider(form)}
                             </Badge>
                           )}
-                          {!form.fileData && !isPortalForm(form) && (
+                          {!form.fileData && !form.sourceUrl && !isPortalForm(form) && (
                             <Badge variant="secondary">Not Available</Badge>
                           )}
                         </div>
