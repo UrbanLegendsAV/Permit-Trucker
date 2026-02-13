@@ -106,71 +106,78 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 | Feature | What's Missing |
 |---------|----------------|
 | PDF Auto-Fill (Datalab AI) | No recent end-to-end test after refactors |
-| Portal Automation V1 | Playwright code exists, never run against real SeamlessDocs form |
+| Form Discovery (Web Crawling) | Rewritten to crawl real websites, needs real-world testing |
 | Permit Packet Generator | Compiles but no smoke test evidence |
 
 ### 🔧 PARTIALLY IMPLEMENTED
 
 | Feature | What's Done | What's Missing |
 |---------|-------------|----------------|
-| Data Vault Sync | Populates core fields | Multi-document conflict resolution |
+| Data Vault Sync | Auto-syncs after document parsing, populates core fields | Multi-document conflict resolution |
+| Portal Assist V1 | Copy-paste helper UI with clipboard support | Full portal automation |
 | Portal Credentials | Encryption works | No UI to manage credentials |
 
 ### ❌ NOT STARTED
-- Automated portal form submission (click Submit)
+- Automated portal form submission (Playwright-based)
 - CAPTCHA detection/handling
 - ViewPoint-specific portal automation
 - Analytics/telemetry
+- Frontend polling when discovery is in progress
 
 ### 🐛 KNOWN ISSUES
-1. Portal automation only has SeamlessDocs heuristics
-2. No retry/backoff for brittle automation
-3. Stale town cache after updates
+1. Portal automation Playwright code exists but is brittle/untested - replaced with Portal Assist V1 (copy-paste)
+2. Stale town cache after updates
+3. Form discovery depends on town website URL patterns (may miss some towns)
 
 ### 📍 WHERE WORK LEFT OFF
 
-**Last Session:** Automatic Form Discovery Feature (Feb 03, 2026)
+**Last Session:** Surgical Fix Sprint (Feb 13, 2026)
 
 **What Was Done:**
-1. **NEW FEATURE: Automatic Form Discovery**
-   - Created `server/lib/form-discovery-service.ts` - AI-powered service to find permit PDFs on town websites
-   - Uses Gemini AI to search for official permit application forms
-   - Automatically downloads discovered PDFs and stores them in `town_forms` table
-   - Marks forms as AI-discovered (`isAiDiscovered=true`)
+1. **Data Vault Auto-Sync** - Vault automatically populates after Gemini document parsing (single and multi-doc routes). Removed blocking "Data Vault Required" error. Profile data used as fallback if no parsedDataLog.
 
-2. **Auto-Discovery Integration**
-   - `GET /api/towns/:townId/forms` now auto-triggers discovery when no forms exist for a town
-   - Runs discovery in background to avoid blocking the response
-   - Returns `discoveryStarted: true` or `discoveryInProgress: true` status to frontend
-   - Includes deduplication to prevent concurrent discoveries for the same town
+2. **Form Discovery Rewrite** - Complete rewrite from Gemini URL-guessing to actual web crawling:
+   - Builds seed URLs from town name patterns + health district websites
+   - Crawls HTML pages using cheerio, extracts PDF links
+   - Follows subpages one level deep (max 15)
+   - AI classification with heuristic fallback for identifying food truck forms
+   - PDF validation, download with retry/backoff, fillability detection
+   - 24-hour cooldown to prevent re-crawling
+   - Deduplication against existing forms by source URL
 
-3. **Manual Discovery Endpoint**
-   - `POST /api/towns/:townId/discover-forms` - Manually trigger form discovery
-   - Supports `force: true` to re-discover even if forms already exist
-   - Returns detailed results including forms found, downloaded, and source URLs
+3. **PDF Generate Pipeline** - 3-layer data merge:
+   - Layer 1: Parsed data from Gemini document analysis (parsedDataLog)
+   - Layer 2: Data Vault structured fields (override parsed data)
+   - Layer 3: User answers and event data (highest priority)
+   - On-the-fly PDF download from sourceUrl when fileData is missing
+   - Vault data passed to both Datalab API and local filling paths
 
-4. **Error Handling & Safety**
-   - Checks if `GOOGLE_API_KEY` is configured before attempting discovery
-   - Uses in-memory tracking to prevent duplicate concurrent discoveries
-   - Timeout protection on PDF downloads (30 seconds)
-   - Graceful cleanup on errors
+4. **Portal Assist V1** - Replaced broken Playwright automation with copy-paste helper:
+   - Shows all profile data fields in a dialog with one-tap copy
+   - "Open Portal" button to launch town portal in new tab
+   - Works for any town with a portal URL, not just SeamlessDocs
 
-**What Was NOT Done:**
-- Did not fully test the discovery feature end-to-end (user should test by visiting a permit for a town with no forms)
-- Frontend does not yet poll/refresh when discovery is in progress
+5. **Security & Stability**
+   - Global API rate limiter (200 req/15min) on all /api routes
+   - React ErrorBoundary wrapping entire app
+   - Enhanced env var validation at startup (required + optional)
+   - tsconfig target updated to ES2020 for modern JS features
 
 **Immediate Next Steps:**
-1. User should test: Start a permit for West Hartford → Observe auto-discovery triggered → Refresh to see discovered forms
-2. Consider adding frontend polling to auto-refresh when `discoveryStarted: true`
-3. Test portal automation on Brookfield SeamlessDocs
-4. Verify PDF auto-fill still works with Datalab
+1. Test form discovery on a town with no existing forms
+2. Test PDF auto-fill end-to-end with Datalab
+3. Add frontend polling for discovery-in-progress state
+4. Test Portal Assist copy-paste flow on real portal
 
 ### 📁 Key Files
 | Purpose | File |
 |---------|------|
-| Form Discovery | `server/lib/form-discovery-service.ts` |
+| Form Discovery (Web Crawl) | `server/lib/form-discovery-service.ts` |
+| Data Vault Service | `server/lib/vault-service.ts` |
 | Portal Automation | `server/lib/portal-automation-service.ts` |
 | PDF Generation | `server/lib/pdf-service.ts` |
+| Rate Limiting | `server/lib/rate-limiter.ts` |
 | API Routes | `server/routes.ts` |
+| Error Boundary | `client/src/components/error-boundary.tsx` |
 | Permit UI | `client/src/pages/permit-detail.tsx` |
 | Schema | `shared/schema.ts` |

@@ -53,7 +53,8 @@ import {
   Trash2,
   ExternalLink,
   Globe,
-  Send,
+  Copy,
+  ClipboardCheck,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -85,16 +86,9 @@ export default function PermitDetailPage() {
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
   const [pendingFormId, setPendingFormId] = useState<string | null>(null);
   const [analyzingForm, setAnalyzingForm] = useState(false);
-  const [portalSubmitting, setPortalSubmitting] = useState<string | null>(null);
-  const [portalResult, setPortalResult] = useState<{
-    success: boolean;
-    portalUrl: string;
-    filledFields: string[];
-    screenshotBase64?: string;
-    formStatus: string;
-    provider: string;
-  } | null>(null);
-  const [showPortalResult, setShowPortalResult] = useState(false);
+  const [showPortalAssist, setShowPortalAssist] = useState(false);
+  const [portalAssistFormId, setPortalAssistFormId] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -209,9 +203,9 @@ export default function PermitDetailPage() {
     setEditedPermit({});
   };
 
-  // Check if a form can be auto-filled (has fileData and is marked fillable)
+  // Check if a form can be auto-filled (has fileData - Datalab can fill even flat PDFs)
   const canAutoFill = (form: TownForm): boolean => {
-    return !!(form.isFillable && form.fileData);
+    return !!form.fileData;
   };
 
   // Check if a form supports portal automation (SeamlessDocs, OpenGov, ViewPoint)
@@ -230,54 +224,48 @@ export default function PermitDetailPage() {
   };
 
   // Handle portal submission
-  const handlePortalSubmit = async (formId: string) => {
-    if (!permit?.profileId || !permit?.townId) {
-      toast({
-        title: "Missing Information",
-        description: "Please ensure you have a profile and town linked to this permit.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handlePortalAssist = (formId: string) => {
+    setPortalAssistFormId(formId);
+    setShowPortalAssist(true);
+    setCopiedField(null);
+  };
 
-    setPortalSubmitting(formId);
-
+  const copyToClipboard = async (value: string, fieldKey: string) => {
     try {
-      const response = await fetch(`/api/towns/${permit.townId}/forms/${formId}/portal-submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          profileId: permit.profileId,
-          permitId: permit.id,
-          eventData: getEventData(),
-          userAnswers: {},
-          submitForm: false, // V1: Just fill the form, don't submit yet
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || "Portal automation failed");
-      }
-
-      setPortalResult(result);
-      setShowPortalResult(true);
-      
-      toast({
-        title: "Form Filled Successfully",
-        description: `Filled ${result.filledFields.length} fields on ${result.provider}. Click the link to review and submit.`,
-      });
-    } catch (error: any) {
-      toast({
-        title: "Portal Submission Failed",
-        description: error.message || "Failed to fill portal form. Please try again or fill manually.",
-        variant: "destructive",
-      });
-    } finally {
-      setPortalSubmitting(null);
+      await navigator.clipboard.writeText(value);
+      setCopiedField(fieldKey);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      toast({ title: "Copy failed", description: "Could not copy to clipboard", variant: "destructive" });
     }
+  };
+
+  const getPortalAssistData = (): Array<{ label: string; value: string; key: string }> => {
+    const parsedData = profile?.parsedDataLog as Record<string, any> | null;
+    const fields: Array<{ label: string; value: string; key: string }> = [];
+    
+    const addField = (label: string, value: string | undefined | null, key: string) => {
+      if (value && value.trim()) fields.push({ label, value: value.trim(), key });
+    };
+
+    addField("Business Name", parsedData?.contact_info?.business_name?.value, "business_name");
+    addField("Owner / Applicant Name", parsedData?.contact_info?.applicant_name?.value || parsedData?.contact_info?.owner_name?.value, "owner_name");
+    addField("Phone", parsedData?.contact_info?.phone?.value, "phone");
+    addField("Email", parsedData?.contact_info?.email?.value, "email");
+    addField("Mailing Address", parsedData?.contact_info?.mailing_address?.value, "mailing_address");
+    addField("VIN / License Plate", profile?.vinPlate || parsedData?.vehicle_info?.vin?.value, "vin");
+    addField("Commissary Name", parsedData?.commissary_info?.commissary_name?.value || profile?.commissaryName, "commissary_name");
+    addField("Commissary Address", parsedData?.commissary_info?.commissary_address?.value || profile?.commissaryAddress, "commissary_address");
+    addField("Menu Items", parsedData?.menu_and_prep?.food_items_list?.value, "menu_items");
+    addField("Water Supply", parsedData?.operations?.water_supply_type?.value, "water_supply");
+
+    if (permit?.eventName) addField("Event Name", permit.eventName, "event_name");
+    if (permit?.eventAddress) addField("Event Location", `${permit.eventAddress}${permit?.eventCity ? `, ${permit.eventCity}` : ''}`, "event_location");
+    if (permit?.eventDate) addField("Event Date", new Date(permit.eventDate).toLocaleDateString(), "event_date");
+    if (permit?.eventContactName) addField("Event Contact", permit.eventContactName, "event_contact");
+    if (permit?.eventContactPhone) addField("Event Contact Phone", permit.eventContactPhone, "event_contact_phone");
+
+    return fields;
   };
 
   // Format event data helper
@@ -759,9 +747,17 @@ export default function PermitDetailPage() {
                           </div>
                           <div>
                             <p className="font-medium">{form.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {form.category?.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
-                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm text-muted-foreground">
+                                {form.category?.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+                              </span>
+                              {form.fileData && form.isFillable && (
+                                <Badge variant="outline" className="text-xs">Fillable Form</Badge>
+                              )}
+                              {form.fileData && !form.isFillable && (
+                                <Badge variant="secondary" className="text-xs">PDF Form</Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -853,7 +849,7 @@ export default function PermitDetailPage() {
                         ))}
                       {townForms.filter((f) => canAutoFill(f)).length === 0 && (
                         <p className="text-sm text-muted-foreground py-2">
-                          No fillable form templates available for {town?.townName} yet. Upload forms in the admin dashboard.
+                          No form templates with PDF data available for {town?.townName} yet. Forms may still be loading from discovery.
                         </p>
                       )}
                     </div>
@@ -862,23 +858,23 @@ export default function PermitDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Portal Submission Section */}
-            {townForms.filter((f) => isPortalForm(f)).length > 0 && (
+            {/* Portal Assist Section */}
+            {(townForms.filter((f) => isPortalForm(f)).length > 0 || town?.portalUrl) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Globe className="w-5 h-5" />
-                    Submit via Portal
+                    Portal Assist
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Auto-fill and submit your permit application directly to the town's online portal.
+                    Copy your information and paste it into the town's online portal. We'll show you all your data ready to copy.
                   </p>
                   {!profile?.parsedDataLog ? (
                     <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
                       <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                        Your profile needs analyzed documents before using portal submission.
+                        Your profile needs analyzed documents before using Portal Assist.
                       </p>
                       <Button 
                         variant="outline" 
@@ -890,36 +886,45 @@ export default function PermitDetailPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Select a portal to auto-fill your application:
-                      </p>
-                      <div className="grid gap-2">
-                        {townForms
-                          .filter((form) => isPortalForm(form))
-                          .map((form) => (
-                            <Button
-                              key={form.id}
-                              onClick={() => handlePortalSubmit(form.id)}
-                              disabled={portalSubmitting !== null}
-                              variant="outline"
-                              className="justify-start h-auto py-3"
-                              data-testid={`button-portal-submit-${form.id}`}
-                            >
-                              {portalSubmitting === form.id ? (
-                                <Loader2 className="w-4 h-4 mr-3 animate-spin" />
-                              ) : (
-                                <Send className="w-4 h-4 mr-3" />
-                              )}
-                              <div className="text-left flex-1">
-                                <div className="font-medium">{form.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {getPortalProvider(form)} Portal
-                                </div>
+                      {townForms
+                        .filter((form) => isPortalForm(form))
+                        .map((form) => (
+                          <Button
+                            key={form.id}
+                            onClick={() => handlePortalAssist(form.id)}
+                            variant="outline"
+                            className="justify-start h-auto py-3"
+                            data-testid={`button-portal-assist-${form.id}`}
+                          >
+                            <ClipboardCheck className="w-4 h-4 mr-3" />
+                            <div className="text-left flex-1">
+                              <div className="font-medium">{form.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Copy-paste your data into {getPortalProvider(form)} portal
                               </div>
-                              <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
-                            </Button>
-                          ))}
-                      </div>
+                            </div>
+                            <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
+                          </Button>
+                        ))}
+                      {town?.portalUrl && townForms.filter((f) => isPortalForm(f)).length === 0 && (
+                        <Button
+                          onClick={() => {
+                            setPortalAssistFormId(null);
+                            setShowPortalAssist(true);
+                            setCopiedField(null);
+                          }}
+                          variant="outline"
+                          className="justify-start h-auto py-3"
+                          data-testid="button-portal-assist-generic"
+                        >
+                          <ClipboardCheck className="w-4 h-4 mr-3" />
+                          <div className="text-left flex-1">
+                            <div className="font-medium">Open Town Portal</div>
+                            <div className="text-xs text-muted-foreground">Copy-paste your data into the portal</div>
+                          </div>
+                          <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
+                        </Button>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1076,58 +1081,65 @@ export default function PermitDetailPage() {
       </Dialog>
 
       {/* Portal Result Modal */}
-      <Dialog open={showPortalResult} onOpenChange={setShowPortalResult}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={showPortalAssist} onOpenChange={setShowPortalAssist}>
+        <DialogContent className="max-w-lg max-h-[85vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-500" />
-              Portal Form Filled
+              <ClipboardCheck className="w-5 h-5" />
+              Portal Assist
             </DialogTitle>
             <DialogDescription>
-              Your permit application has been auto-filled on {portalResult?.provider}.
+              Copy each field below and paste it into the town's portal form. Tap any row to copy.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
-            {portalResult?.screenshotBase64 && (
-              <div className="border rounded-md overflow-hidden">
-                <img 
-                  src={`data:image/png;base64,${portalResult.screenshotBase64}`}
-                  alt="Portal form preview"
-                  className="w-full h-auto"
-                />
-              </div>
-            )}
-            
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Fields Filled:</p>
-              <div className="flex flex-wrap gap-1">
-                {portalResult?.filledFields.map((field) => (
-                  <Badge key={field} variant="secondary" className="text-xs">
-                    {field.replace(/_/g, " ")}
-                  </Badge>
-                ))}
-              </div>
+          <ScrollArea className="max-h-[50vh]">
+            <div className="space-y-2 pr-4">
+              {getPortalAssistData().map((field) => (
+                <button
+                  key={field.key}
+                  onClick={() => copyToClipboard(field.value, field.key)}
+                  className="w-full text-left p-3 rounded-md border hover-elevate active-elevate-2 transition-colors"
+                  data-testid={`portal-assist-field-${field.key}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground">{field.label}</p>
+                      <p className="text-sm font-medium break-words">{field.value}</p>
+                    </div>
+                    <div className="flex-shrink-0 mt-1">
+                      {copiedField === field.key ? (
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+              {getPortalAssistData().length === 0 && (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No profile data available. Please upload and analyze documents first.
+                </p>
+              )}
             </div>
+          </ScrollArea>
 
-            <div className="p-3 bg-muted rounded-md">
-              <p className="text-sm text-muted-foreground">
-                Click the button below to open the portal and review your application before submitting.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 flex-wrap">
             <Button 
               variant="outline" 
-              onClick={() => setShowPortalResult(false)}
+              onClick={() => setShowPortalAssist(false)}
             >
               Close
             </Button>
             <Button 
               onClick={() => {
-                if (portalResult?.portalUrl) {
-                  window.open(portalResult.portalUrl, "_blank");
+                const portalForm = portalAssistFormId ? townForms.find(f => f.id === portalAssistFormId) : null;
+                const url = portalForm?.externalUrl || portalForm?.sourceUrl || town?.portalUrl;
+                if (url) {
+                  window.open(url, "_blank");
+                } else {
+                  toast({ title: "No portal URL", description: "No portal URL available for this town.", variant: "destructive" });
                 }
               }}
               data-testid="button-open-portal"

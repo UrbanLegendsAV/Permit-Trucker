@@ -1,5 +1,18 @@
 import rateLimit from "express-rate-limit";
 
+export const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  message: {
+    message: "Too many requests. Please slow down and try again.",
+    retryAfter: 15
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  skip: (req) => !req.path.startsWith('/api'),
+});
+
 export const aiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 requests per window

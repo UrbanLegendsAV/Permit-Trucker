@@ -6,11 +6,18 @@ import { seedTowns } from "./seed";
 
 function validateEnvironment() {
   const requiredEnvVars = ["GOOGLE_API_KEY"];
+  const optionalEnvVars = ["DATALAB_API_KEY"];
   const missing: string[] = [];
+  const missingOptional: string[] = [];
   
   for (const envVar of requiredEnvVars) {
     if (!process.env[envVar]) {
       missing.push(envVar);
+    }
+  }
+  for (const envVar of optionalEnvVars) {
+    if (!process.env[envVar]) {
+      missingOptional.push(envVar);
     }
   }
   
@@ -22,6 +29,12 @@ function validateEnvironment() {
     console.error("AI features (document parsing, town research) will not work.");
     console.error("Please set these in the Secrets tab.");
     console.error("========================================");
+  }
+  if (missingOptional.length > 0) {
+    console.warn(`[ENV] Optional keys not set: ${missingOptional.join(", ")}. Some features (AI PDF filling) will use fallback methods.`);
+  }
+  if (!process.env.SESSION_SECRET) {
+    console.warn("[ENV] SESSION_SECRET not set. Using auto-generated secret. Set this for persistent sessions.");
   }
 }
 

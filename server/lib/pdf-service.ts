@@ -2,7 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import * as fs from "fs";
 import * as path from "path";
-import type { TownForm } from "@shared/schema";
+import type { TownForm, DataVault } from "@shared/schema";
 
 export interface FieldMapping {
   page: number;
@@ -994,7 +994,8 @@ export async function fillPdfFromDatabase(
     licenseType?: "temporary" | "seasonal";
   },
   aiFieldMappings?: CachedAIFieldMapping[],
-  userAnswers?: Record<string, string> // User-provided answers for questions we couldn't auto-fill
+  userAnswers?: Record<string, string>,
+  vaultData?: DataVault | null
 ): Promise<Uint8Array> {
   if (!townForm.fileData) {
     throw new Error(`No PDF data stored for form: ${townForm.name}`);
@@ -1128,6 +1129,49 @@ export async function fillPdfFromDatabase(
     person_in_charge: eventData?.personInCharge || null,
     license_type: eventData?.licenseType || null,
   };
+
+  // Layer 2: Overlay Data Vault fields (structured, curated data takes priority over raw parsed data)
+  if (vaultData) {
+    console.log(`[PDF Service] Merging Data Vault data for profile ${vaultData.profileId}`);
+    const vaultOverrides: Record<string, string | null> = {
+      business_name: vaultData.businessName,
+      owner_name: vaultData.ownerName,
+      applicant_name: vaultData.ownerName,
+      address: vaultData.mailingStreet,
+      mailing_address: [vaultData.mailingStreet, vaultData.mailingCity, vaultData.mailingState, vaultData.mailingZip].filter(Boolean).join(', ') || null,
+      city: vaultData.mailingCity,
+      town: vaultData.mailingCity,
+      state: vaultData.mailingState,
+      zip: vaultData.mailingZip,
+      phone: vaultData.phone,
+      email: vaultData.email,
+      vin: vaultData.vehicleVin,
+      license_plate: vaultData.vehicleLicensePlate,
+      vehicle_make: vaultData.vehicleMake,
+      vehicle_model: vaultData.vehicleModel,
+      vehicle_year: vaultData.vehicleYear,
+      water_supply: vaultData.waterSupplyType,
+      sanitizer_type: vaultData.sanitizerType,
+      hot_holding: vaultData.hotHoldingMethod,
+      cold_storage: vaultData.coldHoldingMethod,
+      commissary_name: vaultData.commissaryName,
+      commissary_address: vaultData.commissaryAddress,
+      food_handler_cert: vaultData.foodHandlerCertNumber,
+      prep_location: vaultData.prepLocationAddress,
+      menu_items: vaultData.foodItemsList?.join(', ') || null,
+      food_items: vaultData.foodItemsList?.join(', ') || null,
+      food_sources: vaultData.foodSourceLocations?.join(', ') || null,
+    };
+    if (vaultData.mailingCity && vaultData.mailingState && vaultData.mailingZip) {
+      vaultOverrides.city_state_zip = `${vaultData.mailingCity}, ${vaultData.mailingState} ${vaultData.mailingZip}`;
+    }
+
+    for (const [key, value] of Object.entries(vaultOverrides)) {
+      if (value) {
+        dataMap[key] = value;
+      }
+    }
+  }
 
   if (hasAcroFields && townForm.isFillable) {
     // Use AcroForm field filling

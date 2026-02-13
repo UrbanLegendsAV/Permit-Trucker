@@ -25,7 +25,7 @@ import {
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
 import { formDiscoveryService } from "./lib/form-discovery-service";
-import { documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
+import { generalApiLimiter, documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
 import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
 import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
@@ -347,6 +347,7 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.use(generalApiLimiter);
   await setupAuth(app);
   registerAuthRoutes(app);
 
@@ -541,6 +542,15 @@ export async function registerRoutes(
       // If profileId provided, save to profile's parsedDataLog with timestamp
       if (profileId) {
         await saveParsedDataToProfile(profileId, parsedData);
+        
+        // Auto-sync parsed data to vault (fire-and-forget)
+        syncParsedDataToVault(profileId).then(vault => {
+          if (vault) {
+            console.log(`[Vault] Auto-synced profile ${profileId} to data vault after single-doc parsing`);
+          }
+        }).catch(vaultErr => {
+          console.error(`[Vault] Auto-sync failed for profile ${profileId}:`, vaultErr);
+        });
       }
 
       res.json({ 
@@ -674,6 +684,15 @@ ${prompt}`;
 
       // Save to profile (preserves user-edited fields)
       await saveParsedDataToProfile(id, parsedData);
+      
+      // Auto-sync parsed data to vault (fire-and-forget)
+      syncParsedDataToVault(id).then(vault => {
+        if (vault) {
+          console.log(`[Vault] Auto-synced profile ${id} to data vault after multi-doc parsing`);
+        }
+      }).catch(vaultErr => {
+        console.error(`[Vault] Auto-sync failed for profile ${id}:`, vaultErr);
+      });
       
       // Mark analyzed documents with timestamp
       const updatedDocuments = [...documents];
@@ -1120,7 +1139,7 @@ ${prompt}`;
         townId,
         townName: town.townName,
         forms: forms,
-        fillableForms: forms.filter(f => f.isFillable && f.fileData),
+        fillableForms: forms.filter(f => f.fileData),
       });
     } catch (error) {
       console.error("Error fetching town forms:", error);
@@ -1198,13 +1217,34 @@ ${prompt}`;
       console.log("eventData received:", JSON.stringify(eventData, null, 2));
 
       // Get the form from database
-      const form = await storage.getTownFormById(formId);
+      let form = await storage.getTownFormById(formId);
       if (!form || form.townId !== townId) {
         return res.status(404).json({ message: "Form not found for this town" });
       }
 
+      // If no fileData but sourceUrl exists, try downloading on-the-fly
+      if (!form.fileData && (form.sourceUrl || form.externalUrl)) {
+        const downloadUrl = form.sourceUrl || form.externalUrl;
+        console.log(`[Generate] Form ${formId} has no fileData, attempting download from ${downloadUrl}`);
+        try {
+          const pdfResponse = await fetch(downloadUrl!, { 
+            signal: AbortSignal.timeout(30000),
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0)' }
+          });
+          if (pdfResponse.ok && (pdfResponse.headers.get('content-type')?.includes('pdf') || downloadUrl!.toLowerCase().endsWith('.pdf'))) {
+            const buffer = Buffer.from(await pdfResponse.arrayBuffer());
+            const base64 = buffer.toString('base64');
+            await storage.updateTownForm(formId, { fileData: base64 });
+            form = { ...form, fileData: base64 };
+            console.log(`[Generate] On-the-fly download success for form ${formId}`);
+          }
+        } catch (err: any) {
+          console.error(`[Generate] On-the-fly download failed:`, err.message);
+        }
+      }
+
       if (!form.fileData) {
-        return res.status(400).json({ message: "Form has no PDF data stored. Please upload the PDF in admin." });
+        return res.status(400).json({ message: "Could not load the PDF for this form. The source URL may be unavailable." });
       }
 
       // Get the profile for user data
@@ -1214,6 +1254,9 @@ ${prompt}`;
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
+
+      // Fetch Data Vault for structured data overlay
+      const vaultData = await storage.getDataVaultByProfileId(profileId);
       
       let pdfBytes: Uint8Array;
       const fieldMappings = form.fieldMappings as Record<string, string> | null;
@@ -1244,7 +1287,7 @@ ${prompt}`;
           return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
         }
         // Pass the cached AI mappings for efficient form filling
-        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, aiMappings.fields, userAnswers);
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, aiMappings.fields, userAnswers, vaultData);
       }
       // If no cached mappings and no manual fieldMappings, use Datalab AI
       else if (!hasFieldMappings && process.env.DATALAB_API_KEY) {
@@ -1312,6 +1355,22 @@ ${prompt}`;
         if (uploadsJson?.vehicleInfo?.vin && !profile.vinPlate) {
           fieldData.vin = { value: uploadsJson.vehicleInfo.vin, description: "Vehicle Identification Number" };
         }
+
+        // Data Vault overlay (structured data takes priority)
+        if (vaultData) {
+          if (vaultData.businessName) fieldData.business_name = { value: vaultData.businessName, description: "Name of the business or food truck" };
+          if (vaultData.ownerName) fieldData.applicant_name = { value: vaultData.ownerName, description: "Full name of the applicant or owner" };
+          if (vaultData.phone) fieldData.phone = { value: vaultData.phone, description: "Contact phone number" };
+          if (vaultData.email) fieldData.email = { value: vaultData.email, description: "Email address" };
+          if (vaultData.mailingStreet) fieldData.address = { value: vaultData.mailingStreet, description: "Mailing address" };
+          if (vaultData.vehicleVin) fieldData.vin = { value: vaultData.vehicleVin, description: "Vehicle Identification Number" };
+          if (vaultData.vehicleLicensePlate) fieldData.license_plate = { value: vaultData.vehicleLicensePlate, description: "Vehicle license plate number" };
+          if (vaultData.waterSupplyType) fieldData.water_supply = { value: vaultData.waterSupplyType, description: "Type of water supply" };
+          if (vaultData.commissaryName) fieldData.commissary_name = { value: vaultData.commissaryName, description: "Name of commissary facility" };
+          if (vaultData.commissaryAddress) fieldData.commissary_address = { value: vaultData.commissaryAddress, description: "Address of commissary facility" };
+          if (vaultData.foodItemsList?.length) fieldData.menu_items = { value: vaultData.foodItemsList.join(', '), description: "List of food items to be served" };
+          if (vaultData.prepLocationAddress) fieldData.prep_location = { value: vaultData.prepLocationAddress, description: "Food preparation location" };
+        }
         
         // Event data
         if (eventData?.eventName) {
@@ -1358,7 +1417,7 @@ ${prompt}`;
           if (!parsedData) {
             return res.status(400).json({ message: "Profile has no parsed data and Datalab failed. Please analyze documents first." });
           }
-          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
         } else if (datalabResult.request_check_url) {
           // Poll for result (Datalab is async)
           console.log("Polling Datalab for result at:", datalabResult.request_check_url);
@@ -1642,18 +1701,18 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
                   console.log("Cached Gemini checkbox semantic rules for future use");
                   
                   // Fill PDF using semantic rules evaluated against real data
-                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, geminiMappings);
+                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, geminiMappings, undefined, vaultData);
                 } else {
                   console.log("Gemini analysis returned no parseable JSON, falling back to heuristic");
-                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+                  pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
                 }
               } else {
                 console.log("No Gemini API key, falling back to heuristic matching");
-                pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+                pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
               }
             } catch (geminiError) {
               console.error("Gemini fallback failed:", geminiError);
-              pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+              pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
             }
           }
         } else {
@@ -1661,14 +1720,14 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
           if (!parsedData) {
             return res.status(400).json({ message: "Profile has no parsed data." });
           }
-          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+          pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
         }
       } else {
         // Use local field mapping
         if (!parsedData) {
           return res.status(400).json({ message: "Profile has no parsed data. Please analyze documents first." });
         }
-        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData);
+        pdfBytes = await fillPdfFromDatabase(form, parsedData, eventData, undefined, undefined, vaultData);
       }
 
       // Optionally append supporting documents

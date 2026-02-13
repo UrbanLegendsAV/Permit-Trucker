@@ -97,9 +97,9 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
     enabled: !!profile,
   });
 
-  // Forms with isFillable=true and fileData can be auto-filled using database storage
+  // Forms with fileData can be auto-filled (Datalab can fill even flat PDFs)
   const canAutoFill = (form: TownForm): boolean => {
-    return !!(form.isFillable && form.fileData);
+    return !!form.fileData;
   };
 
   const handleGeneratePreFill = async (form: TownForm) => {
@@ -176,12 +176,16 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
     }
 
     if (!vault) {
-      toast({
-        title: "Data Vault Required",
-        description: "Please sync your profile data to the vault first.",
-        variant: "destructive",
-      });
-      return;
+      try {
+        await apiRequest("POST", `/api/vault/sync/${profile.id}`);
+        toast({
+          title: "Data Synced",
+          description: "Your profile data has been synced. Please try again.",
+        });
+        return;
+      } catch (e) {
+        console.warn("Vault sync failed, proceeding with profile data");
+      }
     }
 
     setShowCredentialsModal(true);

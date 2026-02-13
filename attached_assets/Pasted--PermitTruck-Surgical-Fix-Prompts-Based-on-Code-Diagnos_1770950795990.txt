@@ -1,0 +1,554 @@
+# PermitTruck — Surgical Fix Prompts (Based on Code Diagnostic)
+
+These prompts reference the EXACT code, line numbers, and functions that need to change. Use in order.
+
+-----
+
+## PROMPT 1: Fix Data Vault Auto-Sync (Unblocks Everything Else)
+
+This is the #1 priority because the “Data Vault Required” error blocks users from generating ANY forms.
+
+```
+The Data Vault sync is broken because it's never called automatically. Here's the exact problem and fix:
+
+**THE PROBLEM:**
+`syncParsedDataToVault()` is only callable from ONE endpoint: `POST /api/vault/sync/:profileId` (routes.ts lines 2798-2819). It's NEVER called automatically after Gemini parses documents. So users upload docs, Gemini parses them into `profile.parsedDataLog`, but the `data_vaults` table stays empty. Then when they try to generate forms, `requirements-checklist.tsx` (lines 178-185) checks for a vault record, finds null, and shows the blocking red error "Data Vault Required."
+
+**FIX PART A — Auto-sync after Gemini parsing:**
+
+Find every place where Gemini document parsing completes successfully and `parsedDataLog` gets updated on a profile. This is likely in routes that handle document upload/parsing (look for calls to Gemini's `generateContent` or wherever `parsedDataLog` gets written to the profile via `storage.updateProfile()` or similar).
+
+After EACH of those locations, add:
+
+```typescript
+// Auto-sync parsed data to vault
+try {
+  const { syncParsedDataToVault } = await import('./lib/vault-service.js');
+  await syncParsedDataToVault(profileId);
+  console.log(`[Vault] Auto-synced profile ${profileId} to data vault after parsing`);
+} catch (vaultErr) {
+  console.error(`[Vault] Auto-sync failed for profile ${profileId}:`, vaultErr);
+  // Don't block the response — vault sync failure is non-critical
+}
+```
+
+This must be fire-and-forget (don’t block the parsing response) but must actually run.
+
+**FIX PART B — Remove the blocking error, use graceful fallback:**
+
+In `requirements-checklist.tsx` (and anywhere else the vault check happens), change the logic:
+
+BEFORE (lines 178-185):
+
+```typescript
+if (!vault) {
+  toast({
+    title: "Data Vault Required",
+    description: "Please sync your profile data to the vault first.",
+    variant: "destructive",
+  });
+  return;  // <-- THIS BLOCKS EVERYTHING
+}
+```
+
+AFTER:
+
+```typescript
+if (!vault) {
+  // Try to sync vault in the background
+  try {
+    await fetch(`/api/vault/sync/${profileId}`, { method: 'POST', credentials: 'include' });
+    // Refetch vault data
+    // If still no vault, continue with profile data as fallback
+  } catch (e) {
+    console.warn('Vault sync failed, using profile data as fallback');
+  }
+}
+```
+
+The key principle: **NEVER block the user with “Data Vault Required.”** If the vault is empty, either auto-sync it on the spot, or fall back to using `profile.parsedDataLog` directly.
+
+**FIX PART C — Also fix the generate endpoint fallback:**
+
+In `routes.ts` at the generate endpoint (around line 1191), where it builds the user data for form filling — make sure it can work with EITHER vault data OR profile.parsedDataLog. The current code path is:
+
+1. Load vault → use vault fields
+1. If no vault → ???
+
+Change it to:
+
+1. Load vault → use vault fields
+1. If no vault → load profile → use parsedDataLog fields directly
+1. If neither has data → return error “Please upload documents to your profile first”
+
+**FIX PART D — Add a manual “Sync to Vault” button on the profile page:**
+
+On the profile page (`client/src/pages/profile.tsx`), add a button that calls `POST /api/vault/sync/:profileId`. Show a success toast with how many fields were synced. This is a safety net for users.
+
+**TEST:** After all fixes, this flow should work:
+
+1. User uploads document → Gemini parses → vault auto-syncs (no user action needed)
+1. User starts permit → NO red “Data Vault Required” error
+1. User clicks “Generate Filled Form” → works using vault data (or profile fallback)
+
+```
+---
+
+## PROMPT 2: Rewrite Form Discovery to Actually Crawl Websites
+
+This is the biggest architectural fix. The current approach of asking Gemini to hallucinate URLs is fundamentally broken.
+```
+
+The form discovery service (`server/lib/form-discovery-service.ts`) is fundamentally broken. Here’s why and how to fix it.
+
+**THE ROOT CAUSE:**
+The current code (lines 351-356) sends the town name to Gemini and asks it to produce PDF URLs from memory:
+
+```
+const prompt = this.buildDiscoveryPrompt(town.townName, town.state, town.county);
+const result = await model.generateContent(prompt);
+```
+
+Gemini is an LLM — it CANNOT browse the internet. It generates URLs from its training data, which means the URLs are frequently hallucinated, outdated, or completely wrong. This is why West Hartford’s forms weren’t found even though they clearly exist at:
+
+- https://www.westhartfordct.gov/town-departments/health-district/online-forms
+- https://resources.finalsite.net/images/v1709899722/westhartfordctgov/btmpaua7vsoseqoaa0lb/temp-food-permit.pdf
+
+**THE NEW APPROACH — Actual Web Crawling + AI Classification:**
+
+Install cheerio for HTML parsing: `npm install cheerio @types/cheerio`
+
+Rewrite `form-discovery-service.ts` with this logic:
+
+**Step 1: Build seed URLs (multiple sources)**
+
+```typescript
+function buildSeedUrls(town: { townName: string, state: string, portalUrl?: string }, healthDistrict?: { website?: string }): string[] {
+  const urls: string[] = [];
+  const townSlug = town.townName.toLowerCase().replace(/\s+/g, '');
+  
+  // 1. Town's portal URL from database (if it exists)
+  if (town.portalUrl) urls.push(town.portalUrl);
+  
+  // 2. Health district website (if linked)
+  if (healthDistrict?.website) urls.push(healthDistrict.website);
+  
+  // 3. Common CT town website patterns
+  urls.push(`https://www.${townSlug}ct.gov`);
+  urls.push(`https://www.${townSlug}.org`);
+  urls.push(`https://${townSlug}ct.gov`);
+  
+  // 4. Common food-truck-specific paths to try
+  const foodPaths = [
+    '/town-departments/health-district/online-forms',
+    '/departments/health/permits',
+    '/health/food-service',
+    '/permits/food-truck',
+    '/environmental-health/food-service',
+    '/health-department/permits-and-licenses',
+  ];
+  
+  // Append food paths to the base town URL
+  const baseUrl = `https://www.${townSlug}ct.gov`;
+  foodPaths.forEach(path => urls.push(baseUrl + path));
+  
+  return [...new Set(urls)]; // deduplicate
+}
+```
+
+**Step 2: Fetch and parse each seed URL**
+
+```typescript
+async function crawlForPdfLinks(url: string): Promise<{ pdfUrls: string[], subpageUrls: string[] }> {
+  const pdfUrls: string[] = [];
+  const subpageUrls: string[] = [];
+  
+  try {
+    const response = await fetch(url, { 
+      headers: { 'User-Agent': 'PermitTruck/1.0 (permit research bot)' },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!response.ok) return { pdfUrls, subpageUrls };
+    
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    
+    $('a[href]').each((_, el) => {
+      let href = $(el).attr('href');
+      if (!href) return;
+      
+      // Resolve relative URLs
+      if (href.startsWith('/')) href = new URL(href, url).toString();
+      if (!href.startsWith('http')) return;
+      
+      // Check if it's a direct PDF link
+      if (href.toLowerCase().endsWith('.pdf')) {
+        pdfUrls.push(href);
+        return;
+      }
+      
+      // Check if the link text or URL suggests food/permit content
+      const linkText = $(el).text().toLowerCase();
+      const hrefLower = href.toLowerCase();
+      const keywords = ['food', 'permit', 'mobile', 'vendor', 'truck', 'temporary', 'application', 'form', 'license', 'vending'];
+      
+      if (keywords.some(kw => linkText.includes(kw) || hrefLower.includes(kw))) {
+        subpageUrls.push(href);
+      }
+    });
+    
+  } catch (err) {
+    console.warn(`[FormDiscovery] Failed to crawl ${url}:`, err.message);
+  }
+  
+  return { pdfUrls, subpageUrls };
+}
+```
+
+**Step 3: Follow subpage links ONE level deep**
+For each subpage URL found in Step 2, crawl it too and collect more PDF URLs. This catches the common pattern where the forms page links to a subpage which has the actual PDFs.
+
+**Step 4: Validate and filter PDFs**
+For each discovered PDF URL:
+
+- Do a HEAD request to verify it returns `content-type: application/pdf` and status 200
+- Skip URLs that 404, 403, 406, or return non-PDF content
+- Accept PDFs from ANY domain (finalsite.net, seamlessdocs.com, etc.)
+
+**Step 5: Use Gemini to CLASSIFY (not discover)**
+After collecting all valid PDF URLs with their link text and source page context, send them to Gemini with this prompt:
+
+```
+I found these PDF documents on the ${townName} CT government website.
+Which ones are food truck, mobile food vendor, or temporary food establishment permit applications?
+
+PDFs found:
+${pdfUrls.map(p => `- URL: ${p.url}, Link text: "${p.linkText}", Found on page: ${p.sourcePage}`).join('\n')}
+
+Return ONLY the URLs that are relevant food truck/mobile vendor permit forms.
+Return as JSON array: [{"url": "...", "name": "...", "category": "yearly|temporary|event"}]
+```
+
+This is the correct use of AI — classifying already-found documents, NOT generating URLs from nothing.
+
+**Step 6: Download and store**
+For each classified PDF:
+
+- Download the full PDF content
+- Base64 encode it
+- Check for AcroForm fields with pdf-lib to set `isFillable`
+- Store in `town_forms` table with sourceUrl for dedup
+- Before inserting, check if a form with the same sourceUrl already exists
+
+**ALSO FIX: The re-trigger loop**
+Currently, if discovery finds nothing, the next page load triggers discovery again infinitely. Add a `lastDiscoveryAttempt` timestamp column to the `towns` table (or use an in-memory cache). Don’t re-trigger discovery for the same town within 24 hours.
+
+**ALSO FIX: Frontend polling**
+In `permit-detail.tsx`, when the forms endpoint returns `discoveryStarted: true`:
+
+- Show “Searching for official forms on town website…”
+- Use TanStack Query’s `refetchInterval: 5000` for up to 30 seconds
+- When forms appear OR timeout, stop polling
+
+Delete the old Gemini-only discovery logic. Replace it entirely with this crawl-then-classify approach.
+
+```
+---
+
+## PROMPT 3: Fix PDF Generate Pipeline
+
+Now that discovery works and vault is populated, fix the actual form filling.
+```
+
+The “Generate Filled Form” button fails even when forms exist in the database. Here are the specific fixes needed:
+
+**PROBLEM 1: The generate endpoint may not find forms that lack fileData**
+
+In `routes.ts` around line 1201-1208:
+
+```typescript
+if (!form.fileData) {
+  return res.status(400).json({ message: "Form has no PDF data stored. Please upload the PDF in admin." });
+}
+```
+
+This fails for any form where discovery found metadata but the PDF download failed. Fix: If `fileData` is null but `sourceUrl` exists, try to download the PDF on-the-fly before giving up:
+
+```typescript
+if (!form.fileData && form.sourceUrl) {
+  console.log(`[Generate] Form ${formId} has no fileData, attempting download from ${form.sourceUrl}`);
+  try {
+    const pdfResponse = await fetch(form.sourceUrl, { signal: AbortSignal.timeout(30000) });
+    if (pdfResponse.ok && pdfResponse.headers.get('content-type')?.includes('pdf')) {
+      const buffer = Buffer.from(await pdfResponse.arrayBuffer());
+      const base64 = buffer.toString('base64');
+      // Save it so we don't have to download again
+      await storage.updateTownForm(formId, { fileData: base64 });
+      form.fileData = base64;
+    }
+  } catch (err) {
+    console.error(`[Generate] On-the-fly download failed:`, err.message);
+  }
+}
+
+if (!form.fileData) {
+  return res.status(400).json({ message: "Could not load the PDF for this form. The source URL may be unavailable." });
+}
+```
+
+**PROBLEM 2: Profile data fallback when vault is empty**
+
+In the generate endpoint (around line 1239), the code builds user data for filling. Make sure it works in this priority:
+
+1. `data_vaults` record → richest data source
+1. `profile.parsedDataLog` → Gemini-extracted data, nearly as good
+1. `profile` fields directly → basic info (business name, address, etc.)
+
+Build a unified `userData` object that merges from all available sources:
+
+```typescript
+// Build user data from best available source
+let userData: Record<string, string> = {};
+
+// Layer 1: Basic profile fields
+if (profile.businessName) userData.business_name = profile.businessName;
+if (profile.ownerName) userData.owner_name = profile.ownerName;
+// ... etc for all profile fields
+
+// Layer 2: Parsed data log (overwrites with richer Gemini-extracted data)
+if (profile.parsedDataLog) {
+  const parsed = typeof profile.parsedDataLog === 'string' ? JSON.parse(profile.parsedDataLog) : profile.parsedDataLog;
+  // Merge parsed fields into userData
+}
+
+// Layer 3: Data vault (overwrites with most curated data)
+if (vault) {
+  if (vault.businessName) userData.business_name = vault.businessName;
+  // ... etc for all vault fields
+}
+```
+
+**PROBLEM 3: isFillable flag may be wrong**
+
+When forms are stored in `town_forms`, check if they actually have AcroForm fields:
+
+```typescript
+// During form storage (in discovery service or admin upload)
+const pdfDoc = await PDFDocument.load(pdfBuffer);
+const form = pdfDoc.getForm();
+const fields = form.getFields();
+const isFillable = fields.length > 0;
+```
+
+But ALSO: even if `isFillable` is false (flat PDF), Datalab can still fill it by overlaying text. So the “Generate” button should be available for ALL forms that have `fileData`, not just fillable ones. Change the frontend filter:
+
+In `permit-detail.tsx`, wherever it filters for fillable forms:
+
+```typescript
+// BEFORE: Only show generate button for fillable forms
+fillableForms: forms.filter(f => f.isFillable && f.fileData)
+
+// AFTER: Show generate for any form with PDF data
+fillableForms: forms.filter(f => f.fileData)
+```
+
+Add a visual indicator: “Fillable Form” badge for AcroForm PDFs, “PDF Form” badge for flat PDFs.
+
+**PROBLEM 4: Better error messages and loading states**
+
+In the frontend, when calling the generate endpoint:
+
+- Show loading: “Generating your pre-filled form…” with a spinner
+- After 5 seconds: “Analyzing form fields with AI… this may take up to 60 seconds”
+- On success: auto-download the PDF
+- On failure: show the EXACT error message from the server, not a generic “Generation Failed”
+
+Currently the error toast shows a generic message. Make it show `response.json().message` or `response.json().error` from the server.
+
+```
+---
+
+## PROMPT 4: Build Portal Assist V1 (Copy-Paste Helper)
+```
+
+The “Start AI Assist” button for portal towns does nothing useful. Replace the broken Playwright-dependent flow with a practical copy-paste assistant.
+
+**What to build:**
+
+When user clicks “Start AI Assist” on a town that has `submissionMethod: 'online_portal'`:
+
+1. **Gather user data** from vault (or profile fallback). Build a formatted object:
+- Business Name
+- Owner/Operator Name
+- Mailing Address (street, city, state, zip)
+- Phone Number
+- Email Address
+- Vehicle Type, VIN, License Plate
+- Commissary Name & Address
+- Insurance Provider & Policy Number
+- Food Manager Certification Number
+- Any other fields from the vault
+1. **Show a slide-up modal** with two sections:
+   
+   **Top section: “Your Application Data”**
+- Clean list of all available fields with labels and values
+- A “Copy All” button at the top that copies everything as formatted text:
+  
+  ```
+  Business Name: Brazilian BBQ Boys
+  Owner: [Name]
+  Address: [Address]
+  Phone: [Phone]
+  ...
+  ```
+- Individual copy buttons next to each field (optional, nice-to-have)
+   
+   **Bottom section: “Open Town Portal”**
+- Big blue button: “Open Portal in New Tab →”
+- Opens `town.portalUrl` in `window.open(url, '_blank')`
+- Below it, show the portal URL as text so users know where they’re going
+- Detect portal type from URL and show a helpful note:
+  - If URL contains “seamlessdocs”: “This town uses SeamlessDocs forms”
+  - If URL contains “viewpoint” or “opengov”: “This is a multi-step portal — you may need to paste data across several pages”
+  - Otherwise: “Paste your copied information into the portal form fields”
+1. **Remove all Playwright code from this flow.** The portal-automation-service.ts can stay as infrastructure for V2, but the “Start AI Assist” button should NOT depend on it. This V1 must work with zero server-side automation — it’s a pure frontend feature.
+1. **Track usage:** When the user clicks “Open Portal”, POST to a simple endpoint that logs the action on the permit record (e.g., update permit.portalOpenedAt timestamp). This helps us know how many users are actually using portal submission.
+
+**Design notes:**
+
+- Use a shadcn Sheet component (slides up from bottom on mobile) for the modal
+- Dark theme consistent with app design
+- The copy button should show a checkmark + “Copied!” for 2 seconds after clicking
+- If user has no data at all (no profile, no vault), show: “Please complete your profile first to use AI Assist”
+
+```
+---
+
+## PROMPT 5: Security & Stability
+```
+
+Apply these fixes in order:
+
+**1. XSS Sanitization**
+Install: `npm install isomorphic-dompurify`
+
+Create `server/lib/sanitize.ts`:
+
+```typescript
+import DOMPurify from 'isomorphic-dompurify';
+
+export function sanitize(input: string | undefined | null): string {
+  if (!input) return '';
+  return DOMPurify.sanitize(input, { ALLOWED_TAGS: [] }); // strip ALL HTML
+}
+```
+
+In `server/routes.ts`, import this and wrap every user text input before saving:
+
+- Review text, review author name
+- Profile descriptions, business names
+- Town notes, event descriptions
+- Any other free-text field from req.body
+
+**2. Rate Limiting**
+In `server/routes.ts`, create rate limiters:
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const aiRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many AI requests. Please try again in an hour.' }
+});
+
+const generateRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20, 
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many form generation requests. Please try again later.' }
+});
+
+const discoveryRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  message: { error: 'Too many discovery requests. Please try again later.' }
+});
+```
+
+Apply to: document parsing routes, form generate route, form discovery route.
+
+**3. Error Boundary**
+Create `client/src/components/error-boundary.tsx`:
+
+- React class component with componentDidCatch
+- Shows “Something went wrong” with a “Reload Page” button
+- Wrap all routes in App.tsx with this component
+
+**4. Session Expiry**
+In the TanStack Query client config (likely `client/src/lib/queryClient.ts` or `App.tsx`):
+
+```typescript
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        if (error?.status === 401) {
+          // Session expired — redirect to login
+          window.location.href = '/';
+          return false;
+        }
+        return failureCount < 3;
+      }
+    }
+  }
+});
+```
+
+**5. Env var validation**
+At the top of `server/routes.ts` or `server/index.ts`:
+
+```typescript
+const FEATURES = {
+  gemini: !!process.env.GOOGLE_API_KEY,
+  datalab: !!process.env.DATALAB_API_KEY,
+};
+if (!FEATURES.gemini) console.warn('⚠️  GOOGLE_API_KEY not set — AI features disabled');
+if (!FEATURES.datalab) console.warn('⚠️  DATALAB_API_KEY not set — PDF auto-fill disabled');
+```
+
+In routes that use these services, check first:
+
+```typescript
+if (!FEATURES.gemini) {
+  return res.status(503).json({ error: 'AI features are not configured on this server.' });
+}
+```
+
+```
+---
+
+## EXECUTION ORDER
+
+| Step | Prompt | Time Estimate | Why This Order |
+|------|--------|---------------|----------------|
+| 1 | **Prompt 1: Data Vault Auto-Sync** | 30 min | Unblocks the red "Data Vault Required" error. Nothing else works without this. |
+| 2 | **Prompt 2: Form Discovery Rewrite** | 1-2 hours | Fixes the core problem — PDFs aren't being found because Gemini can't browse the web. |
+| 3 | **Prompt 3: PDF Generate Pipeline** | 45 min | Now that forms are found and vault has data, make the fill actually work. |
+| 4 | **Prompt 4: Portal Assist V1** | 45 min | Gives portal towns a real working experience. |
+| 5 | **Prompt 5: Security** | 30 min | Hardens everything before real users test. |
+
+## TEST AFTER EACH PROMPT
+
+**After Prompt 1:** Upload a doc to profile → check server logs for "Auto-synced to data vault" → start a permit → NO red error.
+
+**After Prompt 2:** Start a permit for West Hartford → check server logs for crawl activity → should find PDFs from westhartfordct.gov → forms appear in "Official Forms" section.
+
+**After Prompt 3:** Click "Generate Filled Form" on a West Hartford form → should download a filled PDF with your business info.
+
+**After Prompt 4:** Click "Start AI Assist" on a portal town → should see your data in a copy-paste panel + "Open Portal" button.
+
+**After Prompt 5:** Try spamming the generate button → should get rate limited. Check that HTML in review text gets stripped.
+```
