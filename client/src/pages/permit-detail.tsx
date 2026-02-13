@@ -117,10 +117,38 @@ export default function PermitDetailPage() {
     enabled: isAuthenticated,
   });
 
-  const { data: townFormsResponse } = useQuery<{ fillableForms: TownForm[], forms: TownForm[] }>({
+  const [discoveryPollCount, setDiscoveryPollCount] = useState(0);
+  const maxDiscoveryPolls = 6;
+
+  const { data: townFormsResponse } = useQuery<{
+    fillableForms: TownForm[];
+    forms: TownForm[];
+    discoveryStarted?: boolean;
+    discoveryInProgress?: boolean;
+    message?: string;
+  }>({
     queryKey: ["/api/towns", permit?.townId, "forms"],
     enabled: isAuthenticated && !!permit?.townId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const isDiscovering = data?.discoveryStarted || data?.discoveryInProgress;
+      if (isDiscovering && discoveryPollCount < maxDiscoveryPolls) {
+        return 5000;
+      }
+      return false;
+    },
   });
+
+  const isDiscovering = !!(townFormsResponse?.discoveryStarted || townFormsResponse?.discoveryInProgress);
+
+  useEffect(() => {
+    if (isDiscovering) {
+      setDiscoveryPollCount(prev => prev + 1);
+    } else if (townFormsResponse && !isDiscovering) {
+      setDiscoveryPollCount(0);
+    }
+  }, [townFormsResponse, isDiscovering]);
+
   const townForms = townFormsResponse?.forms || [];
 
   // Using townForms from database instead of hardcoded pdfTemplates
@@ -509,7 +537,16 @@ export default function PermitDetailPage() {
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="details" data-testid="tab-details">Event Details</TabsTrigger>
-            <TabsTrigger value="forms" data-testid="tab-forms">Forms ({forms.length})</TabsTrigger>
+            <TabsTrigger value="forms" data-testid="tab-forms">
+              {isDiscovering ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Forms
+                </span>
+              ) : (
+                `Forms (${forms.length})`
+              )}
+            </TabsTrigger>
             <TabsTrigger value="documents" data-testid="tab-documents">My Documents</TabsTrigger>
           </TabsList>
 
@@ -693,7 +730,15 @@ export default function PermitDetailPage() {
                 <CardTitle className="text-lg">Required Forms for {town?.townName}</CardTitle>
               </CardHeader>
               <CardContent>
-                {forms.length === 0 ? (
+                {isDiscovering ? (
+                  <div className="text-center py-8" data-testid="discovery-loading">
+                    <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+                    <p className="font-medium">Searching for official forms...</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      This may take up to 30 seconds. We're checking {town?.townName}'s website for permit applications.
+                    </p>
+                  </div>
+                ) : forms.length === 0 ? (
                   <div className="text-center py-8">
                     <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">No forms uploaded for this town yet.</p>

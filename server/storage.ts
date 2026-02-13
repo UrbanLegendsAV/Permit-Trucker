@@ -76,6 +76,7 @@ export interface IStorage {
   getAllTownForms(): Promise<TownForm[]>;
   getTownForms(townId: string): Promise<TownForm[]>;
   getTownFormById(id: string): Promise<TownForm | undefined>;
+  getTownFormBySourceUrl(townId: string, sourceUrl: string): Promise<TownForm | undefined>;
   createTownForm(form: InsertTownForm): Promise<TownForm>;
   updateTownForm(id: string, form: Partial<InsertTownForm>): Promise<TownForm | undefined>;
   deleteTownForm(id: string): Promise<void>;
@@ -401,6 +402,12 @@ export class DatabaseStorage implements IStorage {
 
   async getTownFormById(id: string): Promise<TownForm | undefined> {
     const [form] = await db.select().from(townForms).where(eq(townForms.id, id));
+    return form;
+  }
+
+  async getTownFormBySourceUrl(townId: string, sourceUrl: string): Promise<TownForm | undefined> {
+    const [form] = await db.select().from(townForms)
+      .where(and(eq(townForms.townId, townId), eq(townForms.sourceUrl, sourceUrl)));
     return form;
   }
 

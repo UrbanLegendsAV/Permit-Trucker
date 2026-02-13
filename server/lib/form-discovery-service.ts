@@ -33,6 +33,14 @@ interface DiscoveryResult {
   healthDeptWebsite?: string;
 }
 
+const DOWNLOAD_TIMEOUT_MS = 30000;
+const MAX_RETRIES = 2;
+const SKIP_STATUS_CODES = [403, 404, 406];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class FormDiscoveryService {
   private genAI: GoogleGenerativeAI | null = null;
 
@@ -114,12 +122,80 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
     }
   }
 
+  private async validateUrl(url: string): Promise<{ valid: boolean; reason?: string }> {
+    console.log(`[FormDiscovery] Validating URL with HEAD request: ${url}`);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch(url, {
+        method: 'HEAD',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/pdf,*/*',
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (SKIP_STATUS_CODES.includes(response.status)) {
+        console.log(`[FormDiscovery] URL validation FAILED - status ${response.status}: ${url}`);
+        return { valid: false, reason: `HTTP ${response.status}` };
+      }
+
+      if (!response.ok) {
+        console.log(`[FormDiscovery] URL validation FAILED - status ${response.status}: ${url}`);
+        return { valid: false, reason: `HTTP ${response.status}` };
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('pdf') && !contentType.includes('octet-stream') && !url.toLowerCase().endsWith('.pdf')) {
+        console.log(`[FormDiscovery] URL validation FAILED - not PDF (content-type: ${contentType}): ${url}`);
+        return { valid: false, reason: `Non-PDF content-type: ${contentType}` };
+      }
+
+      console.log(`[FormDiscovery] URL validation PASSED: ${url}`);
+      return { valid: true };
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log(`[FormDiscovery] URL validation FAILED - timeout: ${url}`);
+        return { valid: false, reason: 'HEAD request timeout' };
+      }
+      console.log(`[FormDiscovery] URL validation FAILED - error: ${error.message}: ${url}`);
+      return { valid: false, reason: error.message };
+    }
+  }
+
+  private async downloadPdfWithRetry(url: string): Promise<{ base64: string; fileName: string; size: number } | null> {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        console.log(`[FormDiscovery] Retry ${attempt}/${MAX_RETRIES} for ${url} after ${backoffMs}ms backoff`);
+        await sleep(backoffMs);
+      }
+
+      const result = await this.downloadPdf(url);
+      if (result) {
+        return result;
+      }
+
+      if (attempt < MAX_RETRIES) {
+        console.log(`[FormDiscovery] Download attempt ${attempt + 1} failed for ${url}, will retry...`);
+      }
+    }
+
+    console.error(`[FormDiscovery] Download FAILED after ${MAX_RETRIES + 1} attempts, skipping URL: ${url}`);
+    return null;
+  }
+
   private async downloadPdf(url: string): Promise<{ base64: string; fileName: string; size: number } | null> {
     try {
       console.log(`[FormDiscovery] Attempting to download PDF from: ${url}`);
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
       
       const response = await fetch(url, {
         headers: {
@@ -133,7 +209,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.error(`[FormDiscovery] Failed to download: ${response.status} ${response.statusText}`);
+        console.error(`[FormDiscovery] Download failed: ${response.status} ${response.statusText}`);
         return null;
       }
 
@@ -154,7 +230,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
       const fileName = this.extractFileName(url, response);
       const size = arrayBuffer.byteLength;
 
-      console.log(`[FormDiscovery] Successfully downloaded: ${fileName} (${Math.round(size / 1024)}KB)`);
+      console.log(`[FormDiscovery] Download SUCCESS: ${fileName} (${Math.round(size / 1024)}KB)`);
       
       return { base64, fileName, size };
     } catch (error: any) {
@@ -221,9 +297,10 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
   }
 
   async discoverFormsForTown(townId: string, options: { force?: boolean } = {}): Promise<DiscoveryResult> {
-    console.log(`[FormDiscovery] Starting form discovery for town ID: ${townId} (force: ${options.force || false})`);
+    console.log(`[FormDiscovery] === Discovery STARTED for town ID: ${townId} (force: ${options.force || false}) ===`);
     
     if (!this.genAI) {
+      console.log(`[FormDiscovery] Discovery ABORTED - GOOGLE_API_KEY not configured`);
       return { 
         success: false, 
         formsDiscovered: 0, 
@@ -235,6 +312,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
 
     const town = await storage.getTown(townId);
     if (!town) {
+      console.log(`[FormDiscovery] Discovery ABORTED - Town not found: ${townId}`);
       return { 
         success: false, 
         formsDiscovered: 0, 
@@ -245,7 +323,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
     }
 
     if (this.activeDiscoveries.has(townId)) {
-      console.log(`[FormDiscovery] Discovery already in progress for ${town.townName}`);
+      console.log(`[FormDiscovery] Discovery SKIPPED - already in progress for ${town.townName}`);
       return {
         success: false,
         formsDiscovered: 0,
@@ -257,7 +335,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
 
     const existingForms = await storage.getTownForms(townId);
     if (existingForms.length > 0 && !options.force) {
-      console.log(`[FormDiscovery] Town ${town.townName} already has ${existingForms.length} forms, skipping discovery`);
+      console.log(`[FormDiscovery] Discovery SKIPPED - ${town.townName} already has ${existingForms.length} forms`);
       return {
         success: true,
         formsDiscovered: 0,
@@ -270,7 +348,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
     this.activeDiscoveries.add(townId);
 
     try {
-      console.log(`[FormDiscovery] Researching forms for ${town.townName}, ${town.state}`);
+      console.log(`[FormDiscovery] Querying Gemini AI for forms in ${town.townName}, ${town.state}...`);
       const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       const prompt = this.buildDiscoveryPrompt(town.townName, town.state, town.county);
 
@@ -282,7 +360,7 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
       const { parsed, error } = this.parseAndValidateResponse(responseText);
       
       if (!parsed) {
-        console.error(`[FormDiscovery] Failed to parse response: ${error}`);
+        console.error(`[FormDiscovery] Failed to parse Gemini response: ${error}`);
         return { 
           success: false, 
           formsDiscovered: 0, 
@@ -293,7 +371,8 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
       }
 
       const formsFound = parsed.forms_found || [];
-      console.log(`[FormDiscovery] Found ${formsFound.length} potential forms for ${town.townName}`);
+      console.log(`[FormDiscovery] URLs found: ${formsFound.length} potential forms for ${town.townName}`);
+      formsFound.forEach((f, i) => console.log(`[FormDiscovery]   ${i + 1}. ${f.name}: ${f.url}`));
 
       const discoveryResult: DiscoveryResult = {
         success: true,
@@ -306,11 +385,33 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
 
       for (const formInfo of formsFound) {
         if (!formInfo.url || !formInfo.url.startsWith('http')) {
-          console.warn(`[FormDiscovery] Skipping invalid URL: ${formInfo.url}`);
+          console.warn(`[FormDiscovery] Skipping invalid URL (not http): ${formInfo.url}`);
           continue;
         }
 
-        const pdfData = await this.downloadPdf(formInfo.url);
+        const existingForm = await storage.getTownFormBySourceUrl(townId, formInfo.url);
+        if (existingForm) {
+          console.log(`[FormDiscovery] Dedup: form with sourceUrl already exists, skipping: ${formInfo.url}`);
+          discoveryResult.forms.push({
+            name: formInfo.name,
+            url: formInfo.url,
+            downloaded: false,
+          });
+          continue;
+        }
+
+        const validation = await this.validateUrl(formInfo.url);
+        if (!validation.valid) {
+          console.log(`[FormDiscovery] Skipping URL that failed validation (${validation.reason}): ${formInfo.url}`);
+          discoveryResult.forms.push({
+            name: formInfo.name,
+            url: formInfo.url,
+            downloaded: false,
+          });
+          continue;
+        }
+
+        const pdfData = await this.downloadPdfWithRetry(formInfo.url);
         const category = this.inferCategory(formInfo.type || 'other', formInfo.name);
         
         try {
@@ -338,9 +439,9 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
             discoveryResult.formsDownloaded++;
           }
 
-          console.log(`[FormDiscovery] Created form: ${formInfo.name} (downloaded: ${!!pdfData})`);
+          console.log(`[FormDiscovery] Form SAVED: ${formInfo.name} (downloaded: ${!!pdfData})`);
         } catch (createError: any) {
-          console.error(`[FormDiscovery] Failed to create form entry:`, createError.message);
+          console.error(`[FormDiscovery] Failed to save form entry:`, createError.message);
         }
       }
 
@@ -354,11 +455,11 @@ CRITICAL: Only include forms_found entries if you are confident the URL is real 
         }
       }
 
-      console.log(`[FormDiscovery] Completed discovery for ${town.townName}: ${discoveryResult.formsDownloaded}/${discoveryResult.formsDiscovered} forms downloaded`);
+      console.log(`[FormDiscovery] === Discovery COMPLETED for ${town.townName}: ${discoveryResult.formsDownloaded}/${discoveryResult.formsDiscovered} forms downloaded ===`);
       
       return discoveryResult;
     } catch (error: any) {
-      console.error(`[FormDiscovery] Error during form discovery:`, error);
+      console.error(`[FormDiscovery] === Discovery FAILED for town ${townId}: ${error.message} ===`);
       return { 
         success: false, 
         formsDiscovered: 0, 
