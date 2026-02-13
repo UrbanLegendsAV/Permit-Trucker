@@ -252,12 +252,11 @@ export class FormDiscoveryService {
     townName: string,
     pdfs: CrawledPdf[]
   ): Promise<Array<{ url: string; name: string; category: string }>> {
-    if (!this.genAI || pdfs.length === 0) {
-      return pdfs.map(p => ({
-        url: p.url,
-        name: p.linkText || this.extractNameFromUrl(p.url),
-        category: this.inferCategoryFromText(p.linkText + ' ' + p.url),
-      }));
+    if (pdfs.length === 0) return [];
+
+    if (!this.genAI) {
+      console.log(`[FormDiscovery] No Gemini API key, using heuristic classification for ${pdfs.length} PDFs`);
+      return this.heuristicFilter(pdfs);
     }
 
     try {
@@ -266,16 +265,31 @@ export class FormDiscoveryService {
         `${i + 1}. URL: ${p.url}\n   Link text: "${p.linkText}"\n   Found on: ${p.sourcePage}`
       ).join('\n');
 
-      const prompt = `I found these PDF documents on or linked from the ${townName}, CT government website.
-Which ones are food truck, mobile food vendor, or temporary food establishment permit applications or related forms?
+      const prompt = `I found these PDF documents on government websites for ${townName}, CT.
+Which ones are permit APPLICATIONS or official FORMS that a food truck, mobile food vendor, food cart, or temporary food establishment operator would need to fill out and submit?
+
+INCLUDE:
+- Permit applications (temporary food, mobile vending, food establishment, food truck)
+- Plan review applications
+- Seasonal/farmers market vendor applications
+- License applications for food service
+
+EXCLUDE (do NOT include these):
+- Informational fact sheets, guides, or brochures
+- Temperature logs, cooling logs, freezing logs
+- Training materials or training logs
+- Food codes, regulations, or ordinances
+- Infographics or educational posters
+- Employee forms (training logs, etc.)
+- Non-food-related permits (building, zoning, salon, massage)
 
 PDFs found:
 ${pdfList}
 
-Return ONLY valid JSON array of relevant forms. Include food service applications, temporary permits, mobile food vendor forms, health inspection forms, and fire safety forms. Exclude unrelated documents.
-[{"index": 1, "name": "Human readable form name", "category": "temporary_permit|yearly_permit|seasonal_permit|checklist|health_inspection|fire_safety|other"}]
+Return ONLY a valid JSON array of the relevant permit application forms.
+[{"index": 1, "name": "Human readable form name", "category": "temporary_permit|yearly_permit|seasonal_permit|plan_review|checklist|fire_safety|other"}]
 
-If none are relevant food truck forms, return an empty array: []`;
+If none are relevant food truck permit applications, return an empty array: []`;
 
       const result = await model.generateContent(prompt);
       const responseText = result.response.text();
@@ -304,11 +318,14 @@ If none are relevant food truck forms, return an empty array: []`;
   }
 
   private heuristicFilter(pdfs: CrawledPdf[]): Array<{ url: string; name: string; category: string }> {
-    const keywords = ['food', 'vendor', 'truck', 'mobile', 'permit', 'temporary', 'temp', 'itinerant', 'catering', 'health', 'inspection'];
+    const includeKeywords = ['permit', 'application', 'vendor', 'truck', 'mobile food', 'temporary food', 'food establish', 'plan review', 'itinerant', 'farmers market', 'vending'];
+    const excludeKeywords = ['fact sheet', 'infographic', 'training', 'log', 'cooling', 'temperature', 'freezing', 'handwashing', 'hand washing', 'food code', 'regulation', 'poster', 'brochure', 'guide'];
     return pdfs
       .filter(p => {
         const combined = (p.linkText + ' ' + p.url).toLowerCase();
-        return keywords.some(kw => combined.includes(kw));
+        const hasInclude = includeKeywords.some(kw => combined.includes(kw));
+        const hasExclude = excludeKeywords.some(kw => combined.includes(kw));
+        return hasInclude && !hasExclude;
       })
       .map(p => ({
         url: p.url,
