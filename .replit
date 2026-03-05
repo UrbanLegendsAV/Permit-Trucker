@@ -44,4 +44,3 @@ integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_database:1.0.
 [userenv]
 
 [userenv.shared]
-GOOGLE_API_KEY = "AIzaSyCc_UyG2FnnPFelUM9jlo9LSP6pgYNkY08"
