@@ -93,7 +93,16 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
   const forms = formsResponse?.forms || [];
 
   const { data: vault } = useQuery<DataVault>({
-    queryKey: ["/api/vault"],
+    queryKey: ["/api/vault", profile?.id],
+    queryFn: async () => {
+      const url = profile?.id ? `/api/vault?profileId=${profile.id}` : "/api/vault";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error("Failed to fetch vault");
+      }
+      return res.json();
+    },
     enabled: !!profile,
   });
 

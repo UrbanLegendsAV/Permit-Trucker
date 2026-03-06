@@ -113,21 +113,31 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 
 | Feature | What's Done | What's Missing |
 |---------|-------------|----------------|
-| Data Vault Sync | Auto-syncs after document parsing, populates core fields | Multi-document conflict resolution |
-| Portal Assist V1 | Copy-paste helper UI with clipboard support | Full portal automation |
-| Portal Credentials | Encryption works | No UI to manage credentials |
+| Data Vault Sync | Auto-syncs after document parsing, populates core fields, profile-aware | Multi-document conflict resolution |
+| Portal Automation | ViewPoint + SeamlessDocs/OpenGov, credential dialog, Playwright-based fill | End-to-end testing on real portals |
+| Portal Credentials | AES-256-GCM encryption, per-user per-town storage, credential dialog UI | Credential management/deletion UI |
 
 ### ❌ NOT STARTED
-- Automated portal form submission (Playwright-based)
 - CAPTCHA detection/handling
-- ViewPoint-specific portal automation
 - Analytics/telemetry
 - Frontend polling when discovery is in progress
 
 ### 🐛 KNOWN ISSUES
-1. Portal automation Playwright code exists but is brittle/untested - replaced with Portal Assist V1 (copy-paste)
-2. Stale town cache after updates
-3. Form discovery depends on town website URL patterns (may miss some towns)
+1. Stale town cache after updates
+2. Form discovery depends on town website URL patterns (may miss some towns)
+
+### 🏗️ DATA VAULT ARCHITECTURE
+The **Data Vault** is the structured data layer between raw documents and form filling:
+- **Profile** = Vehicle record + uploaded documents + raw AI extraction (`parsedDataLog`)
+- **Data Vault** = Clean, structured fields extracted FROM the profile's parsed data
+- **Relationship**: One vault per profile, linked by `profileId`. Created automatically when Gemini parses documents.
+- **How it's used in form filling** (3-layer priority):
+  1. Layer 1: Raw `parsedDataLog` from Gemini document analysis
+  2. Layer 2: Data Vault structured fields (overrides Layer 1)
+  3. Layer 3: User answers + event data (highest priority, overrides all)
+- **Vault query**: `GET /api/vault?profileId=xxx` returns the vault for a specific vehicle profile
+- **Vault fields include**: businessName, ownerName, phone, email, mailingStreet/City/State/Zip, vehicleVin, vehicleLicensePlate, vehicleMake/Model/Year, waterSupplyType, sanitizerType, hotHoldingMethod, coldHoldingMethod, commissaryName/Address, foodItemsList, prepLocationAddress, foodHandlerCertNumber, and more
+- **Key files**: `server/lib/vault-service.ts` (sync + fill logic), `shared/schema.ts` (dataVaults table)
 
 ### 📍 WHERE WORK LEFT OFF
 

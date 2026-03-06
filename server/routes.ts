@@ -2776,7 +2776,17 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const vault = await storage.getDataVaultByUserId(userId);
+
+      const profileId = req.query.profileId as string | undefined;
+      let vault;
+      if (profileId) {
+        vault = await storage.getDataVaultByProfileId(profileId);
+        if (vault && vault.userId !== userId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else {
+        vault = await storage.getDataVaultByUserId(userId);
+      }
       
       if (!vault) {
         return res.status(404).json({ message: "No vault found" });
