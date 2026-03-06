@@ -530,6 +530,9 @@ export interface FormPortalSubmissionOptions {
   };
   userAnswers?: Record<string, string>;
   submitForm?: boolean; // If false, just fill and save draft
+  // ViewPoint Cloud specific
+  vaultId?: string;       // DataVault ID (preferred over profile for ViewPoint)
+  credentialId?: string;  // Portal credential ID for login-required portals
 }
 
 // Get profile data in a flat format for form filling
@@ -678,77 +681,587 @@ async function fillSeamlessDocsFields(
   return filledFields;
 }
 
+// ─── ViewPoint Cloud Portal Automation ────────────────────────────────────────
+
+// CSS.escape is a browser API unavailable in Node.js; provide a minimal polyfill
+function cssEscape(value: string): string {
+  return value.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+}
+
+// ViewPoint Cloud URL patterns:
+//   https://<city>.viewpointcloud.com
+//   https://permits.<city>.gov  (white-labeled, harder to detect)
+//   https://viewpointcloud.com/communities/<slug>
+export function isViewPointCloudUrl(url: string): boolean {
+  return url.includes("viewpointcloud.com");
+}
+
+// Food-truck-related keywords to match permit types in the ViewPoint catalog
+const FOOD_TRUCK_PERMIT_KEYWORDS = [
+  "mobile food",
+  "food truck",
+  "temporary food",
+  "food vendor",
+  "mobile vendor",
+  "itinerant vendor",
+  "food service",
+  "food cart",
+  "food establishment",
+  "street food",
+  "pushcart",
+];
+
+// Vault field → form label fragments (case-insensitive substring match on label text)
+// Listed in priority order: first match wins.
+const VIEWPOINT_LABEL_MAPPINGS: Array<{
+  vaultKey: keyof DataVault;
+  labelFragments: string[];
+  type: "text" | "select" | "textarea";
+  transform?: (val: string) => string;
+}> = [
+  { vaultKey: "businessName",          labelFragments: ["business name", "company name", "trade name", "dba"],              type: "text" },
+  { vaultKey: "tradeName",             labelFragments: ["trade name", "dba"],                                                type: "text" },
+  { vaultKey: "ownerName",             labelFragments: ["owner name", "applicant name", "owner/applicant", "proprietor"],   type: "text" },
+  { vaultKey: "ownerTitle",            labelFragments: ["title", "owner title"],                                             type: "text" },
+  { vaultKey: "email",                 labelFragments: ["email", "e-mail"],                                                  type: "text" },
+  { vaultKey: "phone",                 labelFragments: ["phone", "telephone", "contact number", "mobile number"],            type: "text" },
+  { vaultKey: "altPhone",              labelFragments: ["alternate phone", "alt phone", "secondary phone", "cell"],          type: "text" },
+  { vaultKey: "mailingStreet",         labelFragments: ["mailing address", "street address", "address line 1", "address"],  type: "text" },
+  { vaultKey: "mailingCity",           labelFragments: ["city", "municipality"],                                             type: "text" },
+  { vaultKey: "mailingState",          labelFragments: ["state", "province"],                                                type: "select" },
+  { vaultKey: "mailingZip",            labelFragments: ["zip", "postal code", "zip code"],                                  type: "text" },
+  { vaultKey: "businessStreet",        labelFragments: ["business address", "principal address"],                            type: "text" },
+  { vaultKey: "businessCity",          labelFragments: ["business city"],                                                    type: "text" },
+  { vaultKey: "businessState",         labelFragments: ["business state"],                                                   type: "select" },
+  { vaultKey: "businessZip",           labelFragments: ["business zip"],                                                     type: "text" },
+  { vaultKey: "vehicleVin",            labelFragments: ["vin", "vehicle identification number"],                             type: "text" },
+  { vaultKey: "vehicleLicensePlate",   labelFragments: ["license plate", "plate number", "vehicle plate"],                  type: "text" },
+  { vaultKey: "vehicleMake",           labelFragments: ["vehicle make", "make of vehicle", "truck make"],                   type: "text" },
+  { vaultKey: "vehicleModel",          labelFragments: ["vehicle model", "model of vehicle", "truck model"],                type: "text" },
+  { vaultKey: "vehicleYear",           labelFragments: ["vehicle year", "year of vehicle", "model year"],                   type: "text" },
+  { vaultKey: "vehicleLength",         labelFragments: ["vehicle length", "length of vehicle"],                             type: "text" },
+  { vaultKey: "vehicleWidth",          labelFragments: ["vehicle width", "width of vehicle"],                               type: "text" },
+  { vaultKey: "commissaryName",        labelFragments: ["commissary name", "commissary"],                                   type: "text" },
+  { vaultKey: "commissaryAddress",     labelFragments: ["commissary address"],                                              type: "text" },
+  { vaultKey: "commissaryPhone",       labelFragments: ["commissary phone", "commissary telephone"],                        type: "text" },
+  { vaultKey: "commissaryContactName", labelFragments: ["commissary contact", "commissary owner"],                          type: "text" },
+  { vaultKey: "menuDescription",       labelFragments: ["menu description", "food description", "describe your menu"],      type: "textarea" },
+  { vaultKey: "ein",                   labelFragments: ["ein", "employer identification", "federal tax id", "fein"],        type: "text" },
+  { vaultKey: "liabilityInsuranceCarrier",    labelFragments: ["insurance carrier", "insurance company"],                  type: "text" },
+  { vaultKey: "liabilityInsurancePolicyNumber", labelFragments: ["policy number", "insurance policy"],                     type: "text" },
+  { vaultKey: "waterSupplyType",       labelFragments: ["water supply", "water source"],                                    type: "text" },
+  { vaultKey: "waterTankCapacity",     labelFragments: ["water tank", "fresh water capacity"],                              type: "text" },
+  { vaultKey: "wastewaterTankCapacity", labelFragments: ["wastewater", "grey water", "waste water capacity"],              type: "text" },
+  { vaultKey: "sanitizerType",         labelFragments: ["sanitizer", "sanitizing solution"],                                type: "text" },
+  { vaultKey: "foodHandlerCertNumber", labelFragments: ["food handler cert", "servsafe", "food safety cert"],               type: "text" },
+];
+
+// Flatten a DataVault to a string map (non-null values only)
+function getVaultDataFlat(vault: DataVault): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const entry of VIEWPOINT_LABEL_MAPPINGS) {
+    const raw = vault[entry.vaultKey];
+    if (raw && typeof raw === "string" && raw.trim()) {
+      data[entry.vaultKey as string] = entry.transform ? entry.transform(raw.trim()) : raw.trim();
+    }
+  }
+  // foodItemsList is an array
+  if (vault.foodItemsList && vault.foodItemsList.length > 0) {
+    data["foodItemsList"] = vault.foodItemsList.join(", ");
+  }
+  return data;
+}
+
+// Login to a ViewPoint Cloud portal with stored credentials.
+// Returns true on success, false if login could not be completed.
+async function loginToViewPoint(
+  page: Page,
+  credentials: { username: string; password: string },
+  logStep: (step: string, success: boolean, error?: string) => void
+): Promise<boolean> {
+  try {
+    // ViewPoint Cloud login patterns (may vary by municipality white-label):
+    // 1. Direct /login route
+    // 2. Sign In button on the landing page
+    const currentUrl = page.url();
+
+    // If not already on a login page, look for a Sign In link
+    const onLoginPage =
+      currentUrl.includes("/login") ||
+      currentUrl.includes("/sign_in") ||
+      currentUrl.includes("/signin");
+
+    if (!onLoginPage) {
+      const signInLink = await page.$(
+        'a:has-text("Sign In"), a:has-text("Log In"), a:has-text("Login"), button:has-text("Sign In")'
+      );
+      if (signInLink) {
+        await signInLink.click();
+        await page.waitForLoadState("networkidle").catch(() => {});
+        logStep("viewpoint_clicked_sign_in", true);
+      } else {
+        // Try navigating directly to /login
+        const base = new URL(currentUrl).origin;
+        await page.goto(`${base}/login`, { waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.waitForLoadState("networkidle").catch(() => {});
+        logStep("viewpoint_navigate_login", true);
+      }
+    }
+
+    // Fill email field
+    const emailSelectors = [
+      'input[name="email"]',
+      'input[type="email"]',
+      '#user_email',
+      'input[id*="email" i]',
+      'input[placeholder*="email" i]',
+    ];
+    let emailFilled = false;
+    for (const sel of emailSelectors) {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await el.fill(credentials.username);
+        emailFilled = true;
+        break;
+      }
+    }
+    if (!emailFilled) {
+      logStep("viewpoint_login_email_fill", false, "Email field not found");
+      return false;
+    }
+
+    // Fill password field
+    const passwordEl = await page.$('input[type="password"]');
+    if (!passwordEl || !(await passwordEl.isVisible())) {
+      logStep("viewpoint_login_password_fill", false, "Password field not found");
+      return false;
+    }
+    await passwordEl.fill(credentials.password);
+
+    // Submit login form
+    const submitSelectors = [
+      'button[type="submit"]',
+      'input[type="submit"]',
+      'button:has-text("Sign In")',
+      'button:has-text("Log In")',
+      'button:has-text("Login")',
+    ];
+    let submitted = false;
+    for (const sel of submitSelectors) {
+      const btn = await page.$(sel);
+      if (btn && await btn.isVisible()) {
+        await btn.click();
+        submitted = true;
+        break;
+      }
+    }
+    if (!submitted) {
+      logStep("viewpoint_login_submit", false, "Submit button not found");
+      return false;
+    }
+
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(2000);
+
+    // Detect login failure (error message on page)
+    const errorText = await page.$('text=/invalid|incorrect|failed|wrong password/i');
+    if (errorText && await errorText.isVisible()) {
+      const msg = await errorText.textContent();
+      logStep("viewpoint_login_submit", false, `Login failed: ${msg}`);
+      return false;
+    }
+
+    logStep("viewpoint_login_submit", true);
+    return true;
+  } catch (err) {
+    logStep("viewpoint_login_error", false, String(err));
+    return false;
+  }
+}
+
+// Search the ViewPoint permit catalog for a food-truck-related application.
+// Returns true if successfully navigated to the start of an application.
+async function findFoodTruckPermitInCatalog(
+  page: Page,
+  logStep: (step: string, success: boolean, error?: string) => void
+): Promise<boolean> {
+  try {
+    await page.waitForTimeout(1500);
+
+    // Try the catalog/services search box first
+    const searchSelectors = [
+      'input[placeholder*="search" i]',
+      'input[type="search"]',
+      'input[aria-label*="search" i]',
+      'input[name*="search" i]',
+      '#search',
+    ];
+    let searchFilled = false;
+    for (const sel of searchSelectors) {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await el.fill("food");
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(1500);
+        logStep("viewpoint_catalog_search", true);
+        searchFilled = true;
+        break;
+      }
+    }
+    if (!searchFilled) {
+      logStep("viewpoint_catalog_search", false, "No search box found; scanning catalog links");
+    }
+
+    // Look for a link/button whose text matches food-truck keywords
+    for (const keyword of FOOD_TRUCK_PERMIT_KEYWORDS) {
+      const linkHandle = await page.$(`a:has-text("${keyword}"), button:has-text("${keyword}")`);
+      if (linkHandle && await linkHandle.isVisible()) {
+        console.log(`[ViewPoint] Found permit type matching: "${keyword}"`);
+        await linkHandle.click();
+        await page.waitForLoadState("networkidle").catch(() => {});
+        await page.waitForTimeout(1500);
+        logStep(`viewpoint_found_permit_${keyword.replace(/\s+/g, "_")}`, true);
+
+        // Now look for "Apply" / "Start Application" button
+        const applySelectors = [
+          'a:has-text("Apply")',
+          'button:has-text("Apply")',
+          'a:has-text("Start Application")',
+          'a:has-text("New Application")',
+          'button:has-text("Start")',
+        ];
+        for (const apSel of applySelectors) {
+          const applyBtn = await page.$(apSel);
+          if (applyBtn && await applyBtn.isVisible()) {
+            await applyBtn.click();
+            await page.waitForLoadState("networkidle").catch(() => {});
+            await page.waitForTimeout(1500);
+            logStep("viewpoint_started_application", true);
+            return true;
+          }
+        }
+        // If no explicit Apply button, we may already be on the form
+        logStep("viewpoint_started_application", true);
+        return true;
+      }
+    }
+
+    logStep("viewpoint_find_permit", false, "No matching food truck permit type found in catalog");
+    return false;
+  } catch (err) {
+    logStep("viewpoint_catalog_error", false, String(err));
+    return false;
+  }
+}
+
+// Fill ViewPoint form fields using label-based matching against the DataVault.
+// Walks all <label> elements on the page, checks if the label text matches a
+// known vault key, then fills the associated input/textarea/select.
+async function fillViewPointFields(
+  page: Page,
+  vaultData: Record<string, string>,
+  eventData?: FormPortalSubmissionOptions["eventData"],
+  userAnswers?: Record<string, string>,
+  logStep?: (step: string, success: boolean, error?: string) => void
+): Promise<string[]> {
+  const filledFields: string[] = [];
+  const log = logStep ?? (() => {});
+
+  // Merge all data, userAnswers take highest priority
+  const allData: Record<string, string> = { ...vaultData };
+  if (eventData) {
+    if (eventData.eventName) allData["event_name"] = eventData.eventName;
+    if (eventData.eventAddress) allData["event_address"] = eventData.eventAddress;
+    if (eventData.eventDates) allData["event_dates"] = eventData.eventDates;
+    if (eventData.hoursOfOperation) allData["hours_of_operation"] = eventData.hoursOfOperation;
+  }
+  if (userAnswers) Object.assign(allData, userAnswers);
+
+  await page.waitForTimeout(1500);
+
+  // ── Pass 1: Label-based matching ──────────────────────────────────────────
+  try {
+    const labels = await page.$$("label");
+    for (const label of labels) {
+      const rawText = (await label.textContent())?.toLowerCase().trim() ?? "";
+      if (!rawText) continue;
+
+      // Find which VIEWPOINT_LABEL_MAPPINGS entry this label matches
+      let matchedVaultKey: string | null = null;
+      let matchedValue: string | null = null;
+
+      for (const mapping of VIEWPOINT_LABEL_MAPPINGS) {
+        const matches = mapping.labelFragments.some(frag => rawText.includes(frag.toLowerCase()));
+        if (matches && allData[mapping.vaultKey as string]) {
+          matchedVaultKey = mapping.vaultKey as string;
+          matchedValue = allData[mapping.vaultKey as string];
+          break;
+        }
+      }
+
+      // Also handle event fields via label text
+      if (!matchedValue) {
+        if (rawText.includes("event name") && allData["event_name"]) {
+          matchedVaultKey = "event_name";
+          matchedValue = allData["event_name"];
+        } else if (rawText.includes("event address") || rawText.includes("event location")) {
+          if (allData["event_address"]) { matchedVaultKey = "event_address"; matchedValue = allData["event_address"]; }
+        } else if (rawText.includes("event date") || rawText.includes("date of event")) {
+          if (allData["event_dates"]) { matchedVaultKey = "event_dates"; matchedValue = allData["event_dates"]; }
+        } else if (rawText.includes("hours of operation") || rawText.includes("operating hours")) {
+          if (allData["hours_of_operation"]) { matchedVaultKey = "hours_of_operation"; matchedValue = allData["hours_of_operation"]; }
+        } else if ((rawText.includes("food item") || rawText.includes("menu item")) && allData["foodItemsList"]) {
+          matchedVaultKey = "foodItemsList";
+          matchedValue = allData["foodItemsList"];
+        }
+      }
+
+      if (!matchedValue || !matchedVaultKey) continue;
+
+      // Locate the associated input: via `for` attribute or sibling/descendant
+      const forId = await label.getAttribute("for");
+      let input = forId ? await page.$(`#${cssEscape(forId)}`) : null;
+      if (!input) {
+        // Try first input/textarea/select inside the same parent container
+        input = await label.evaluateHandle(el => {
+          const parent = el.parentElement;
+          return parent?.querySelector('input, textarea, select') ?? null;
+        }).then(h => h.asElement()).catch(() => null);
+      }
+      if (!input || !(await input.isVisible().catch(() => false))) continue;
+
+      try {
+        const tagName = (await input.evaluate(el => el.tagName.toLowerCase())) as string;
+        const currentVal = await (input as any).inputValue().catch(() => "");
+        if (currentVal && currentVal.trim()) continue; // already filled
+
+        if (tagName === "select") {
+          await (input as any).selectOption({ label: matchedValue }).catch(async () => {
+            await (input as any).selectOption({ value: matchedValue }).catch(() => {});
+          });
+        } else {
+          await (input as any).fill(matchedValue);
+        }
+        filledFields.push(matchedVaultKey);
+        console.log(`[ViewPoint] Filled "${rawText}" → ${matchedVaultKey}: ${matchedValue}`);
+      } catch (e) {
+        // Non-fatal: continue to next label
+      }
+    }
+  } catch (e) {
+    log("viewpoint_label_fill_error", false, String(e));
+  }
+
+  // ── Pass 2: Attribute-based selector fallback ─────────────────────────────
+  // Mirrors the SeamlessDocs approach for fields missed by label matching.
+  const VIEWPOINT_SELECTOR_FALLBACKS: Array<{ vaultKey: string; selectors: string[] }> = [
+    { vaultKey: "businessName",        selectors: ['input[name*="business" i]', 'input[name*="company" i]', 'input[id*="business" i]', 'input[placeholder*="business" i]'] },
+    { vaultKey: "ownerName",           selectors: ['input[name*="owner" i]', 'input[name*="applicant" i]'] },
+    { vaultKey: "email",               selectors: ['input[type="email"]', 'input[name*="email" i]'] },
+    { vaultKey: "phone",               selectors: ['input[type="tel"]', 'input[name*="phone" i]'] },
+    { vaultKey: "mailingStreet",       selectors: ['input[name*="street" i]', 'input[name*="address" i]:not([name*="email" i])'] },
+    { vaultKey: "mailingCity",         selectors: ['input[name*="city" i]'] },
+    { vaultKey: "mailingState",        selectors: ['select[name*="state" i]', 'input[name*="state" i]'] },
+    { vaultKey: "mailingZip",          selectors: ['input[name*="zip" i]', 'input[name*="postal" i]'] },
+    { vaultKey: "vehicleVin",          selectors: ['input[name*="vin" i]'] },
+    { vaultKey: "vehicleLicensePlate", selectors: ['input[name*="plate" i]', 'input[name*="license" i]'] },
+    { vaultKey: "commissaryName",      selectors: ['input[name*="commissary" i]'] },
+    { vaultKey: "menuDescription",     selectors: ['textarea[name*="menu" i]', 'textarea[name*="food" i]', 'textarea[name*="description" i]'] },
+  ];
+
+  for (const { vaultKey, selectors } of VIEWPOINT_SELECTOR_FALLBACKS) {
+    if (filledFields.includes(vaultKey)) continue; // already filled by label pass
+    const value = allData[vaultKey];
+    if (!value) continue;
+
+    for (const sel of selectors) {
+      try {
+        const el = await page.$(sel);
+        if (!el || !(await el.isVisible())) continue;
+        const currentVal = await (el as any).inputValue().catch(() => "");
+        if (currentVal && currentVal.trim()) break;
+        const tagName = (await el.evaluate(e => e.tagName.toLowerCase())) as string;
+        if (tagName === "select") {
+          await (el as any).selectOption({ label: value }).catch(() => {});
+        } else {
+          await (el as any).fill(value);
+        }
+        filledFields.push(vaultKey);
+        console.log(`[ViewPoint] Fallback filled ${vaultKey}: ${value}`);
+        break;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  log(`viewpoint_filled_${filledFields.length}_fields`, true);
+  return filledFields;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 // Main form portal submission function
 export async function executeFormPortalSubmission(
   options: FormPortalSubmissionOptions
 ): Promise<PortalAutomationResult> {
-  const { profileId, formId, permitId, eventData, userAnswers, submitForm = false } = options;
+  const { profileId, formId, permitId, eventData, userAnswers, submitForm = false, vaultId, credentialId } = options;
   const navigationLog: PortalNavigationStep[] = [];
-  
+
   const logStep = (step: string, success: boolean, error?: string) => {
     navigationLog.push({ step, timestamp: new Date().toISOString(), success, error });
   };
-  
-  // Get form and profile data
+
+  // Get form
   const form = await storage.getTownFormById(formId);
   if (!form) {
     logStep("initialization", false, "Form not found");
     return { success: false, error: "Form not found", filledFields: [], portalUrl: "", formStatus: "error", navigationLog };
   }
-  
+
   const portalUrl = form.externalUrl || form.sourceUrl || "";
   if (!portalUrl || (!portalUrl.includes("seamlessdocs") && !portalUrl.includes("opengov") && !portalUrl.includes("viewpoint"))) {
     logStep("initialization", false, "No valid portal URL found");
     return { success: false, error: "Form does not have a portal URL configured", filledFields: [], portalUrl, formStatus: "error", navigationLog };
   }
-  
-  const profile = await storage.getProfile(profileId);
-  if (!profile) {
-    logStep("initialization", false, "Profile not found");
-    return { success: false, error: "Profile not found", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+
+  const provider = detectPortalProvider(portalUrl);
+  const isViewPoint = provider === "viewpoint";
+
+  // For ViewPoint: prefer DataVault; for others: use Profile
+  let formData: Record<string, string> = {};
+  if (isViewPoint && vaultId) {
+    const vault = await storage.getDataVault(vaultId);
+    if (!vault) {
+      logStep("initialization", false, "Vault not found");
+      return { success: false, error: "Vault not found", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+    }
+    formData = getVaultDataFlat(vault);
+    console.log(`[ViewPoint] Vault data keys: ${Object.keys(formData).join(", ")}`);
+  } else {
+    const profile = await storage.getProfile(profileId);
+    if (!profile) {
+      logStep("initialization", false, "Profile not found");
+      return { success: false, error: "Profile not found", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+    }
+    formData = getProfileDataFlat(profile);
+    console.log(`[Portal] Profile data keys: ${Object.keys(formData).join(", ")}`);
   }
-  
+
+  // For ViewPoint: require credentials
+  let credentials: { username: string; password: string } | null = null;
+  if (isViewPoint) {
+    if (!credentialId) {
+      logStep("initialization", false, "ViewPoint portal requires credentials (credentialId missing)");
+      return { success: false, error: "Portal credentials required for ViewPoint. Please store your portal login first.", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+    }
+    credentials = await getDecryptedCredentials(credentialId);
+    if (!credentials) {
+      logStep("initialization", false, "Could not decrypt credentials");
+      return { success: false, error: "Could not load portal credentials. Please re-enter your login.", filledFields: [], portalUrl, formStatus: "error", navigationLog };
+    }
+  }
+
   logStep("initialization", true);
-  
+
   let browser: Browser | null = null;
   let screenshotBase64: string | undefined;
-  
+
   try {
     const { chromium } = await import("playwright");
-    
+
     browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
     logStep("browser_launch", true);
-    
+
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     });
     const page = await context.newPage();
-    
+
     // Navigate to portal
-    console.log(`[Portal] Navigating to: ${portalUrl}`);
+    console.log(`[Portal] Navigating to: ${portalUrl} (provider: ${provider})`);
     await page.goto(portalUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForLoadState("networkidle").catch(() => {});
     logStep("navigate_portal", true);
-    
-    // Get flattened profile data
-    const profileData = getProfileDataFlat(profile);
-    console.log(`[Portal] Profile data keys: ${Object.keys(profileData).join(", ")}`);
-    
-    // Fill form fields
-    const filledFields = await fillSeamlessDocsFields(page, profileData, eventData, userAnswers);
-    logStep(`filled_${filledFields.length}_fields`, true);
-    
-    // Take screenshot
+
+    let filledFields: string[] = [];
+
+    if (isViewPoint) {
+      // ── ViewPoint Cloud flow ───────────────────────────────────────────────
+
+      // Step 1: Login
+      const loginOk = await loginToViewPoint(page, credentials!, logStep);
+      if (!loginOk) {
+        const screenshot = await page.screenshot({ type: "png", fullPage: false });
+        screenshotBase64 = screenshot.toString("base64");
+        await browser.close();
+        browser = null;
+        return {
+          success: false,
+          error: "ViewPoint login failed. Check your credentials.",
+          filledFields: [],
+          screenshotBase64,
+          portalUrl,
+          formStatus: "error",
+          navigationLog,
+        };
+      }
+
+      // Step 2: Find the food truck permit in the catalog
+      const foundPermit = await findFoodTruckPermitInCatalog(page, logStep);
+      if (!foundPermit) {
+        const screenshot = await page.screenshot({ type: "png", fullPage: false });
+        screenshotBase64 = screenshot.toString("base64");
+        await browser.close();
+        browser = null;
+        return {
+          success: false,
+          error: "Could not locate a food truck permit application in the ViewPoint catalog.",
+          filledFields: [],
+          screenshotBase64,
+          portalUrl,
+          formStatus: "pending_user_action",
+          navigationLog,
+        };
+      }
+
+      // Step 3: Fill fields — may span multiple wizard steps
+      const MAX_WIZARD_STEPS = 10;
+      for (let step = 1; step <= MAX_WIZARD_STEPS; step++) {
+        const stepFilled = await fillViewPointFields(page, formData, eventData, userAnswers, logStep);
+        filledFields = [...new Set([...filledFields, ...stepFilled])];
+        logStep(`viewpoint_wizard_step_${step}_filled_${stepFilled.length}`, true);
+
+        // Check for a "Next" / "Continue" / "Save & Continue" button
+        const nextBtn = await page.$(
+          'button:has-text("Next"), button:has-text("Continue"), button:has-text("Save & Continue"), a:has-text("Next")'
+        );
+        if (nextBtn && await nextBtn.isVisible()) {
+          await nextBtn.click();
+          await page.waitForLoadState("networkidle").catch(() => {});
+          await page.waitForTimeout(1500);
+        } else {
+          // No more wizard steps — we're on the final page
+          break;
+        }
+      }
+    } else {
+      // ── SeamlessDocs / OpenGov flow (unchanged) ────────────────────────────
+      filledFields = await fillSeamlessDocsFields(page, formData, eventData, userAnswers);
+      logStep(`filled_${filledFields.length}_fields`, true);
+    }
+
+    // Take screenshot of current state
     const screenshot = await page.screenshot({ type: "png", fullPage: false });
     screenshotBase64 = screenshot.toString("base64");
     logStep("screenshot_captured", true);
-    
+
     let formStatus: PortalAutomationResult["formStatus"] = "pending_user_action";
-    
+
     // If submit requested, try to submit
     if (submitForm) {
       try {
@@ -761,17 +1274,15 @@ export async function executeFormPortalSubmission(
           logStep("form_submitted", true);
         } else {
           logStep("submit_button_not_found", false, "Could not find submit button");
-          formStatus = "pending_user_action";
         }
       } catch (e) {
         logStep("submit_failed", false, String(e));
-        formStatus = "pending_user_action";
       }
     }
-    
+
     await browser.close();
     browser = null;
-    
+
     return {
       success: true,
       filledFields,
