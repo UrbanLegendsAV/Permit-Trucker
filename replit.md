@@ -8,6 +8,22 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to streamline t
 
 Preferred communication style: Simple, everyday language.
 
+## What The App Does (User-Facing Features)
+
+1. **Dashboard** — Shows your vehicles, recent permits, and quick actions
+2. **Your Vehicles** — Add food trucks/trailers with documents (licenses, registrations, health permits). AI (Gemini) parses uploaded documents and extracts business info automatically into a Data Vault.
+3. **New Permit Flow** — Step-by-step permit application for any of 169 CT towns:
+   - Select a town → see its specific requirements checklist
+   - View/download town-specific PDF permit forms
+   - **Generate pre-filled PDFs** — auto-fills forms using your uploaded document data + Data Vault
+   - **Portal automation** — for towns with online portals (ViewPoint, SeamlessDocs, OpenGov), the app can log in and fill forms automatically
+   - Answer a dynamic questionnaire for any missing fields
+   - Event details for temporary permits (dates, location, hours)
+4. **Form Discovery** — Automatically crawls the web (Google/DuckDuckGo search → .gov sites) to find and download permit application PDFs for towns that don't have forms yet
+5. **Pioneer Badges** — Gamification system that rewards users who contribute permit info for towns with low confidence scores
+6. **Spots** — Map view (Leaflet) showing food truck locations
+7. **Profile** — User account settings and preferences
+
 ## System Architecture
 
 PermitTruck uses a monorepo architecture for its client, server, and shared code. The application is designed mobile-first, utilizing React 18 with TypeScript for the frontend and Node.js with Express for the backend.
@@ -20,25 +36,60 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 ### Technical Implementations
 - **Frontend**: Built with React 18, TypeScript, Wouter for routing, Zustand for state management (with persistence), and TanStack Query for server state. Vite handles the build process.
 - **Backend**: Implemented with Node.js, Express, TypeScript (ESM modules), providing a RESTful JSON API.
-- **Authentication**: Uses Replit Auth via OpenID Connect with Passport.js, storing sessions in PostgreSQL.
+- **Authentication**: Replit Auth via OpenID Connect with Passport.js + email/password login. Sessions stored in PostgreSQL.
 - **Database**: PostgreSQL with Drizzle ORM. A shared schema (`shared/schema.ts`) ensures type safety across the application.
-- **Key Data Models**: Includes `profiles` (vehicle details), `permits` (applications), `towns` (permit requirements with confidence scores), `town_forms` (official PDF forms), `health_districts`, `badges`, and `data_vaults` (master data for auto-filling).
-- **PDF Generation System**: Leverages Datalab AI for intelligent field matching, with `pdf-lib` as a fallback. Datalab semantically matches profile data to PDF form fields.
-- **Pioneer Badge System**: A gamified system rewarding users for contributing verified permit information for new towns.
-- **Submission Paths**: Supports PDF auto-fill for generating pre-filled PDFs, and future integration for portal automation using Playwright.
-- **Autonomous System Core**:
-    - **Data Vault**: Stores user business information extracted from uploaded documents by Gemini 2.5 Flash AI, forming a master profile.
-    - **Form Detection & Classification**: Differentiates between fillable PDF forms (Type A) and web portal forms (Type B, e.g., SeamlessDocs, ViewPoint).
-    - **AI-Powered Form Field Mapping**: Utilizes Datalab AI to map profile data to form fields, with caching and fallback heuristics.
-    - **Dynamic Questionnaire System**: Prompts users for missing information based on form field requirements and available profile data.
-    - **Portal Automation (Future)**: Planned system using Playwright for automated submission to web portals.
-    - **Town Form Discovery Pattern**: A systematic approach for discovering, classifying, and processing town-specific forms.
+- **Key Data Models**: `profiles` (vehicles + documents), `permits` (applications), `towns` (169 CT towns with requirements + confidence scores), `town_forms` (official PDF forms with fileData), `health_districts`, `badges`, `data_vaults` (master structured data per profile), `portal_credentials` (encrypted login storage), `submission_jobs` (portal automation tracking).
 
-### Feature Specifications
-- **Town-by-Town Guidance**: Provides detailed permit requirements for specific municipalities, including a confidence score for data reliability.
-- **Document Management**: Allows users to store and manage relevant documents.
-- **Gamification**: Awards "Pioneer" badges for contributions to town permit information.
-- **Autonomous Permit Filling**: Infrastructure for automatically filling PDF forms and future capabilities for submitting them via portals.
+### Core Systems
+
+#### PDF Auto-Fill Pipeline
+- **3-layer data merge** for form filling:
+  1. Layer 1: Raw `parsedDataLog` from Gemini document analysis
+  2. Layer 2: Data Vault structured fields (overrides Layer 1)
+  3. Layer 3: User answers + event data (highest priority)
+- **Datalab AI** for intelligent PDF field mapping (with caching)
+- **Heuristic matching** as fallback (`smartMatchFieldToData`)
+- **Cross-section deduplication** prevents contact info bleeding into event/commissary fields
+- **`generateFieldMappingsFromNonFillablePDF()`** uses Gemini Vision to map visual form labels to data keys for non-fillable PDFs
+- Endpoint: `POST /api/towns/:townId/forms/:formId/generate` (main PDF fill)
+- Endpoint: `POST /api/towns/:townId/forms/:formId/generate-mappings` (Gemini Vision mapping)
+
+#### Form Discovery (Web Crawling)
+- Searches Google (with DuckDuckGo fallback) for .gov URLs with food truck permit PDFs
+- Crawls discovered .gov pages with fetch+cheerio (fast); Playwright fallback for JS-heavy pages
+- Follows one level of relevant sub-links (max 3 per page, max 8 .gov pages)
+- Heuristic keyword filter (no AI cost) for identifying food truck application forms
+- PDF validation, download with retry/backoff, fillability detection via pdf-lib
+- 24-hour cooldown to prevent re-crawling; deduplication by source URL
+- Endpoint: `POST /api/towns/:townId/discover` (trigger discovery)
+
+#### Portal Automation
+- **ViewPoint Cloud**: Login with stored credentials → catalog search → multi-step wizard field filling
+- **SeamlessDocs / OpenGov**: Direct form filling via CSS selectors and label matching
+- **Label-based fill (Pass 1)** + **selector fallback (Pass 2)** for all portal types
+- **Portal Assist V1**: Copy-paste helper UI for any town with a portal URL
+- Portal credentials encrypted with AES-256-GCM, stored per-user per-town
+- Endpoint: `POST /api/portal-credentials` (store credentials)
+- Endpoint: `POST /api/submissions/portal-automation` (create job)
+- Endpoint: `POST /api/submissions/:jobId/execute` (run automation)
+
+#### Data Vault
+- **Profile** = Vehicle record + uploaded documents + raw AI extraction (`parsedDataLog`)
+- **Data Vault** = Clean, structured fields extracted FROM the profile's parsed data
+- **Relationship**: One vault per profile, linked by `profileId`. Created automatically when Gemini parses documents.
+- **Vault query**: `GET /api/vault?profileId=xxx` returns the vault for a specific vehicle profile
+- **Vault fields**: businessName, ownerName, phone, email, mailingStreet/City/State/Zip, vehicleVin, vehicleLicensePlate, vehicleMake/Model/Year, waterSupplyType, sanitizerType, hotHoldingMethod, coldHoldingMethod, commissaryName/Address, foodItemsList, prepLocationAddress, foodHandlerCertNumber, and more
+- **Key files**: `server/lib/vault-service.ts` (sync + fill logic), `shared/schema.ts` (dataVaults table)
+
+#### Dynamic Questionnaire
+- Analyzes PDF form fields vs available profile data
+- Generates questions only for fields that can't be auto-filled
+- User answers feed into Layer 3 of the fill pipeline
+- Endpoint: `POST /api/towns/:townId/forms/:formId/analyze-questions`
+
+#### Pioneer Badge System
+- Awards badges for contributing verified permit info for towns with low confidence scores
+- Tracks contributions and displays on user profile
 
 ## External Dependencies
 
@@ -56,9 +107,10 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 - **@pdf-lib/fontkit**: For embedding fonts in PDFs.
 
 ### AI & Automation
-- **Gemini 2.5 Flash**: Used for document parsing and data extraction.
-- **Datalab API**: External service for AI-powered PDF form filling.
-- **Playwright**: For browser automation in portal submissions.
+- **Gemini 2.5 Flash**: Document parsing, data extraction, and non-fillable PDF field mapping.
+- **Datalab API**: External service for AI-powered PDF form field analysis.
+- **Playwright**: Browser automation for portal submissions and form discovery web crawling.
+- **cheerio**: HTML parsing for fast web page crawling (used before Playwright fallback).
 
 ### UI/Component Libraries
 - **Radix UI**: Accessible UI primitives.
@@ -82,104 +134,76 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 
 ### Security
 - **DOMPurify**: XSS sanitization.
-- **express-rate-limit**: API rate limiting middleware.
-- **crypto (Node.js)**: Used for encrypting sensitive credentials.
+- **express-rate-limit**: API rate limiting (200 req/15min on all /api routes).
+- **crypto (Node.js)**: AES-256-GCM encryption for portal credentials.
 
 ---
 
-## Progress Report (Last Updated: January 12, 2026)
+## Progress Report (Last Updated: March 6, 2026)
 
 ### ✅ FULLY WORKING (Tested & Live)
 
 | Feature | Status |
 |---------|--------|
-| Authentication | Working - Replit Auth + Passport.js |
+| Authentication | Working - Replit Auth + email/password login |
 | Permit CRUD | Working - create, edit, delete, status updates |
 | Town Database | Working - 169 CT towns seeded with requirements |
 | Profile Management | Working - create profiles, upload documents |
 | Document Upload & AI Extraction | Working - Gemini extracts data to parsedDataLog |
+| Data Vault Auto-Sync | Working - vault populates automatically after document parsing, profile-aware |
 | Pioneer Badge System | Working - awards badges for contributions |
 | PDF Download | Working - download original town PDFs |
+| Form Discovery | Working - verified for West Hartford (7 forms found and downloaded) |
+| Dynamic Questionnaire | Working - analyzes forms, asks only for missing fields |
 
-### ⚠️ CODE COMPLETE BUT UNTESTED
+### ⚠️ CODE COMPLETE BUT NEEDS REAL-WORLD TESTING
 
 | Feature | What's Missing |
 |---------|----------------|
 | PDF Auto-Fill (Datalab AI) | No recent end-to-end test after refactors |
-| Form Discovery (Web Crawling) | Rewritten to crawl real websites, needs real-world testing |
+| Portal Automation (ViewPoint) | Built but untested on a real ViewPoint portal |
+| Portal Automation (SeamlessDocs/OpenGov) | Built but untested on real portals |
 | Permit Packet Generator | Compiles but no smoke test evidence |
+| Non-Fillable PDF Field Mapping (Gemini Vision) | Endpoint wired up, needs testing |
 
 ### 🔧 PARTIALLY IMPLEMENTED
 
 | Feature | What's Done | What's Missing |
 |---------|-------------|----------------|
-| Data Vault Sync | Auto-syncs after document parsing, populates core fields, profile-aware | Multi-document conflict resolution |
-| Portal Automation | ViewPoint + SeamlessDocs/OpenGov, credential dialog, Playwright-based fill | End-to-end testing on real portals |
 | Portal Credentials | AES-256-GCM encryption, per-user per-town storage, credential dialog UI | Credential management/deletion UI |
+| Data Vault | Auto-syncs, profile-aware, used in form filling | Multi-document conflict resolution |
 
 ### ❌ NOT STARTED
-- CAPTCHA detection/handling
+- CAPTCHA detection/handling for portal automation
 - Analytics/telemetry
-- Frontend polling when discovery is in progress
+- Frontend polling when form discovery is in progress
+- Multi-state expansion (currently CT only)
 
 ### 🐛 KNOWN ISSUES
 1. Stale town cache after updates
-2. Form discovery depends on town website URL patterns (may miss some towns)
-
-### 🏗️ DATA VAULT ARCHITECTURE
-The **Data Vault** is the structured data layer between raw documents and form filling:
-- **Profile** = Vehicle record + uploaded documents + raw AI extraction (`parsedDataLog`)
-- **Data Vault** = Clean, structured fields extracted FROM the profile's parsed data
-- **Relationship**: One vault per profile, linked by `profileId`. Created automatically when Gemini parses documents.
-- **How it's used in form filling** (3-layer priority):
-  1. Layer 1: Raw `parsedDataLog` from Gemini document analysis
-  2. Layer 2: Data Vault structured fields (overrides Layer 1)
-  3. Layer 3: User answers + event data (highest priority, overrides all)
-- **Vault query**: `GET /api/vault?profileId=xxx` returns the vault for a specific vehicle profile
-- **Vault fields include**: businessName, ownerName, phone, email, mailingStreet/City/State/Zip, vehicleVin, vehicleLicensePlate, vehicleMake/Model/Year, waterSupplyType, sanitizerType, hotHoldingMethod, coldHoldingMethod, commissaryName/Address, foodItemsList, prepLocationAddress, foodHandlerCertNumber, and more
-- **Key files**: `server/lib/vault-service.ts` (sync + fill logic), `shared/schema.ts` (dataVaults table)
+2. Form discovery depends on search engine results (Google may CAPTCHA, DuckDuckGo is fallback)
 
 ### 📍 WHERE WORK LEFT OFF
 
-**Last Session:** Surgical Fix Sprint (Feb 13, 2026)
+**Last Session:** March 6, 2026 — GitHub Integration + Bug Fixes
 
 **What Was Done:**
-1. **Data Vault Auto-Sync** - Vault automatically populates after Gemini document parsing (single and multi-doc routes). Removed blocking "Data Vault Required" error. Profile data used as fallback if no parsedDataLog.
-
-2. **Form Discovery Rewrite** - Complete rewrite using Playwright + Google/DuckDuckGo search:
-   - Searches Google (with DuckDuckGo fallback) for .gov URLs with food truck permit PDFs
-   - Crawls discovered .gov pages with fetch+cheerio (fast); Playwright fallback for JS-heavy pages
-   - Follows one level of relevant sub-links (max 3 per page, max 8 .gov pages)
-   - Heuristic keyword filter (no AI) for identifying food truck application forms
-   - PDF validation, download with retry/backoff, fillability detection via pdf-lib
-   - 24-hour cooldown to prevent re-crawling
-   - Deduplication against existing forms by source URL
-
-3. **PDF Generate Pipeline** - 3-layer data merge:
-   - Layer 1: Parsed data from Gemini document analysis (parsedDataLog)
-   - Layer 2: Data Vault structured fields (override parsed data)
-   - Layer 3: User answers and event data (highest priority)
-   - On-the-fly PDF download from sourceUrl when fileData is missing
-   - Vault data passed to both Datalab API and local filling paths
-   - Cross-section deduplication guard prevents contact info bleeding into event/commissary fields
-   - `generateFieldMappingsFromNonFillablePDF()` uses Gemini Vision to map visual form labels to data keys (endpoint: POST `/api/towns/:townId/forms/:formId/generate-mappings`)
-
-4. **Portal Automation** - ViewPoint Cloud support added alongside SeamlessDocs/OpenGov:
-   - ViewPoint: login with stored credentials, catalog search, multi-step wizard field filling
-   - Label-based fill (Pass 1) + selector fallback (Pass 2) for ViewPoint forms
-   - Portal Assist V1 copy-paste helper for any town with a portal URL
-
-5. **Security & Stability**
-   - Global API rate limiter (200 req/15min) on all /api routes
-   - React ErrorBoundary wrapping entire app
-   - Enhanced env var validation at startup (required + optional)
-   - tsconfig target updated to ES2020 for modern JS features
+1. **Integrated 3 GitHub-pulled updates**:
+   - `portal-automation-service.ts` — ViewPoint Cloud portal automation
+   - `pdf-service.ts` — `generateFieldMappingsFromNonFillablePDF()` + cross-section dedup fix
+   - `form-discovery-service.ts` — Complete rewrite using Playwright + Google/DuckDuckGo search
+2. **Fixed TypeScript compilation errors** — `aiFieldMappings` type mismatch in schema, `vinPlate` missing from OCR types
+3. **Fixed portal automation "400: Expected string, received null"** — `permitId` was hardcoded null, `vaultId` could be undefined
+4. **Made vault profile-aware** — `/api/vault?profileId=xxx` now fetches the vault for the specific vehicle, not just any vault for the user
+5. **Wired up new API endpoint** — `POST /api/towns/:townId/forms/:formId/generate-mappings` for Gemini Vision field mapping
+6. **Removed duplicate route** — unauthenticated `GET /api/towns/:townId/forms` was dead code
+7. **Verified form discovery works** — West Hartford has 7 forms crawled and stored
 
 **Immediate Next Steps:**
-1. Test form discovery on a town with no existing forms
-2. Test PDF auto-fill end-to-end with Datalab
+1. Test PDF auto-fill end-to-end with Datalab on a real form
+2. Test portal automation on a real ViewPoint portal
 3. Add frontend polling for discovery-in-progress state
-4. Test Portal Assist copy-paste flow on real portal
+4. Build credential management UI (view/delete saved portal logins)
 
 ### 📁 Key Files
 | Purpose | File |
@@ -187,9 +211,12 @@ The **Data Vault** is the structured data layer between raw documents and form f
 | Form Discovery (Web Crawl) | `server/lib/form-discovery-service.ts` |
 | Data Vault Service | `server/lib/vault-service.ts` |
 | Portal Automation | `server/lib/portal-automation-service.ts` |
-| PDF Generation | `server/lib/pdf-service.ts` |
+| PDF Generation & Filling | `server/lib/pdf-service.ts` |
 | Rate Limiting | `server/lib/rate-limiter.ts` |
 | API Routes | `server/routes.ts` |
 | Error Boundary | `client/src/components/error-boundary.tsx` |
-| Permit UI | `client/src/pages/permit-detail.tsx` |
-| Schema | `shared/schema.ts` |
+| Requirements Checklist (forms UI) | `client/src/components/requirements-checklist.tsx` |
+| Permit Detail Page | `client/src/pages/permit-detail.tsx` |
+| New Permit Flow | `client/src/pages/new-permit.tsx` |
+| Schema (all data models) | `shared/schema.ts` |
+| Auth Routes | `server/replit_integrations/auth/routes.ts` |
