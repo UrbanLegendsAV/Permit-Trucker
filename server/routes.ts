@@ -58,7 +58,7 @@ const portalCredentialsSchema = z.object({
 });
 
 const portalAutomationSchema = z.object({
-  permitId: z.string().min(1, "Permit ID is required"),
+  permitId: z.string().nullable().optional(),
   townId: z.string().min(1, "Town ID is required"),
   vaultId: z.string().min(1, "Vault ID is required"),
   credentialId: z.string().min(1, "Credential ID is required"),
@@ -3075,7 +3075,7 @@ For text fields that require descriptive answers about food safety practices, se
 
       const job = await createPortalAutomationJob(
         userId,
-        permitId,
+        permitId || "",
         townId,
         vaultId,
         credentialId

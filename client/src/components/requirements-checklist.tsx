@@ -201,6 +201,15 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       return;
     }
 
+    if (!vault?.id) {
+      toast({
+        title: "Data Vault Required",
+        description: "Please upload at least one document so your profile data is available for form filling.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsRunningAutomation(true);
     setAutomationStatus("Storing credentials securely...");
 
@@ -212,21 +221,27 @@ export function RequirementsChecklist({ town, progress, onToggle, profile }: Req
       });
 
       if (!credResponse.ok) {
-        throw new Error("Failed to store credentials");
+        const errData = await credResponse.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to store credentials");
       }
 
       const credential = await credResponse.json();
+
+      if (!credential.id) {
+        throw new Error("Credential was saved but no ID was returned");
+      }
+
       setAutomationStatus("Creating automation job...");
 
       const jobResponse = await apiRequest("POST", "/api/submissions/portal-automation", {
-        permitId: null,
         townId: town.id,
-        vaultId: vault?.id,
+        vaultId: vault.id,
         credentialId: credential.id,
       });
 
       if (!jobResponse.ok) {
-        throw new Error("Failed to create automation job");
+        const errData = await jobResponse.json().catch(() => ({}));
+        throw new Error(errData.message || "Failed to create automation job");
       }
 
       const job = await jobResponse.json();
