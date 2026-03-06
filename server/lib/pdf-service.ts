@@ -893,7 +893,15 @@ export function smartMatchFieldToData(
     return eventData?.eventName || dataMap.business_name;
   }
   // "establishment" only applies to NAME fields — not type/license/inspection/etc.
+  // For compound "Name & Address" fields with numbered suffixes, field 1 = name, field 2+ = address
   if (lowerField.includes("establishment") && lowerField.includes("name")) {
+    if (lowerField.includes("address")) {
+      const suffixMatch = fieldName.match(/(\d+)\s*$/);
+      const suffix = suffixMatch ? parseInt(suffixMatch[1]) : 1;
+      if (suffix >= 2) {
+        return dataMap.address || dataMap.mailing_address;
+      }
+    }
     return dataMap.business_name;
   }
 
@@ -923,7 +931,8 @@ export function smartMatchFieldToData(
   }
 
   // Event location — "Location of Event", "event location", "event address" (already handled above)
-  if (lowerField.includes("location") && (lowerField.includes("event") || lowerField.includes("of"))) {
+  // Require "event" context — "location" + "of" alone is too broad (catches "location of backup utensil storage")
+  if (lowerField.includes("location") && lowerField.includes("event")) {
     return eventData?.eventAddress || null;
   }
   if (lowerField === "location of event" || lowerField === "event location") {
@@ -931,7 +940,8 @@ export function smartMatchFieldToData(
   }
   
   // City/State/Zip patterns
-  if (lowerField === "city" || lowerField.includes("city") && !lowerField.includes("state")) {
+  // Use word-boundary regex to avoid "electricity" matching "city"
+  if (lowerField === "city" || (/\bcity\b/.test(lowerField) && !lowerField.includes("state"))) {
     return dataMap.city;
   }
   // "town" as a field label typically means city/municipality — but only match exact or
