@@ -14,6 +14,7 @@ export interface ExtractedPermitData {
   address?: string;
   vin?: string;
   licensePlate?: string;
+  vinPlate?: string;
 }
 
 const datePatterns = [

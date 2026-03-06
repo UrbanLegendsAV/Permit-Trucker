@@ -265,15 +265,17 @@ export const townForms = pgTable("town_forms", {
   // Enhanced field mappings from Datalab AI analysis
   aiFieldMappings: jsonb("ai_field_mappings").$type<{
     fields: Array<{
-      pdfFieldName: string;           // Original field name in PDF
-      fieldType: "text" | "checkbox"; // Type of field
-      label: string;                  // Human-readable label from PDF
-      dataKey: string | null;         // Key in our profile data that matches
-      confidence: number;             // Datalab's confidence score 0-1
-      defaultValue?: string;          // Optional default if no profile data
+      pdfFieldName: string;
+      fieldType: "text" | "checkbox";
+      label: string;
+      dataKey: string | null;
+      confidence: number;
+      defaultValue?: string;
+      matchValue?: string | null;
     }>;
-    lastAnalyzedAt: string;           // ISO timestamp
+    lastAnalyzedAt: string;
     analysisSource: "datalab" | "manual" | "gemini";
+    coverage?: number;
   }>(),
   datalabAnalyzed: boolean("datalab_analyzed").default(false),
   sortOrder: integer("sort_order").default(0),
