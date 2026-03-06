@@ -892,13 +892,23 @@ export function smartMatchFieldToData(
   if (lowerField.includes("organization") || (lowerField.includes("event") && lowerField.includes("name"))) {
     return eventData?.eventName || dataMap.business_name;
   }
-  if (lowerField.includes("establishment") && (lowerField.includes("name") || !lowerField.includes("address"))) {
+  // "establishment" only applies to NAME fields — not type/license/inspection/etc.
+  if (lowerField.includes("establishment") && lowerField.includes("name")) {
     return dataMap.business_name;
   }
-  
-  // Address patterns - handle "establishment address", "owner/operator address" etc.
+
+  // Address patterns — ordered most-specific → least-specific so section-specific
+  // addresses are resolved before the generic applicant-address catch-all.
   if (lowerField.includes("mailing") && lowerField.includes("address")) {
     return dataMap.mailing_address || dataMap.address;
+  }
+  // Event / venue address must come before the generic catch-all
+  if ((lowerField.includes("event") || lowerField.includes("venue")) && lowerField.includes("address")) {
+    return eventData?.eventAddress || null;
+  }
+  // Commissary address must come before the generic catch-all
+  if (lowerField.includes("commissary") && lowerField.includes("address")) {
+    return dataMap.commissary_address;
   }
   if (lowerField.includes("establishment") && lowerField.includes("address")) {
     return dataMap.address || dataMap.mailing_address;
@@ -906,11 +916,13 @@ export function smartMatchFieldToData(
   if (lowerField.includes("owner") && lowerField.includes("address")) {
     return dataMap.address || dataMap.mailing_address;
   }
-  if (lowerField.includes("street") || (lowerField === "address" || (lowerField.includes("address") && !lowerField.includes("email")))) {
+  // Generic catch-all — safe because all section-specific addresses are handled above
+  if (lowerField === "address" || lowerField.includes("street") ||
+      (lowerField.includes("address") && !lowerField.includes("email"))) {
     return dataMap.address || dataMap.mailing_address;
   }
-  
-  // Event location - handle "Location of Event", "event location" etc.
+
+  // Event location — "Location of Event", "event location", "event address" (already handled above)
   if (lowerField.includes("location") && (lowerField.includes("event") || lowerField.includes("of"))) {
     return eventData?.eventAddress || null;
   }
@@ -922,7 +934,10 @@ export function smartMatchFieldToData(
   if (lowerField === "city" || lowerField.includes("city") && !lowerField.includes("state")) {
     return dataMap.city;
   }
-  if (lowerField === "town" || lowerField.includes("town")) {
+  // "town" as a field label typically means city/municipality — but only match exact or
+  // combined forms; "includes('town')" is too broad (catches "Hometown", "Downtown", etc.)
+  if (lowerField === "town" || lowerField === "city/town" || lowerField === "town/city" ||
+      lowerField === "town or city" || (lowerField.includes("town") && lowerField.includes("city"))) {
     return dataMap.city;
   }
   if (lowerField === "state" || lowerField.includes("state") && !lowerField.includes("city")) {
@@ -977,9 +992,7 @@ export function smartMatchFieldToData(
   if (lowerField.includes("commissary") && lowerField.includes("name")) {
     return dataMap.commissary_name;
   }
-  if (lowerField.includes("commissary") && lowerField.includes("address")) {
-    return dataMap.commissary_address;
-  }
+  // Note: commissary address is handled earlier in the address section (before the generic catch-all)
   
   // Water/sanitation patterns
   if (lowerField.includes("water") && lowerField.includes("supply")) {
@@ -1000,18 +1013,23 @@ export function smartMatchFieldToData(
   if (lowerField.includes("food") && lowerField.includes("purchased")) {
     return dataMap.food_sources || null;
   }
-  if (lowerField.includes("food") && lowerField.includes("stored") || lowerField.includes("storage")) {
+  // "storage" alone is too broad ("vehicle storage", "document storage") — require food context
+  if ((lowerField.includes("food") && (lowerField.includes("stored") || lowerField.includes("storage"))) ||
+      (lowerField.includes("cold") && lowerField.includes("storage"))) {
     return dataMap.cold_storage || dataMap.food_storage || null;
   }
   if (lowerField.includes("temperature") && (lowerField.includes("monitor") || lowerField.includes("describe"))) {
     return dataMap.temp_monitoring || null;
   }
-  if (lowerField.includes("food") && lowerField.includes("prepared") || lowerField.includes("prep location") || lowerField.includes("preparation") ||
-      lowerField.includes("tfe site") || lowerField.includes("prepared at")) {
+  // "preparation" alone is too broad — require food context; "prep location" is explicit enough
+  if ((lowerField.includes("food") && (lowerField.includes("prepared") || lowerField.includes("preparation"))) ||
+      lowerField.includes("prep location") || lowerField.includes("tfe site") || lowerField.includes("prepared at")) {
     return dataMap.prep_location || dataMap.commissary_name || null;
   }
-  if (lowerField.includes("source") || lowerField.includes("where made") || lowerField.includes("where purchased")) {
-    return dataMap.food_sources || dataMap.commissary_name || null;
+  // "source" alone catches "Source of Water", "Power Source" etc. — require food context
+  if ((lowerField.includes("food") && lowerField.includes("source")) ||
+      lowerField.includes("food source") || lowerField.includes("where made") || lowerField.includes("where purchased")) {
+    return dataMap.food_sources || null;
   }
   // Transport patterns
   if (lowerField.includes("transport") && (lowerField.includes("food") || lowerField.includes("frozen") || lowerField.includes("cold") || lowerField.includes("hot"))) {
@@ -1152,6 +1170,55 @@ export interface CachedAIFieldMapping {
   dataKey: string | null;
   matchValue?: string | null; // For checkboxes: the value that dataKey should contain to check this box
   confidence: number;
+}
+
+/**
+ * Classifies a PDF field name into its form section so the fill loop can detect
+ * when a heuristic match would bleed contact-info data into a different section.
+ * Returns a short string tag: "contact" | "event" | "commissary" | "vehicle" | "food" | "equipment"
+ */
+function getFieldSection(fieldName: string): string {
+  const lower = fieldName.toLowerCase();
+  if (lower.includes("commissary") || lower.includes("base kitchen")) return "commissary";
+  if (lower.includes("event") || lower.includes("venue")) return "event";
+  if (lower.includes("vehicle") || lower.includes("trailer") || lower.includes("vin")) return "vehicle";
+  if (lower.includes("menu") || (lower.includes("food") && !lower.includes("food service"))) return "food";
+  if (lower.includes("sanitiz") || lower.includes("handwash")) return "equipment";
+  return "contact"; // owner/business contact info — the default
+}
+
+/**
+ * Calls smartMatchFieldToData and also returns which dataMap key produced the value.
+ * Uses a Proxy to observe which key was read last, then validates it against the value.
+ * This lets the fill loop track per-key usage for cross-section deduplication.
+ */
+function resolveHeuristic(
+  fieldName: string,
+  dataMap: Record<string, string | null>,
+  eventData?: Parameters<typeof smartMatchFieldToData>[2]
+): { value: string | null; dataKey: string | null } {
+  let lastReadKey: string | null = null;
+  const tracked = new Proxy(dataMap, {
+    get(target, prop: string | symbol) {
+      const val = Reflect.get(target, prop);
+      if (typeof prop === "string" && typeof val === "string" && val.trim()) {
+        lastReadKey = prop;
+      }
+      return val;
+    },
+  });
+
+  const value = smartMatchFieldToData(fieldName, tracked, eventData);
+
+  // Prefer lastReadKey if its value matches; fall back to linear scan
+  const dataKey =
+    value && lastReadKey && dataMap[lastReadKey] === value
+      ? lastReadKey
+      : value
+      ? (Object.entries(dataMap).find(([, v]) => v === value)?.[0] ?? null)
+      : null;
+
+  return { value, dataKey };
 }
 
 /**
@@ -1366,6 +1433,11 @@ export async function fillPdfFromDatabase(
       console.log(`[PDF Service] Filling ${fields.length} AcroForm fields using heuristic matching`);
     }
 
+    // Cross-section deduplication guard for heuristic matches only.
+    // Tracks which dataMap key was first used by which form section so that
+    // owner/business contact data can't bleed into event/commissary/vehicle sections.
+    const heuristicSectionMap = new Map<string, string>(); // dataKey → section of first use
+
     for (const field of fields) {
       const fieldName = field.getName();
       
@@ -1390,9 +1462,26 @@ export async function fillPdfFromDatabase(
             value = dataMap[fieldMappings[fieldName]];
             console.log(`[PDF Service] Manual mapping: "${fieldName}" -> "${fieldMappings[fieldName]}"`);
           }
-          // PRIORITY 3: Fall back to heuristic matching (least reliable)
+          // PRIORITY 3: Heuristic matching with cross-section bleed protection
           else {
-            value = smartMatchFieldToData(fieldName, dataMap, eventData);
+            const { value: hValue, dataKey } = resolveHeuristic(fieldName, dataMap, eventData);
+            if (hValue && dataKey) {
+              const thisSection = getFieldSection(fieldName);
+              const prevSection = heuristicSectionMap.get(dataKey);
+              // Block reuse if the same key was already used by a DIFFERENT non-contact section.
+              // Contact is the default bucket; sharing within it is fine (e.g. two "name" fields).
+              // But event/commissary/vehicle fields must not inherit contact-info data.
+              if (prevSection !== undefined && prevSection !== thisSection && thisSection !== "contact") {
+                console.log(`[PDF Service] Cross-section heuristic blocked: "${fieldName}" (${thisSection}) tried to reuse key "${dataKey}" already used in section "${prevSection}"`);
+              } else {
+                value = hValue;
+                if (prevSection === undefined) {
+                  heuristicSectionMap.set(dataKey, thisSection);
+                }
+              }
+            } else {
+              value = hValue;
+            }
           }
         }
         
