@@ -136,12 +136,12 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
 **What Was Done:**
 1. **Data Vault Auto-Sync** - Vault automatically populates after Gemini document parsing (single and multi-doc routes). Removed blocking "Data Vault Required" error. Profile data used as fallback if no parsedDataLog.
 
-2. **Form Discovery Rewrite** - Complete rewrite from Gemini URL-guessing to actual web crawling:
-   - Builds seed URLs from town name patterns + health district websites
-   - Crawls HTML pages using cheerio, extracts PDF links
-   - Follows subpages one level deep (max 15)
-   - AI classification with heuristic fallback for identifying food truck forms
-   - PDF validation, download with retry/backoff, fillability detection
+2. **Form Discovery Rewrite** - Complete rewrite using Playwright + Google/DuckDuckGo search:
+   - Searches Google (with DuckDuckGo fallback) for .gov URLs with food truck permit PDFs
+   - Crawls discovered .gov pages with fetch+cheerio (fast); Playwright fallback for JS-heavy pages
+   - Follows one level of relevant sub-links (max 3 per page, max 8 .gov pages)
+   - Heuristic keyword filter (no AI) for identifying food truck application forms
+   - PDF validation, download with retry/backoff, fillability detection via pdf-lib
    - 24-hour cooldown to prevent re-crawling
    - Deduplication against existing forms by source URL
 
@@ -151,11 +151,13 @@ PermitTruck uses a monorepo architecture for its client, server, and shared code
    - Layer 3: User answers and event data (highest priority)
    - On-the-fly PDF download from sourceUrl when fileData is missing
    - Vault data passed to both Datalab API and local filling paths
+   - Cross-section deduplication guard prevents contact info bleeding into event/commissary fields
+   - `generateFieldMappingsFromNonFillablePDF()` uses Gemini Vision to map visual form labels to data keys (endpoint: POST `/api/towns/:townId/forms/:formId/generate-mappings`)
 
-4. **Portal Assist V1** - Replaced broken Playwright automation with copy-paste helper:
-   - Shows all profile data fields in a dialog with one-tap copy
-   - "Open Portal" button to launch town portal in new tab
-   - Works for any town with a portal URL, not just SeamlessDocs
+4. **Portal Automation** - ViewPoint Cloud support added alongside SeamlessDocs/OpenGov:
+   - ViewPoint: login with stored credentials, catalog search, multi-step wizard field filling
+   - Label-based fill (Pass 1) + selector fallback (Pass 2) for ViewPoint forms
+   - Portal Assist V1 copy-paste helper for any town with a portal URL
 
 5. **Security & Stability**
    - Global API rate limiter (200 req/15min) on all /api routes

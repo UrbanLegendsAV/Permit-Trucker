@@ -23,6 +23,7 @@ import {
   townFormToTemplate,
   buildDataMapFromParsedData,
   smartMatchFieldToData,
+  generateFieldMappingsFromNonFillablePDF,
   type ParsedUserData 
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
@@ -2538,17 +2539,6 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
-  // Get forms for a specific town
-  app.get("/api/towns/:townId/forms", async (req, res) => {
-    try {
-      const forms = await storage.getTownForms(req.params.townId);
-      res.json(forms);
-    } catch (error) {
-      console.error("Error fetching town forms:", error);
-      res.status(500).json({ message: "Failed to fetch town forms" });
-    }
-  });
-
   // Admin: Create town form
   app.post("/api/admin/towns/:townId/forms", isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -3216,6 +3206,32 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error checking portal info:", error);
       res.status(500).json({ message: "Failed to check portal info" });
+    }
+  });
+
+  app.post("/api/towns/:townId/forms/:formId/generate-mappings", isAuthenticated, async (req: any, res) => {
+    try {
+      const { townId, formId } = req.params;
+
+      const form = await storage.getTownFormById(formId);
+      if (!form || form.townId !== townId) {
+        return res.status(404).json({ message: "Form not found" });
+      }
+
+      if (!form.fileData) {
+        return res.status(400).json({ message: "Form has no PDF data stored. Upload or fetch the PDF first." });
+      }
+
+      const mappings = await generateFieldMappingsFromNonFillablePDF(form.fileData, formId);
+      res.json({
+        success: true,
+        mappings,
+        fieldCount: Object.keys(mappings).length,
+      });
+    } catch (error) {
+      console.error("Error generating field mappings:", error);
+      const message = error instanceof Error ? error.message : "Failed to generate field mappings";
+      res.status(500).json({ message });
     }
   });
 

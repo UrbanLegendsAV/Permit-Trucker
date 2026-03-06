@@ -136,6 +136,7 @@ export async function performOCR(
     address: extractAddress(text),
     vin,
     licensePlate,
+    vinPlate: [vin, licensePlate].filter(Boolean).join(" / ") || undefined,
   };
 
   return {
