@@ -3,6 +3,8 @@ import fontkit from "@pdf-lib/fontkit";
 import * as fs from "fs";
 import * as path from "path";
 import type { TownForm, DataVault } from "@shared/schema";
+import { storage } from "../storage";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export interface FieldMapping {
   page: number;
@@ -1488,4 +1490,160 @@ export function townFormToTemplate(form: TownForm, townName?: string): DatabaseF
     hasFieldMappings: !!form.fieldMappings && Object.keys(form.fieldMappings).length > 0,
     category: form.category,
   };
+}
+
+// ─── Gemini Vision Field Mapping for Non-Fillable PDFs ───────────────────────
+
+// Canonical set of data-map keys the fill system understands.
+// These match the keys in buildDataMapFromParsedData() / fillPdfFromDatabase().
+const VAULT_KEY_DESCRIPTIONS: Record<string, string> = {
+  business_name:         "Business / establishment / company name",
+  owner_name:            "Owner, applicant, or operator name",
+  address:               "Street or mailing address",
+  city:                  "City or municipality",
+  state:                 "State (2-letter abbreviation)",
+  zip:                   "ZIP or postal code",
+  phone:                 "Phone or telephone number",
+  email:                 "Email or e-mail address",
+  vin:                   "Vehicle Identification Number (VIN)",
+  license_plate:         "Vehicle license plate number",
+  vehicle_make:          "Vehicle make (manufacturer)",
+  vehicle_model:         "Vehicle model",
+  vehicle_year:          "Vehicle year",
+  vehicle_length:        "Vehicle length (feet)",
+  vehicle_width:         "Vehicle width (feet)",
+  commissary_name:       "Commissary name",
+  commissary_address:    "Commissary address",
+  commissary_phone:      "Commissary phone number",
+  menu_items:            "Menu items / food items list",
+  menu_description:      "Menu or food description (free text)",
+  water_supply:          "Water supply type (public/self-contained/well)",
+  sanitizer_type:        "Sanitizer type or sanitizing solution",
+  toilet_facilities:     "Toilet / restroom facilities",
+  handwash_setup:        "Handwashing station description",
+  hot_holding:           "Hot holding method or temperature control",
+  cold_storage:          "Cold holding / refrigeration method",
+  waste_water:           "Wastewater / grey water disposal",
+  food_sources:          "Food source locations / where food is purchased",
+  prep_location:         "Food preparation location / commissary address",
+  temp_monitoring:       "Temperature monitoring method",
+  food_handler_cert:     "Food handler certificate number",
+  cert_expiration:       "Certificate expiration date",
+  license_number:        "License or permit number",
+  license_type:          "License type (temporary / seasonal / annual)",
+  ein:                   "Employer Identification Number (EIN) / federal tax ID",
+  insurance_carrier:     "Liability insurance carrier / company",
+  insurance_policy:      "Liability insurance policy number",
+  event_name:            "Event name",
+  event_location:        "Event location or address",
+  event_dates:           "Event date(s)",
+  hours_of_operation:    "Hours of operation / food service hours",
+  person_in_charge:      "Person in charge / contact person",
+  mailing_address:       "Full mailing address (combined street, city, state, zip)",
+  city_state_zip:        "City, State, ZIP combined",
+};
+
+/**
+ * Analyzes a non-fillable (non-AcroForm) PDF using Gemini Vision to detect
+ * visible form field labels, then maps each label to the closest DataVault
+ * data key. Saves the generated mappings to town_forms.fieldMappings so future
+ * fills skip the Gemini call entirely.
+ *
+ * @param base64Pdf   - Base64-encoded PDF bytes
+ * @param townFormId  - ID of the town_forms row to update
+ * @returns fieldMappings: Record<labelText, dataMapKey>
+ */
+export async function generateFieldMappingsFromNonFillablePDF(
+  base64Pdf: string,
+  townFormId: string
+): Promise<Record<string, string>> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error("GOOGLE_API_KEY is not configured. Cannot use Gemini Vision.");
+  }
+
+  // Retrieve the form so we can skip if mappings already exist
+  const form = await storage.getTownFormById(townFormId);
+  if (!form) {
+    throw new Error(`Town form not found: ${townFormId}`);
+  }
+
+  const existingMappings = form.fieldMappings;
+  if (existingMappings && Object.keys(existingMappings).length > 0) {
+    console.log(`[PDF Service] fieldMappings already exist for form ${townFormId} (${Object.keys(existingMappings).length} entries), returning cached.`);
+    return existingMappings as Record<string, string>;
+  }
+
+  console.log(`[PDF Service] Sending PDF to Gemini Vision for field mapping: ${form.name}`);
+
+  const keyList = Object.entries(VAULT_KEY_DESCRIPTIONS)
+    .map(([k, desc]) => `  "${k}" — ${desc}`)
+    .join("\n");
+
+  const prompt = `You are analyzing a government permit application PDF form for a food truck or mobile food vendor.
+
+Your task:
+1. Visually inspect every page and identify ALL visible form fields — blank lines, text boxes, checkboxes, dropdowns, or any area where an applicant would write information.
+2. For each field, extract the EXACT label text as printed on the form (e.g. "Name of Establishment", "Business Phone", "Dates of Event").
+3. Map each label to the single best matching key from the list below. If no key fits, use null.
+
+Available data keys (key — description):
+${keyList}
+
+Return ONLY a valid JSON object with this structure:
+{
+  "<exact label text from PDF>": "<data_key or null>",
+  ...
+}
+
+Rules:
+- Use the EXACT label text as it appears on the form as the JSON key.
+- Use only keys from the list above as values (or null if nothing matches).
+- Include every field you see, even if you map it to null.
+- Do not include any explanation or markdown — just the raw JSON object.`;
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const result = await model.generateContent([
+    {
+      inlineData: {
+        data: base64Pdf,
+        mimeType: "application/pdf",
+      },
+    },
+    prompt,
+  ]);
+
+  const responseText = result.response.text().trim();
+
+  // Strip markdown fences if present
+  let jsonText = responseText;
+  if (jsonText.startsWith("```")) {
+    jsonText = jsonText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  }
+
+  let rawMappings: Record<string, string | null>;
+  try {
+    rawMappings = JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(`Gemini returned invalid JSON for field mappings: ${responseText.substring(0, 300)}`);
+  }
+
+  // Filter out null values — only keep confirmed mappings
+  const fieldMappings: Record<string, string> = {};
+  for (const [label, dataKey] of Object.entries(rawMappings)) {
+    if (dataKey && typeof dataKey === "string" && dataKey in VAULT_KEY_DESCRIPTIONS) {
+      fieldMappings[label] = dataKey;
+    }
+  }
+
+  const mappingCount = Object.keys(fieldMappings).length;
+  console.log(`[PDF Service] Gemini detected ${Object.keys(rawMappings).length} fields, mapped ${mappingCount} to known data keys.`);
+
+  // Persist to the database so future fills skip Gemini
+  await storage.updateTownForm(townFormId, { fieldMappings });
+  console.log(`[PDF Service] Saved ${mappingCount} fieldMappings to town_forms row ${townFormId}.`);
+
+  return fieldMappings;
 }
