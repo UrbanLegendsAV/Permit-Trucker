@@ -1989,9 +1989,22 @@ For text fields that require descriptive answers about food safety practices, se
         const matchByFieldName = smartMatchFieldToData(field.pdfFieldName, dataMap, eventData);
         const matchByLabel = field.label ? smartMatchFieldToData(field.label, dataMap, eventData) : null;
 
-        if (hasDirectMatch || matchByFieldName || matchByLabel) {
+        // Also check if the user has already provided an override for this field
+        const hasUserOverride = userOverrides && Object.keys(userOverrides).some(k => {
+          const overrideFieldName = (userOverrides as Record<string, { value: string; savedAt: string; fieldName?: string }>)[k].fieldName || k;
+          return overrideFieldName === field.pdfFieldName;
+        });
+
+        if (hasDirectMatch || matchByFieldName || matchByLabel || hasUserOverride) {
           autoFilledCount++;
-          console.log(`[Analyze] Auto-fill: "${field.pdfFieldName}" label="${field.label}" matched=${hasDirectMatch ? 'dataKey' : matchByFieldName ? 'fieldName' : 'label'}`);
+          console.log(`[Analyze] Auto-fill: "${field.pdfFieldName}" label="${field.label}" matched=${hasDirectMatch ? 'dataKey' : matchByFieldName ? 'fieldName' : matchByLabel ? 'label' : 'userOverride'}`);
+          continue;
+        }
+
+        // Don't ask about continuation lines — only ask about Line 1 / the first instance
+        const isContinuationLine = /(?:line|row)\s*[2-9]|\([2-9]\)/i.test(field.label || field.pdfFieldName);
+        if (isContinuationLine) {
+          console.log(`[Analyze] Skipping continuation line: "${field.pdfFieldName}" label="${field.label}"`);
           continue;
         }
 

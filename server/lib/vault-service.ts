@@ -34,6 +34,10 @@ interface ParsedDataLog {
     prep_location?: { value: string; confidence: number };
     food_source_location?: { value: string; confidence: number };
   };
+  certifications?: {
+    food_manager_cert?: { value: string; confidence: number };
+    cert_expiration?: { value: string; confidence: number };
+  };
   _meta?: {
     document_type?: string;
     fields_found?: number;
@@ -182,12 +186,38 @@ export async function syncParsedDataToVault(profileId: string): Promise<DataVaul
     }
   }
 
+  // Extract commissary info from prep_location if not separately stored
+  if (!vaultData.commissaryName && parsedLog.menu_and_prep?.prep_location?.value) {
+    const prepLoc = parsedLog.menu_and_prep.prep_location.value;
+    // Pattern: "Certified kitchen (Name, Address)"
+    const match = prepLoc.match(/\(([^,]+),\s*(.+)\)/);
+    if (match) {
+      vaultData.commissaryName = match[1].trim();
+      vaultData.commissaryAddress = match[2].trim();
+      confidenceScores.commissaryName = parsedLog.menu_and_prep.prep_location.confidence;
+      confidenceScores.commissaryAddress = parsedLog.menu_and_prep.prep_location.confidence;
+      fieldSources.commissaryName = "parsed_document";
+      fieldSources.commissaryAddress = "parsed_document";
+    } else if (!vaultData.commissaryName) {
+      vaultData.commissaryName = prepLoc;
+      confidenceScores.commissaryName = parsedLog.menu_and_prep.prep_location.confidence;
+      fieldSources.commissaryName = "parsed_document";
+    }
+  }
+
+  // Extract food manager cert from certifications
+  if (!vaultData.foodHandlerCertNumber && parsedLog.certifications?.food_manager_cert?.value) {
+    vaultData.foodHandlerCertNumber = parsedLog.certifications.food_manager_cert.value;
+    confidenceScores.foodHandlerCertNumber = parsedLog.certifications.food_manager_cert.confidence;
+    fieldSources.foodHandlerCertNumber = "parsed_document";
+  }
+
   if (profile.commissaryName) {
     vaultData.commissaryName = profile.commissaryName;
     confidenceScores.commissaryName = 100;
     fieldSources.commissaryName = "profile";
   }
-  
+
   if (profile.commissaryAddress) {
     vaultData.commissaryAddress = profile.commissaryAddress;
     confidenceScores.commissaryAddress = 100;

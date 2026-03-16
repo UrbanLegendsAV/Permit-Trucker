@@ -773,6 +773,8 @@ export function buildDataMapFromParsedData(
     vehicle_make: getFromAny("vehicle_info", "trailer_make"),
     vehicle_model: getFromAny("vehicle_info", "trailer_model"),
     vehicle_year: getFromAny("vehicle_info", "trailer_year"),
+    vehicle_color: getFromAny("vehicle_info", "vehicle_color", "color"),
+    vehicle_type: getFromAny("vehicle_info", "vehicle_type", "equipment_type"),
     water_supply: getFromAny("operations", "water_supply_type") || getFromAny("equipment_info", "water_supply"),
     sanitizer_type: getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
     sanitizing_method: getFromAny("operations", "sanitizing_method"),
@@ -822,6 +824,7 @@ export function buildDataMapFromParsedData(
       vehicle_make: vaultData.vehicleMake,
       vehicle_model: vaultData.vehicleModel,
       vehicle_year: vaultData.vehicleYear,
+      vehicle_type: vaultData.vehicleType,
       water_supply: vaultData.waterSupplyType,
       sanitizer_type: vaultData.sanitizerType,
       hot_holding: vaultData.hotHoldingMethod,
@@ -1066,7 +1069,21 @@ export function smartMatchFieldToData(
   if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash") || lowerField.includes("hand washing")) {
     return dataMap.handwash_setup || dataMap.sanitizing_method || null;
   }
-  
+
+  // Vehicle type/equipment type
+  if (lowerField.includes("equipment") && lowerField.includes("type")) {
+    return dataMap.vehicle_type || null;
+  }
+  if (lowerField.includes("make") && (lowerField.includes("model") || lowerField.includes("vehicle"))) {
+    return dataMap.vehicle_make ? `${dataMap.vehicle_make}${dataMap.vehicle_model ? ' ' + dataMap.vehicle_model : ''}` : null;
+  }
+  if (lowerField.includes("vehicle") && lowerField.includes("year")) {
+    return dataMap.vehicle_year || null;
+  }
+  if (lowerField.includes("color") && !lowerField.includes("colorado")) {
+    return dataMap.vehicle_color || null;
+  }
+
   // Direct key match as fallback
   const normalizedFieldName = lowerField.replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
   for (const [key, val] of Object.entries(dataMap)) {
@@ -1350,6 +1367,8 @@ export async function fillPdfFromDatabase(
     vehicle_make: getFromAny("vehicle_info", "trailer_make"),
     vehicle_model: getFromAny("vehicle_info", "trailer_model"),
     vehicle_year: getFromAny("vehicle_info", "trailer_year"),
+    vehicle_color: getFromAny("vehicle_info", "vehicle_color", "color"),
+    vehicle_type: getFromAny("vehicle_info", "vehicle_type", "equipment_type"),
     // Operations & equipment
     water_supply: getFromAny("operations", "water_supply_type") || getFromAny("equipment_info", "water_supply"),
     sanitizer_type: getFromAny("operations", "sanitizer_type") || getFromAny("equipment_info", "sanitizer_type"),
@@ -1405,6 +1424,7 @@ export async function fillPdfFromDatabase(
       vehicle_make: vaultData.vehicleMake,
       vehicle_model: vaultData.vehicleModel,
       vehicle_year: vaultData.vehicleYear,
+      vehicle_type: vaultData.vehicleType,
       water_supply: vaultData.waterSupplyType,
       sanitizer_type: vaultData.sanitizerType,
       hot_holding: vaultData.hotHoldingMethod,
@@ -1447,6 +1467,9 @@ export async function fillPdfFromDatabase(
     // Tracks which dataMap key was first used by which form section so that
     // owner/business contact data can't bleed into event/commissary/vehicle sections.
     const heuristicSectionMap = new Map<string, string>(); // dataKey → section of first use
+
+    // Track per-dataKey usage count to prevent duplicate filling of multi-line fields
+    const dataKeyUsageCount = new Map<string, number>();
 
     for (const field of fields) {
       const fieldName = field.getName();
@@ -1494,7 +1517,42 @@ export async function fillPdfFromDatabase(
             }
           }
         }
-        
+
+        // Deduplicate multi-line fields: only fill the FIRST field that maps to a given dataKey
+        if (value && fieldType === "PDFTextField") {
+          let resolvedDataKey: string | null = null;
+
+          if (userAnswers && userAnswers[fieldName]) {
+            // User answers are always unique per field — no dedup needed
+            resolvedDataKey = null;
+          } else {
+            const aiMapping = aiMappingLookup.get(fieldName);
+            if (aiMapping?.dataKey) {
+              resolvedDataKey = aiMapping.dataKey;
+            } else if (fieldMappings[fieldName]) {
+              resolvedDataKey = fieldMappings[fieldName];
+            } else {
+              const entry = Object.entries(dataMap).find(([, v]) => v === value);
+              resolvedDataKey = entry ? entry[0] : null;
+            }
+          }
+
+          if (resolvedDataKey) {
+            const count = dataKeyUsageCount.get(resolvedDataKey) || 0;
+            const isContinuationLine = /(?:line|row|entry)\s*[2-9]|_[2-9]$|\([2-9]\)|#[2-9]/i.test(fieldName);
+            const isTableRow = /(?:row|\.r)[2-9]|_r[2-9]|food[2-9]|item[2-9]/i.test(fieldName);
+
+            if (count > 0 && (isContinuationLine || isTableRow)) {
+              console.log(`[PDF Service] Skipping duplicate fill: "${fieldName}" (${resolvedDataKey} already used ${count}x)`);
+              value = null;
+            } else if (count >= 3) {
+              console.log(`[PDF Service] Capping duplicate fill: "${fieldName}" (${resolvedDataKey} used ${count}x)`);
+              value = null;
+            }
+            dataKeyUsageCount.set(resolvedDataKey, count + 1);
+          }
+        }
+
         if (fieldType === "PDFTextField") {
           if (value) {
             const textField = form.getTextField(fieldName);

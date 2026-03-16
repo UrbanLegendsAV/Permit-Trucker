@@ -13,7 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight } from "lucide-react";
+import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw } from "lucide-react";
 import type { Profile, Permit } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -64,6 +64,23 @@ export default function ProfilePage() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update document category.", variant: "destructive" });
+    },
+  });
+
+  const syncVaultMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      const res = await fetch(`/api/vault/sync/${profileId}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Sync failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Data Vault Synced", description: `${data.fieldCount || 'All'} fields updated.` });
+    },
+    onError: () => {
+      toast({ title: "Sync Failed", description: "Could not sync to data vault.", variant: "destructive" });
     },
   });
 
@@ -165,16 +182,28 @@ export default function ProfilePage() {
           ) : (
             <div className="space-y-3">
               {profiles.map(profile => (
-                <VehicleCard
-                  key={profile.id}
-                  profile={profile}
-                  permitCount={permits.filter(p => p.profileId === profile.id).length}
-                  onClick={() => setLocation(`/profile/${profile.id}`)}
-                  onEdit={(p) => setLocation(`/profile/${p.id}/edit`)}
-                  onDelete={(id) => deleteProfileMutation.mutate(id)}
-                  onDeleteDocument={(profileId, docIndex) => deleteDocumentMutation.mutate({ profileId, docIndex })}
-                  onUpdateDocumentCategory={(profileId, docIndex, category) => updateDocumentCategoryMutation.mutate({ profileId, docIndex, category })}
-                />
+                <div key={profile.id} className="space-y-1">
+                  <VehicleCard
+                    profile={profile}
+                    permitCount={permits.filter(p => p.profileId === profile.id).length}
+                    onClick={() => setLocation(`/profile/${profile.id}`)}
+                    onEdit={(p) => setLocation(`/profile/${p.id}/edit`)}
+                    onDelete={(id) => deleteProfileMutation.mutate(id)}
+                    onDeleteDocument={(profileId, docIndex) => deleteDocumentMutation.mutate({ profileId, docIndex })}
+                    onUpdateDocumentCategory={(profileId, docIndex, category) => updateDocumentCategoryMutation.mutate({ profileId, docIndex, category })}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => syncVaultMutation.mutate(profile.id)}
+                      disabled={syncVaultMutation.isPending}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      {syncVaultMutation.isPending ? "Syncing..." : "Sync to Data Vault"}
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
