@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Dark background for app icon -->
+  <rect width="64" height="64" rx="14" fill="#0F172A"/>
+  <!-- Crosshair circle -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#1B4FD8" stroke-width="2.5"/>
+  <!-- Horizontal line - left -->
+  <line x1="8" y1="32" x2="20" y2="32" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Horizontal line - right -->
+  <line x1="44" y1="32" x2="56" y2="32" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Vertical line - top -->
+  <line x1="32" y1="8" x2="32" y2="20" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Vertical line - bottom -->
+  <line x1="32" y1="44" x2="32" y2="56" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Diamond -->
+  <polygon points="32,25 37,32 32,39 27,32" fill="#00C896"/>
+</svg>

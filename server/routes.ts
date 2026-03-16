@@ -2280,6 +2280,38 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  // Claim a public profile listing
+  app.post("/api/public-profiles/:id/claim", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const profile = await storage.getPublicProfileById(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Listing not found" });
+      }
+
+      if (profile.isVerified) {
+        return res.status(400).json({ message: "This listing is already verified" });
+      }
+
+      // Log claim request — admin will review manually
+      await storage.updatePublicProfileById(id, {
+        claimedByUserId: userId,
+        claimedAt: new Date(),
+      });
+
+      console.log(`[Claim] User ${userId} claimed listing ${id} (${profile.businessName})`);
+      res.json({ message: "Claim request submitted. We'll verify your listing within 48 hours." });
+    } catch (error: any) {
+      console.error("Error processing claim:", error);
+      res.status(500).json({ message: error.message || "Failed to process claim" });
+    }
+  });
+
   // ============ REVIEWS ============
   
   // Get reviews for a public profile (no auth required)

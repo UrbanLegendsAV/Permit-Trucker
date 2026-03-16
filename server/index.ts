@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedTowns } from "./seed";
+import { runMigrations } from "./db";
 
 function validateEnvironment() {
   const requiredEnvVars = ["GOOGLE_API_KEY"];
@@ -107,6 +108,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await runMigrations();
   await registerRoutes(httpServer, app);
   await seedTowns();
 

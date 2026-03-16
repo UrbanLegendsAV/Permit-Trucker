@@ -176,6 +176,13 @@ export const publicProfiles = pgTable("public_profiles", {
   socialLinks: jsonb("social_links").$type<{ instagram?: string; facebook?: string; twitter?: string }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  isVerified: boolean("is_verified").default(false),
+  cuisineType: text("cuisine_type"),
+  county: text("county"),
+  instagramHandle: text("instagram_handle"),
+  source: text("source").default("manual"),
+  claimedByUserId: text("claimed_by_user_id"),
+  claimedAt: timestamp("claimed_at"),
 });
 
 // Reviews from consumers

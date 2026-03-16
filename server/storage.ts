@@ -53,9 +53,11 @@ export interface IStorage {
   // Public profiles
   getPublicProfiles(): Promise<PublicProfile[]>;
   getPublicProfile(profileId: string): Promise<PublicProfile | undefined>;
+  getPublicProfileById(id: string): Promise<PublicProfile | null>;
   getPublicProfileByUser(userId: string): Promise<PublicProfile | undefined>;
   createPublicProfile(profile: InsertPublicProfile): Promise<PublicProfile>;
   updatePublicProfile(profileId: string, data: Partial<InsertPublicProfile>): Promise<PublicProfile | undefined>;
+  updatePublicProfileById(id: string, data: Partial<InsertPublicProfile>): Promise<PublicProfile | null>;
 
   // Reviews
   getReviews(publicProfileId: string): Promise<Review[]>;
@@ -277,6 +279,11 @@ export class DatabaseStorage implements IStorage {
     return profile;
   }
 
+  async getPublicProfileById(id: string): Promise<PublicProfile | null> {
+    const [profile] = await db.select().from(publicProfiles).where(eq(publicProfiles.id, id));
+    return profile || null;
+  }
+
   async getPublicProfileByUser(userId: string): Promise<PublicProfile | undefined> {
     const [profile] = await db.select().from(publicProfiles).where(eq(publicProfiles.userId, userId));
     return profile;
@@ -294,6 +301,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(publicProfiles.profileId, profileId))
       .returning();
     return updated;
+  }
+
+  async updatePublicProfileById(id: string, data: Partial<InsertPublicProfile>): Promise<PublicProfile | null> {
+    const [updated] = await db
+      .update(publicProfiles)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(publicProfiles.id, id))
+      .returning();
+    return updated || null;
   }
 
   // Reviews

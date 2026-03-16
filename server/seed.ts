@@ -502,177 +502,302 @@ export async function seedTowns() {
       console.log(`Seeded ${defaultConfigs.length} default configs`);
     }
 
-    // Seed sample public profiles for demo (only if none exist)
-    const existingPublicProfiles = await db.select().from(publicProfiles);
-    if (existingPublicProfiles.length === 0) {
-      console.log("Seeding sample public profiles...");
-      
-      // Create sample vehicle profiles first
-      const sampleProfiles = [
-        {
-          id: "demo-profile-1",
-          userId: "demo-user-1",
-          vehicleType: "truck" as const,
-          vehicleName: "Taco Loco CT",
-          menuType: "Mexican Street Food",
-        },
-        {
-          id: "demo-profile-2",
-          userId: "demo-user-2",
-          vehicleType: "truck" as const,
-          vehicleName: "The Lobster Roll",
-          menuType: "Seafood",
-        },
-        {
-          id: "demo-profile-3",
-          userId: "demo-user-3",
-          vehicleType: "trailer" as const,
-          vehicleName: "BBQ Brothers",
-          menuType: "Southern BBQ",
-        },
-      ];
+    // Seed directory listings for CT food trucks (upsert-safe)
+    console.log("Seeding CT food truck directory listings...");
 
-      for (const profile of sampleProfiles) {
-        await db.insert(profiles).values(profile).onConflictDoNothing();
-      }
+    const ctDirectoryTrucks = [
+      {
+        profileId: "dir-truck-01",
+        userId: "dir-user-01",
+        vehicleType: "truck" as const,
+        vehicleName: "Zuppardi's Apizza",
+        menuType: "Pizza",
+      },
+      {
+        profileId: "dir-truck-02",
+        userId: "dir-user-02",
+        vehicleType: "truck" as const,
+        vehicleName: "Ricky D's Rib Shack",
+        menuType: "BBQ",
+      },
+      {
+        profileId: "dir-truck-03",
+        userId: "dir-user-03",
+        vehicleType: "truck" as const,
+        vehicleName: "Muy Guapo Tacos",
+        menuType: "Mexican",
+      },
+      {
+        profileId: "dir-truck-04",
+        userId: "dir-user-04",
+        vehicleType: "truck" as const,
+        vehicleName: "Melt Mobile",
+        menuType: "American",
+      },
+      {
+        profileId: "dir-truck-05",
+        userId: "dir-user-05",
+        vehicleType: "truck" as const,
+        vehicleName: "Hardcore Sweet Cupcakes",
+        menuType: "Desserts",
+      },
+      {
+        profileId: "dir-truck-06",
+        userId: "dir-user-06",
+        vehicleType: "truck" as const,
+        vehicleName: "The Whey Station",
+        menuType: "American",
+      },
+      {
+        profileId: "dir-truck-07",
+        userId: "dir-user-07",
+        vehicleType: "truck" as const,
+        vehicleName: "Taco Loco",
+        menuType: "Mexican",
+      },
+      {
+        profileId: "dir-truck-08",
+        userId: "dir-user-08",
+        vehicleType: "truck" as const,
+        vehicleName: "Caseus Fromagerie",
+        menuType: "American",
+      },
+      {
+        profileId: "dir-truck-09",
+        userId: "dir-user-09",
+        vehicleType: "truck" as const,
+        vehicleName: "Señor Sisig CT",
+        menuType: "Fusion",
+      },
+      {
+        profileId: "dir-truck-10",
+        userId: "dir-user-10",
+        vehicleType: "truck" as const,
+        vehicleName: "Joey B's Food Truck",
+        menuType: "American",
+      },
+      {
+        profileId: "dir-truck-11",
+        userId: "dir-user-11",
+        vehicleType: "truck" as const,
+        vehicleName: "Krust Pizza",
+        menuType: "Pizza",
+      },
+      {
+        profileId: "dir-truck-12",
+        userId: "dir-user-12",
+        vehicleType: "truck" as const,
+        vehicleName: "Arethusa al tavolo Mobile",
+        menuType: "Farm-to-Table",
+      },
+    ];
 
-      // Create public profiles with CT locations
-      const samplePublicProfiles = [
-        {
-          id: "demo-public-1",
-          profileId: "demo-profile-1",
-          userId: "demo-user-1",
-          isPublic: true,
-          businessName: "Taco Loco CT",
-          description: "Authentic Mexican street tacos, burritos, and quesadillas made fresh daily!",
-          locationLat: "41.3083",
-          locationLng: "-72.9279",
-          locationAddress: "New Haven Green, New Haven, CT",
-          phoneNumber: "(203) 555-0123",
-          menuJson: {
-            items: [
-              { name: "Street Tacos (3)", price: 10, description: "Choice of carne asada, carnitas, or pollo" },
-              { name: "Burrito Grande", price: 12, description: "Rice, beans, meat, cheese, sour cream" },
-              { name: "Quesadilla", price: 9, description: "Grilled with cheese and your choice of meat" },
-            ],
-          },
-          hours: {
-            monday: { open: "11:00", close: "20:00" },
-            tuesday: { open: "11:00", close: "20:00" },
-            wednesday: { open: "11:00", close: "20:00" },
-            thursday: { open: "11:00", close: "21:00" },
-            friday: { open: "11:00", close: "22:00" },
-            saturday: { open: "12:00", close: "22:00" },
-            sunday: { open: "12:00", close: "18:00", closed: true },
-          },
-        },
-        {
-          id: "demo-public-2",
-          profileId: "demo-profile-2",
-          userId: "demo-user-2",
-          isPublic: true,
-          businessName: "The Lobster Roll",
-          description: "Fresh Connecticut lobster rolls and seafood favorites. Catch of the day!",
-          locationLat: "41.0534",
-          locationLng: "-73.5387",
-          locationAddress: "Stamford Downtown, Stamford, CT",
-          phoneNumber: "(203) 555-0456",
-          menuJson: {
-            items: [
-              { name: "CT Lobster Roll", price: 24, description: "Fresh lobster, butter, toasted roll" },
-              { name: "Clam Chowder", price: 8, description: "New England style, creamy and hearty" },
-              { name: "Fish & Chips", price: 16, description: "Beer-battered cod with fries" },
-            ],
-          },
-          hours: {
-            monday: { open: "11:00", close: "19:00" },
-            tuesday: { open: "11:00", close: "19:00" },
-            wednesday: { open: "11:00", close: "19:00" },
-            thursday: { open: "11:00", close: "20:00" },
-            friday: { open: "11:00", close: "21:00" },
-            saturday: { open: "11:00", close: "21:00" },
-            sunday: { open: "12:00", close: "18:00" },
-          },
-        },
-        {
-          id: "demo-public-3",
-          profileId: "demo-profile-3",
-          userId: "demo-user-3",
-          isPublic: true,
-          businessName: "BBQ Brothers",
-          description: "Low and slow smoked meats, homemade sauces, and classic Southern sides.",
-          locationLat: "41.7658",
-          locationLng: "-72.6734",
-          locationAddress: "Bushnell Park, Hartford, CT",
-          phoneNumber: "(860) 555-0789",
-          menuJson: {
-            items: [
-              { name: "Brisket Plate", price: 18, description: "Slow-smoked 14hr brisket with 2 sides" },
-              { name: "Pulled Pork Sandwich", price: 12, description: "House-smoked with Carolina sauce" },
-              { name: "Rib Tips", price: 14, description: "Tender tips with dry rub" },
-            ],
-          },
-          hours: {
-            monday: { open: "11:00", close: "15:00", closed: true },
-            tuesday: { open: "11:00", close: "20:00" },
-            wednesday: { open: "11:00", close: "20:00" },
-            thursday: { open: "11:00", close: "20:00" },
-            friday: { open: "11:00", close: "21:00" },
-            saturday: { open: "11:00", close: "21:00" },
-            sunday: { open: "12:00", close: "18:00" },
-          },
-        },
-      ];
-
-      for (const pub of samplePublicProfiles) {
-        await db.insert(publicProfiles).values(pub).onConflictDoNothing();
-      }
-
-      // Create sample reviews
-      const sampleReviews = [
-        {
-          publicProfileId: "demo-public-1",
-          rating: 5,
-          text: "Best tacos in Connecticut! The carne asada is incredible.",
-          reviewerName: "FoodieJohn",
-          status: "approved" as const,
-        },
-        {
-          publicProfileId: "demo-public-1",
-          rating: 4,
-          text: "Great food, friendly service. Will definitely come back!",
-          reviewerName: "Sarah M.",
-          status: "approved" as const,
-        },
-        {
-          publicProfileId: "demo-public-2",
-          rating: 5,
-          text: "The lobster roll is worth every penny. So fresh!",
-          reviewerName: "SeafoodLover",
-          status: "approved" as const,
-        },
-        {
-          publicProfileId: "demo-public-3",
-          rating: 5,
-          text: "Real deal BBQ! The brisket melts in your mouth.",
-          reviewerName: "BBQFan",
-          status: "approved" as const,
-        },
-        {
-          publicProfileId: "demo-public-3",
-          rating: 4,
-          text: "Solid pulled pork. Lines can be long but worth the wait.",
-          reviewerName: "Mike T.",
-          status: "approved" as const,
-        },
-      ];
-
-      for (const review of sampleReviews) {
-        await db.insert(reviews).values(review);
-      }
-
-      console.log(`Seeded 3 sample public profiles and ${sampleReviews.length} reviews`);
+    for (const p of ctDirectoryTrucks) {
+      await db.insert(profiles).values({
+        id: p.profileId,
+        userId: p.userId,
+        vehicleType: p.vehicleType,
+        vehicleName: p.vehicleName,
+        menuType: p.menuType,
+      }).onConflictDoNothing();
     }
+
+    const ctPublicProfiles = [
+      {
+        id: "dir-public-01",
+        profileId: "dir-truck-01",
+        userId: "dir-user-01",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Zuppardi's Apizza",
+        description: "Famous New Haven-style apizza since 1934. Wood-fired thin crust pizza from a legendary CT institution.",
+        cuisineType: "Pizza",
+        county: "New Haven",
+        locationLat: "41.2733",
+        locationLng: "-72.9476",
+        locationAddress: "West Haven, CT",
+        website: "https://www.zuppardisapizza.com",
+      },
+      {
+        id: "dir-public-02",
+        profileId: "dir-truck-02",
+        userId: "dir-user-02",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Ricky D's Rib Shack",
+        description: "Award-winning BBQ ribs, brisket, and pulled pork. A Connecticut BBQ institution.",
+        cuisineType: "BBQ",
+        county: "New Haven",
+        locationLat: "41.3082",
+        locationLng: "-72.9251",
+        locationAddress: "New Haven, CT",
+        website: "https://www.rickydsribshack.com",
+      },
+      {
+        id: "dir-public-03",
+        profileId: "dir-truck-03",
+        userId: "dir-user-03",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Muy Guapo Tacos",
+        description: "Authentic Mexican street food. Tacos, burritos, and quesadillas with homemade salsas.",
+        cuisineType: "Mexican",
+        county: "Fairfield",
+        locationLat: "41.2049",
+        locationLng: "-73.2060",
+        locationAddress: "Bridgeport, CT",
+        website: "https://www.muyguapotacos.com",
+      },
+      {
+        id: "dir-public-04",
+        profileId: "dir-truck-04",
+        userId: "dir-user-04",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Melt Mobile",
+        description: "Gourmet grilled cheese sandwiches and comfort food. Creative flavor combinations on artisan bread.",
+        cuisineType: "American",
+        county: "Hartford",
+        locationLat: "41.7637",
+        locationLng: "-72.6851",
+        locationAddress: "Hartford, CT",
+        website: "https://www.meltmobilect.com",
+      },
+      {
+        id: "dir-public-05",
+        profileId: "dir-truck-05",
+        userId: "dir-user-05",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Hardcore Sweet Cupcakes",
+        description: "Over-the-top cupcakes and desserts. Unique flavors and beautiful designs for events.",
+        cuisineType: "Desserts",
+        county: "Hartford",
+        locationLat: "41.7480",
+        locationLng: "-72.7457",
+        locationAddress: "West Hartford, CT",
+        website: "https://www.hardcoresweet.com",
+      },
+      {
+        id: "dir-public-06",
+        profileId: "dir-truck-06",
+        userId: "dir-user-06",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "The Whey Station",
+        description: "Artisanal grilled cheese truck. Locally sourced cheeses and creative sandwiches.",
+        cuisineType: "American",
+        county: "Middlesex",
+        locationLat: "41.5565",
+        locationLng: "-72.6557",
+        locationAddress: "Middletown, CT",
+        website: "https://www.thewheystation.com",
+      },
+      {
+        id: "dir-public-07",
+        profileId: "dir-truck-07",
+        userId: "dir-user-07",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Taco Loco",
+        description: "Authentic Mexican tacos, burritos, and Mexican street corn. Family recipes from Mexico City.",
+        cuisineType: "Mexican",
+        county: "New London",
+        locationLat: "41.3557",
+        locationLng: "-72.0995",
+        locationAddress: "New London, CT",
+        website: "https://www.tacolococt.com",
+      },
+      {
+        id: "dir-public-08",
+        profileId: "dir-truck-08",
+        userId: "dir-user-08",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Caseus Fromagerie",
+        description: "Cheese-focused food truck from the acclaimed New Haven restaurant. Mac & cheese, grilled cheese, cheese plates.",
+        cuisineType: "American",
+        county: "New Haven",
+        locationLat: "41.3113",
+        locationLng: "-72.9246",
+        locationAddress: "New Haven, CT",
+        website: "https://www.caseusnewhaven.com",
+      },
+      {
+        id: "dir-public-09",
+        profileId: "dir-truck-09",
+        userId: "dir-user-09",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Señor Sisig CT",
+        description: "Filipino-Mexican fusion. Burritos, tacos, and rice plates with a unique twist.",
+        cuisineType: "Fusion",
+        county: "Fairfield",
+        locationLat: "41.1842",
+        locationLng: "-73.1334",
+        locationAddress: "Stratford, CT",
+      },
+      {
+        id: "dir-public-10",
+        profileId: "dir-truck-10",
+        userId: "dir-user-10",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Joey B's Food Truck",
+        description: "Classic American comfort food. Burgers, hot dogs, fries, and milkshakes done right.",
+        cuisineType: "American",
+        county: "Litchfield",
+        locationLat: "41.5773",
+        locationLng: "-73.4082",
+        locationAddress: "New Milford, CT",
+      },
+      {
+        id: "dir-public-11",
+        profileId: "dir-truck-11",
+        userId: "dir-user-11",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Krust Pizza",
+        description: "Wood-fired Neapolitan pizza from a custom-built mobile oven. Fresh ingredients, crispy crust.",
+        cuisineType: "Pizza",
+        county: "Fairfield",
+        locationLat: "41.2230",
+        locationLng: "-73.2138",
+        locationAddress: "Fairfield, CT",
+      },
+      {
+        id: "dir-public-12",
+        profileId: "dir-truck-12",
+        userId: "dir-user-12",
+        isPublic: true,
+        isVerified: false,
+        source: "directory",
+        businessName: "Arethusa al tavolo Mobile",
+        description: "Farm-to-table food truck from the renowned Arethusa Farm. Seasonal menus with local dairy and produce.",
+        cuisineType: "Farm-to-Table",
+        county: "Litchfield",
+        locationLat: "41.7449",
+        locationLng: "-73.2130",
+        locationAddress: "Bantam, CT",
+        website: "https://www.arethusaaltavolo.com",
+      },
+    ];
+
+    for (const pub of ctPublicProfiles) {
+      await db.insert(publicProfiles).values(pub).onConflictDoNothing();
+    }
+    console.log(`Seeded ${ctPublicProfiles.length} CT directory food trucks`);
     
     await runFullCTSeed();
     
