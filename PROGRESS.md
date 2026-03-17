@@ -353,7 +353,24 @@
 
 ---
 
-## Phase 8: PermitPilot Orchestrator — Autonomous Email Agent (COMPLETE)
+## Phase 8: PermitPilot Orchestrator + Doc Parsing Pipeline (COMPLETE — commit 1881eed)
+
+### Document Parsing Pipeline (FIX 1-6)
+- [x] `POST /api/profiles/:id/parse-document/:docIndex` — per-doc Gemini parse endpoint
+  - Extracts base64 from data URI, calls Gemini 2.5 Flash, computes newFields/updatedFields diff
+  - Marks `analyzedAt` on document, calls `syncParsedDataToVault()`, returns vault completeness
+- [x] Document Detail Modal in vehicle-card.tsx
+  - PDF preview via `URL.createObjectURL(blob)` iframe; image preview via `<img>`
+  - Category badge + `analyzedAt` parse status indicator
+  - "Extract Data from This Doc" button triggers per-doc parse
+  - Green feedback banner with two-column new/updated fields diff after extraction
+  - "Download" + "Close & Refresh" buttons
+- [x] Thumbnail parse status indicators — green `CheckCircle2` if `analyzedAt`, amber `Circle` if not
+- [x] "AI Analyze All Documents" updated — sequential per-doc with 1s delay, shows "Parsing doc X of Y..."
+- [x] `PATCH /api/vault/field` — single vault field manual save (looks up vault by userId)
+- [x] profile.tsx missing fields → interactive vault checklist
+  - Tap any missing field to open inline input, save via PATCH /api/vault/field
+  - Enter to save, Escape to cancel
 
 ### Inbound Email Routing
 - [x] `inbound_emails` table: messageId (dedup), from, to, subject, bodyText, bodyHtml, intent, truckSlug, handledBy, replySent, rawPayload
