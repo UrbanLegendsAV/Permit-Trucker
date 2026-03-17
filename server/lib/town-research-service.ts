@@ -362,7 +362,7 @@ Return ONLY valid JSON in this exact structure:
       
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0; +https://permittruck.com)',
+          'User-Agent': 'Mozilla/5.0 (compatible; PermitPilot/1.0; +https://permitpilot.app)',
           'Accept': 'application/pdf,*/*',
         },
         redirect: 'follow',

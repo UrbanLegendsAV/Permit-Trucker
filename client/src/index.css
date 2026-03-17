@@ -48,6 +48,14 @@
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: .5rem;
+
+  /* PermitPilot brand tokens (BRAND_BIBLE.md) */
+  --color-primary: #1B4FD8;
+  --color-success: #00C896;
+  --color-bg-dark: #0A0F1E;
+  --color-warning: #F5A623;
+  --color-bg-light: #F5F7FA;
+  --color-text-secondary: #8897B2;
   --shadow-2xs: 0px 2px 0px 0px hsl(220 13% 91% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(220 13% 91% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 1px 2px -1px hsl(220 13% 91% / 0.00);

@@ -1322,7 +1322,7 @@ ${prompt}`;
         try {
           const pdfResponse = await fetch(downloadUrl!, { 
             signal: AbortSignal.timeout(30000),
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0)' }
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PermitPilot/1.0)' }
           });
           if (pdfResponse.ok && (pdfResponse.headers.get('content-type')?.includes('pdf') || downloadUrl!.toLowerCase().endsWith('.pdf'))) {
             const buffer = Buffer.from(await pdfResponse.arrayBuffer());
@@ -2758,7 +2758,7 @@ For text fields that require descriptive answers about food safety practices, se
       
       const response = await fetch(form.externalUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; PermitTruck/1.0)',
+          'User-Agent': 'Mozilla/5.0 (compatible; PermitPilot/1.0)',
           'Accept': 'application/pdf,*/*',
         },
         redirect: 'follow',

@@ -84,7 +84,8 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
-        display: ["var(--font-display)"],
+        display: ["Plus Jakarta Sans", "var(--font-display)", "sans-serif"],
+        body: ["DM Sans", "var(--font-sans)", "sans-serif"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },
