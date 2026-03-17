@@ -673,6 +673,7 @@ export const foodTrucks = pgTable("food_trucks", {
   source: text("source"),
   outreachSent: boolean("outreach_sent").default(false),
   outreachSentAt: timestamp("outreach_sent_at"),
+  optedOut: boolean("opted_out").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   // Catering fields
   offersPrivateCatering: boolean("offers_private_catering").default(false),
@@ -704,3 +705,45 @@ export const foodSuppliers = pgTable("food_suppliers", {
 export const insertFoodSupplierSchema = createInsertSchema(foodSuppliers).omit({ id: true, createdAt: true });
 export type InsertFoodSupplier = z.infer<typeof insertFoodSupplierSchema>;
 export type FoodSupplier = typeof foodSuppliers.$inferSelect;
+
+// Inbound emails — parsed from SendGrid Inbound Parse webhook
+export const inboundEmails = pgTable("inbound_emails", {
+  id: serial("id").primaryKey(),
+  messageId: text("message_id").unique(),
+  from: text("from"),
+  to: text("to"),
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  intent: text("intent"),
+  truckSlug: text("truck_slug"),
+  handledBy: text("handled_by"),
+  handledAt: timestamp("handled_at"),
+  replySent: boolean("reply_sent").default(false),
+  replySentAt: timestamp("reply_sent_at"),
+  rawPayload: text("raw_payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInboundEmailSchema = createInsertSchema(inboundEmails).omit({ id: true, createdAt: true });
+export type InsertInboundEmail = z.infer<typeof insertInboundEmailSchema>;
+export type InboundEmail = typeof inboundEmails.$inferSelect;
+
+// Agent logs — audit trail for all orchestrator / sub-agent actions
+export const agentLogs = pgTable("agent_logs", {
+  id: serial("id").primaryKey(),
+  agentName: text("agent_name").notNull(),
+  action: text("action").notNull(),
+  input: text("input"),
+  output: text("output"),
+  success: boolean("success").notNull(),
+  errorMessage: text("error_message"),
+  durationMs: integer("duration_ms"),
+  relatedEmailId: integer("related_email_id").references(() => inboundEmails.id),
+  relatedTruckSlug: text("related_truck_slug"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAgentLogSchema = createInsertSchema(agentLogs).omit({ id: true, createdAt: true });
+export type InsertAgentLog = z.infer<typeof insertAgentLogSchema>;
+export type AgentLog = typeof agentLogs.$inferSelect;

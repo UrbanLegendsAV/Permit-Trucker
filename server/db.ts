@@ -85,6 +85,46 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS overnight_parking_authorized BOOLEAN;
       ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS has_commissary_contract BOOLEAN;
     `);
+    // Inbound emails table (orchestrator)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS inbound_emails (
+        id SERIAL PRIMARY KEY,
+        message_id TEXT UNIQUE,
+        "from" TEXT,
+        "to" TEXT,
+        subject TEXT,
+        body_text TEXT,
+        body_html TEXT,
+        intent TEXT,
+        truck_slug TEXT,
+        handled_by TEXT,
+        handled_at TIMESTAMP,
+        reply_sent BOOLEAN DEFAULT false,
+        reply_sent_at TIMESTAMP,
+        raw_payload TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    // Agent logs table (orchestrator audit trail)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS agent_logs (
+        id SERIAL PRIMARY KEY,
+        agent_name TEXT NOT NULL,
+        action TEXT NOT NULL,
+        input TEXT,
+        output TEXT,
+        success BOOLEAN NOT NULL,
+        error_message TEXT,
+        duration_ms INTEGER,
+        related_email_id INTEGER REFERENCES inbound_emails(id),
+        related_truck_slug TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    // Opt-out flag on food_trucks
+    await client.query(`
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS opted_out BOOLEAN DEFAULT false;
+    `);
     console.log('[DB] Migrations applied successfully');
   } catch (err) {
     console.error('[DB] Migration error:', err);

@@ -15,12 +15,12 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { foodTrucks } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc, count as sqlCount } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
-import { 
-  fillPdfForm, 
-  appendDocumentsToPdf, 
-  getAvailableTemplates, 
+import {
+  fillPdfForm,
+  appendDocumentsToPdf,
+  getAvailableTemplates,
   getTemplateById,
   fillPdfFromDatabase,
   townFormToTemplate,
@@ -40,6 +40,8 @@ import { storePortalCredentials, createPortalAutomationJob, executePortalAutomat
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
 import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
+import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
+import { inboundEmails, agentLogs } from "@shared/schema";
 import { z } from "zod";
 
 const pdfFillSchema = z.object({
@@ -821,6 +823,124 @@ ${prompt}`;
         message: "Failed to parse documents",
         error: error.message || "Unknown error"
       });
+    }
+  });
+
+  // Single-document parse endpoint — parse one doc by index, mark analyzedAt, return diff
+  app.post("/api/profiles/:id/parse-document/:docIndex", isAuthenticated, documentParseRateLimiter, async (req: any, res) => {
+    try {
+      const { id, docIndex } = req.params;
+      const index = parseInt(docIndex, 10);
+
+      const profile = await storage.getProfile(id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const documents = profile.uploadsJson?.documents || [];
+      if (index < 0 || index >= documents.length) {
+        return res.status(400).json({ message: "Invalid document index" });
+      }
+
+      const doc = documents[index];
+
+      // Extract base64 data from data URI
+      let base64Data = (doc as any).base64;
+      let mimeType = doc.type || "application/octet-stream";
+
+      if (!base64Data && doc.url) {
+        const match = doc.url.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          mimeType = match[1];
+          base64Data = match[2];
+        }
+      }
+
+      if (!base64Data) {
+        return res.status(400).json({ message: "Document has no extractable data" });
+      }
+
+      const validMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+      if (!validMimeTypes.includes(mimeType)) {
+        return res.status(400).json({ message: `Unsupported document type: ${mimeType}` });
+      }
+
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ message: "GOOGLE_API_KEY not configured" });
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      let result;
+      try {
+        result = await model.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: buildGoldenQuestionsPrompt() },
+              { inlineData: { mimeType, data: base64Data } }
+            ]
+          }]
+        });
+      } catch (apiError: any) {
+        return res.status(502).json({ message: "Failed to communicate with AI service", error: apiError.message });
+      }
+
+      const parsedData = parseAndNormalizeGeminiResponse(result);
+      if (!parsedData) {
+        return res.status(500).json({ message: "Failed to parse AI response" });
+      }
+
+      // Compute diff vs existing saved data to return new/updated field lists
+      const existingLog = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object')
+        ? profile.parsedDataLog as Record<string, any>
+        : {};
+      const categories = ["contact_info", "operations", "safety", "menu_and_prep", "license_info"];
+      const newFields: string[] = [];
+      const updatedFields: string[] = [];
+      let fieldsExtracted = 0;
+
+      for (const cat of categories) {
+        const newCat = (parsedData[cat] as Record<string, any>) || {};
+        const oldCat = (existingLog[cat] as Record<string, any>) || {};
+        for (const [field, data] of Object.entries(newCat)) {
+          const val = data?.value;
+          if (!val || val === "N/A" || val === "not found") continue;
+          fieldsExtracted++;
+          const label = `${cat}.${field}`;
+          if (!oldCat[field]?.value) {
+            newFields.push(label);
+          } else if (oldCat[field].value !== val) {
+            updatedFields.push(label);
+          }
+        }
+      }
+
+      // Save parsed data to profile (preserves user-edited fields)
+      await saveParsedDataToProfile(id, parsedData);
+
+      // Mark this doc with analyzedAt timestamp
+      const updatedDocuments = [...documents];
+      updatedDocuments[index] = { ...updatedDocuments[index], analyzedAt: new Date().toISOString() } as any;
+      await storage.updateProfile(id, { uploadsJson: { documents: updatedDocuments } });
+
+      // Sync vault and compute completeness
+      const vault = await syncParsedDataToVault(id);
+      const vaultCompleteness = vault?.id ? await getVaultCompleteness(vault.id) : null;
+
+      res.json({
+        success: true,
+        fieldsExtracted,
+        newFields,
+        updatedFields,
+        vaultCompleteness,
+        parsedData,
+      });
+    } catch (error: any) {
+      console.error("Error parsing single document:", error);
+      res.status(500).json({ message: "Failed to parse document", error: error.message });
     }
   });
 
@@ -3006,6 +3126,27 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  // Patch a single vault field by key (for manual entry on profile page)
+  app.patch("/api/vault/field", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { field, value } = req.body as { field: string; value: string };
+      if (!field || typeof value !== "string") {
+        return res.status(400).json({ message: "field and value are required" });
+      }
+      const vault = await storage.getDataVaultByUserId(userId);
+      if (!vault) {
+        return res.status(404).json({ message: "No vault found" });
+      }
+      const updated = await storage.updateDataVault(vault.id, { [field]: value } as any);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating vault field:", error);
+      res.status(500).json({ message: "Failed to update vault field" });
+    }
+  });
+
   // Get vault completeness score
   app.get("/api/vault/:id/completeness", isAuthenticated, async (req, res) => {
     try {
@@ -3496,6 +3637,143 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error claiming truck:", error);
       res.status(500).json({ message: "Failed to claim listing" });
+    }
+  });
+
+  /*
+    SENDGRID INBOUND PARSE SETUP:
+    1. Go to SendGrid → Settings → Inbound Parse
+    2. Add Host: mail.permitpilot.cloud
+    3. Add Destination URL: https://permitpilot.cloud/api/email/inbound
+    4. Check "POST the raw, full MIME message"
+    5. In GoDaddy DNS for permitpilot.cloud, add MX record:
+       Type: MX, Name: mail, Value: mx.sendgrid.net, Priority: 10
+    6. Replies to outreach emails sent from hello@permitpilot.cloud
+       will now route through this webhook automatically
+  */
+  // PUBLIC — no auth (SendGrid requires a fast 200 response)
+  app.post("/api/email/inbound", async (req, res) => {
+    try {
+      // SendGrid posts as multipart/form-data or JSON depending on settings
+      const body = req.body as Record<string, any>;
+
+      const from: string = body.from || body.sender || "";
+      const to: string = body.to || body.recipient || "";
+      const subject: string = body.subject || "";
+      const bodyText: string = body.text || body.body || "";
+      const bodyHtml: string = body.html || "";
+      const headers: string = body.headers || "";
+      const rawPayload = JSON.stringify(body).slice(0, 10000);
+
+      // Extract Message-ID from headers to prevent duplicate processing
+      let messageId: string | null = null;
+      const messageIdMatch = headers.match(/Message-ID:\s*<([^>]+)>/i);
+      if (messageIdMatch) messageId = messageIdMatch[1];
+      // Fallback: use SendGrid's envelope or a hash of from+subject+body
+      if (!messageId) messageId = body.envelope ? `sg-${Buffer.from(body.envelope).toString('base64').slice(0, 32)}` : null;
+      if (!messageId) messageId = `sg-${Buffer.from(`${from}|${subject}|${bodyText.slice(0,100)}`).toString('base64').slice(0, 32)}`;
+
+      // Deduplicate — if we've seen this messageId, return 200 immediately
+      const existing = await db.select({ id: inboundEmails.id })
+        .from(inboundEmails)
+        .where(eq(inboundEmails.messageId, messageId))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return res.status(200).send("duplicate");
+      }
+
+      // Save raw email
+      const [saved] = await db.insert(inboundEmails).values({
+        messageId,
+        from,
+        to,
+        subject,
+        bodyText: bodyText.slice(0, 50000),
+        bodyHtml: bodyHtml.slice(0, 50000),
+        rawPayload,
+      }).returning();
+
+      // Fire-and-forget — process async so SendGrid gets 200 immediately
+      if (saved?.id) {
+        processInboundEmail(saved.id).catch(err =>
+          console.error('[Orchestrator] async processInboundEmail failed:', err)
+        );
+      }
+
+      res.status(200).send("ok");
+    } catch (error) {
+      console.error("[Inbound] webhook error:", error);
+      res.status(200).send("error"); // Always 200 to prevent SendGrid retry storms
+    }
+  });
+
+  // Admin: orchestrator stats
+  app.get("/api/admin/orchestrator/stats", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const [totalEmails] = await db.select({ count: sqlCount() }).from(inboundEmails);
+      const [claimed] = await db.select({ count: sqlCount() }).from(inboundEmails)
+        .where(eq(inboundEmails.intent, 'claim_listing'));
+      const [permitInquiries] = await db.select({ count: sqlCount() }).from(inboundEmails)
+        .where(eq(inboundEmails.intent, 'permit_inquiry'));
+      const [optOuts] = await db.select({ count: sqlCount() }).from(inboundEmails)
+        .where(eq(inboundEmails.intent, 'opt_out'));
+
+      res.json({
+        totalEmails: Number(totalEmails.count),
+        claimed: Number(claimed.count),
+        permitInquiries: Number(permitInquiries.count),
+        optOuts: Number(optOuts.count),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  // Admin: recent inbound emails (paginated)
+  app.get("/api/admin/orchestrator/emails", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const page = Math.max(0, parseInt(req.query.page as string || '0'));
+      const limit = 20;
+      const emails = await db.select().from(inboundEmails)
+        .orderBy(desc(inboundEmails.createdAt))
+        .limit(limit)
+        .offset(page * limit);
+      res.json(emails);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch emails" });
+    }
+  });
+
+  // Admin: agent logs (paginated)
+  app.get("/api/admin/orchestrator/logs", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const page = Math.max(0, parseInt(req.query.page as string || '0'));
+      const limit = 20;
+      const logs = await db.select().from(agentLogs)
+        .orderBy(desc(agentLogs.createdAt))
+        .limit(limit)
+        .offset(page * limit);
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch logs" });
+    }
+  });
+
+  // Admin: dry-run intent classifier (no emails sent)
+  app.post("/api/admin/orchestrator/classify", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { subject, bodyText, from } = req.body as { subject?: string; bodyText?: string; from?: string };
+      if (!bodyText && !subject) {
+        return res.status(400).json({ message: "bodyText or subject required" });
+      }
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return res.status(500).json({ message: "ANTHROPIC_API_KEY not configured" });
+      }
+      const result = await classifyEmailDryRun(subject || '', bodyText || '', from);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Classification failed" });
     }
   });
 

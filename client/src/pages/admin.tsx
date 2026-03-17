@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send, Bot, Inbox, Activity, ChevronLeft, ChevronRight as ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +96,7 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="pricing" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 mr-2" />
               Pricing
@@ -120,6 +120,10 @@ export default function Admin() {
             <TabsTrigger value="outreach" data-testid="tab-outreach">
               <Mail className="w-4 h-4 mr-2" />
               Outreach
+            </TabsTrigger>
+            <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">
+              <Bot className="w-4 h-4 mr-2" />
+              Orchestrator
             </TabsTrigger>
           </TabsList>
 
@@ -145,6 +149,10 @@ export default function Admin() {
 
           <TabsContent value="outreach">
             <OutreachTab />
+          </TabsContent>
+
+          <TabsContent value="orchestrator">
+            <OrchestratorTab />
           </TabsContent>
         </Tabs>
       </main>
@@ -1044,6 +1052,280 @@ function OutreachTab() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ─── Orchestrator Tab ───────────────────────────────────────────────────────
+
+interface InboundEmailRow {
+  id: number;
+  from: string | null;
+  subject: string | null;
+  intent: string | null;
+  truckSlug: string | null;
+  replySent: boolean | null;
+  handledAt: string | null;
+  createdAt: string | null;
+}
+
+interface AgentLogRow {
+  id: number;
+  agentName: string;
+  action: string;
+  success: boolean;
+  durationMs: number | null;
+  createdAt: string | null;
+  relatedTruckSlug: string | null;
+}
+
+interface OrchestratorStats {
+  totalEmails: number;
+  claimed: number;
+  permitInquiries: number;
+  optOuts: number;
+}
+
+function OrchestratorTab() {
+  const { toast } = useToast();
+  const [emailPage, setEmailPage] = useState(0);
+  const [logPage, setLogPage] = useState(0);
+  const [testBody, setTestBody] = useState("");
+  const [testSubject, setTestSubject] = useState("");
+  const [classifyResult, setClassifyResult] = useState<{ intent: string; subAgent: string } | null>(null);
+  const [isClassifying, setIsClassifying] = useState(false);
+
+  const { data: stats } = useQuery<OrchestratorStats>({
+    queryKey: ["/api/admin/orchestrator/stats"],
+    queryFn: () => fetch("/api/admin/orchestrator/stats", { credentials: "include" }).then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  const { data: emails = [] } = useQuery<InboundEmailRow[]>({
+    queryKey: ["/api/admin/orchestrator/emails", emailPage],
+    queryFn: () => fetch(`/api/admin/orchestrator/emails?page=${emailPage}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const { data: agentLogRows = [] } = useQuery<AgentLogRow[]>({
+    queryKey: ["/api/admin/orchestrator/logs", logPage],
+    queryFn: () => fetch(`/api/admin/orchestrator/logs?page=${logPage}`, { credentials: "include" }).then(r => r.json()),
+  });
+
+  const handleClassify = async () => {
+    if (!testBody.trim() && !testSubject.trim()) return;
+    setIsClassifying(true);
+    setClassifyResult(null);
+    try {
+      const res = await fetch("/api/admin/orchestrator/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ subject: testSubject, bodyText: testBody }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Classification failed");
+      setClassifyResult(data);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsClassifying(false);
+    }
+  };
+
+  const intentColor: Record<string, string> = {
+    claim_listing: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+    catering_reply: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+    permit_inquiry: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    opt_out: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+    general_inquiry: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    spam: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <Card className="p-6">
+        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+          <Bot className="w-5 h-5 text-primary" />
+          Orchestrator — Inbound Email Agent
+        </h2>
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { label: "Total Emails", value: stats?.totalEmails ?? "—", color: "text-foreground" },
+            { label: "Claimed via Email", value: stats?.claimed ?? "—", color: "text-blue-500" },
+            { label: "Permit Inquiries", value: stats?.permitInquiries ?? "—", color: "text-green-500" },
+            { label: "Opt-Outs", value: stats?.optOuts ?? "—", color: "text-amber-500" },
+          ].map((s) => (
+            <div key={s.label} className="bg-muted/50 rounded-lg p-4 text-center">
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Recent Inbound Emails */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Inbox className="w-4 h-4" /> Recent Inbound Emails
+          </h3>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => setEmailPage(p => Math.max(0, p - 1))} disabled={emailPage === 0}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">Page {emailPage + 1}</span>
+            <Button variant="ghost" size="icon" onClick={() => setEmailPage(p => p + 1)} disabled={emails.length < 20}>
+              <ChevronRightIcon className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        {emails.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8 text-sm">No inbound emails yet. Configure SendGrid Inbound Parse to route replies here.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b">
+                  <th className="pb-2 font-medium">From</th>
+                  <th className="pb-2 font-medium">Subject</th>
+                  <th className="pb-2 font-medium">Intent</th>
+                  <th className="pb-2 font-medium">Truck</th>
+                  <th className="pb-2 font-medium">Status</th>
+                  <th className="pb-2 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {emails.map((e) => (
+                  <tr key={e.id}>
+                    <td className="py-2 pr-3 max-w-[140px] truncate text-muted-foreground text-xs">{e.from || "—"}</td>
+                    <td className="py-2 pr-3 max-w-[180px] truncate text-xs">{e.subject || "—"}</td>
+                    <td className="py-2 pr-3">
+                      {e.intent ? (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${intentColor[e.intent] || "bg-muted text-muted-foreground"}`}>
+                          {e.intent.replace(/_/g, " ")}
+                        </span>
+                      ) : <span className="text-xs text-muted-foreground">pending</span>}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">{e.truckSlug || "—"}</td>
+                    <td className="py-2 pr-3">
+                      {e.replySent
+                        ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Replied</span>
+                        : <span className="text-xs text-muted-foreground">—</span>}
+                    </td>
+                    <td className="py-2 text-xs text-muted-foreground">
+                      {e.createdAt ? new Date(e.createdAt).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Agent Logs */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Activity className="w-4 h-4" /> Agent Logs
+          </h3>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => setLogPage(p => Math.max(0, p - 1))} disabled={logPage === 0}>
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">Page {logPage + 1}</span>
+            <Button variant="ghost" size="icon" onClick={() => setLogPage(p => p + 1)} disabled={agentLogRows.length < 20}>
+              <ChevronRightIcon className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        {agentLogRows.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8 text-sm">No agent logs yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b">
+                  <th className="pb-2 font-medium">Agent</th>
+                  <th className="pb-2 font-medium">Action</th>
+                  <th className="pb-2 font-medium">Success</th>
+                  <th className="pb-2 font-medium">Duration</th>
+                  <th className="pb-2 font-medium">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {agentLogRows.map((l) => (
+                  <tr key={l.id}>
+                    <td className="py-2 pr-3">
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                        {l.agentName}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 max-w-[240px] truncate text-xs text-muted-foreground">{l.action}</td>
+                    <td className="py-2 pr-3">
+                      {l.success
+                        ? <CheckCircle className="w-4 h-4 text-green-500" />
+                        : <XCircle className="w-4 h-4 text-destructive" />}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-muted-foreground">
+                      {l.durationMs != null ? `${l.durationMs}ms` : "—"}
+                    </td>
+                    <td className="py-2 text-xs text-muted-foreground">
+                      {l.createdAt ? new Date(l.createdAt).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Test Orchestrator (dry run) */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-1 flex items-center gap-2">
+          <Bot className="w-4 h-4" /> Test Orchestrator — Dry Run
+        </h3>
+        <p className="text-xs text-muted-foreground mb-4">Classifies intent using Claude claude-sonnet-4-6. Does NOT send any email or update the database.</p>
+        <div className="space-y-3">
+          <Input
+            placeholder="Subject (optional)"
+            value={testSubject}
+            onChange={(e) => setTestSubject(e.target.value)}
+          />
+          <textarea
+            className="w-full min-h-[100px] p-3 rounded-md border bg-background text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Paste email body here..."
+            value={testBody}
+            onChange={(e) => setTestBody(e.target.value)}
+          />
+          <Button
+            onClick={handleClassify}
+            disabled={(!testBody.trim() && !testSubject.trim()) || isClassifying}
+          >
+            {isClassifying ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Classifying...</>
+            ) : (
+              <><Bot className="w-4 h-4 mr-2" />Classify Intent</>
+            )}
+          </Button>
+        </div>
+        {classifyResult && (
+          <div className="mt-4 p-4 rounded-lg border bg-muted/30 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground uppercase">Intent</span>
+              <span className={`text-sm px-2 py-0.5 rounded-full font-semibold ${intentColor[classifyResult.intent] || "bg-muted"}`}>
+                {classifyResult.intent.replace(/_/g, " ")}
+              </span>
+            </div>
+            <div>
+              <span className="text-xs font-medium text-muted-foreground uppercase">Sub-agent</span>
+              <p className="text-sm text-foreground mt-0.5">{classifyResult.subAgent}</p>
             </div>
           </div>
         )}

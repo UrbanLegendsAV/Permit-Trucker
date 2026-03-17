@@ -13,7 +13,8 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw, Upload, AlertCircle, CheckCircle2, XCircle, PenLine } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import type { Profile, Permit } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -109,8 +110,32 @@ export default function ProfilePage() {
     },
   });
 
+  const saveVaultFieldMutation = useMutation({
+    mutationFn: async ({ field, value }: { field: string; value: string }) => {
+      const res = await fetch("/api/vault/field", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ field, value }),
+      });
+      if (!res.ok) throw new Error("Failed to save field");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vault"] });
+      setManualEntryField(null);
+      setManualEntryValue("");
+      toast({ title: "Saved", description: "Vault field updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not save field.", variant: "destructive" });
+    },
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeParseProfileId, setActiveParseProfileId] = useState<string | null>(null);
+  const [manualEntryField, setManualEntryField] = useState<string | null>(null);
+  const [manualEntryValue, setManualEntryValue] = useState("");
 
   const { data: profiles = [], isLoading: profilesLoading } = useQuery<Profile[]>({
     queryKey: ["/api/profiles"],
@@ -313,13 +338,59 @@ export default function ProfilePage() {
                   />
                 </div>
                 {missingFields.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Missing: {missingFields.slice(0, 5).join(", ")}{missingFields.length > 5 ? ` +${missingFields.length - 5} more` : ""}
-                  </p>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Missing fields — tap to enter manually:</p>
+                    {VAULT_FIELDS.filter(f => !vaultData?.[f.key]).map(f => (
+                      <div key={f.key} className="rounded-md border px-3 py-2 text-sm">
+                        {manualEntryField === f.key ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              autoFocus
+                              className="h-7 text-xs flex-1"
+                              placeholder={`Enter ${f.label}...`}
+                              value={manualEntryValue}
+                              onChange={e => setManualEntryValue(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && manualEntryValue.trim()) {
+                                  saveVaultFieldMutation.mutate({ field: f.key, value: manualEntryValue.trim() });
+                                }
+                                if (e.key === "Escape") { setManualEntryField(null); setManualEntryValue(""); }
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              disabled={!manualEntryValue.trim() || saveVaultFieldMutation.isPending}
+                              onClick={() => saveVaultFieldMutation.mutate({ field: f.key, value: manualEntryValue.trim() })}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2"
+                              onClick={() => { setManualEntryField(null); setManualEntryValue(""); }}
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span className="flex-1 text-muted-foreground">{f.label}</span>
+                            <button
+                              className="text-xs text-primary flex items-center gap-1 hover:underline"
+                              onClick={() => { setManualEntryField(f.key); setManualEntryValue(""); }}
+                            >
+                              <PenLine className="w-3 h-3" />
+                              Enter manually
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  Upload a past permit PDF above to auto-fill missing fields.
-                </p>
               </Card>
             </section>
           </>

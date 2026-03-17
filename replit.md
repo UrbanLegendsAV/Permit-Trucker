@@ -108,6 +108,7 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 
 ### AI & Automation
 - **Gemini 2.5 Flash**: Document parsing, data extraction, and non-fillable PDF field mapping.
+- **Claude claude-sonnet-4-6 (Anthropic)**: Intent classification + reply generation for inbound email orchestrator.
 - **Datalab API**: External service for AI-powered PDF form field analysis.
 - **Playwright**: Browser automation for portal submissions and form discovery web crawling.
 - **cheerio**: HTML parsing for fast web page crawling (used before Playwright fallback).
@@ -139,7 +140,7 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 
 ---
 
-## Progress Report (Last Updated: March 6, 2026)
+## Progress Report (Last Updated: March 17, 2026)
 
 ### ✅ FULLY WORKING (Tested & Live)
 

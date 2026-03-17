@@ -4,7 +4,7 @@
 > **Domain:** permitpilot.cloud
 > **Repo:** github.com/UrbanLegendsAV/Permit-Trucker
 > **Hosting:** Replit
-> **Last updated:** March 16, 2026
+> **Last updated:** March 17, 2026
 
 ---
 
@@ -351,6 +351,45 @@
 
 ---
 
+---
+
+## Phase 8: PermitPilot Orchestrator — Autonomous Email Agent (COMPLETE)
+
+### Inbound Email Routing
+- [x] `inbound_emails` table: messageId (dedup), from, to, subject, bodyText, bodyHtml, intent, truckSlug, handledBy, replySent, rawPayload
+- [x] `agent_logs` table: agentName, action, input, output, success, errorMessage, durationMs, relatedEmailId, relatedTruckSlug
+- [x] `opted_out` boolean column added to food_trucks table
+- [x] `POST /api/email/inbound` — public SendGrid Inbound Parse webhook
+  - Deduplicates by Message-ID header
+  - Saves raw email, calls processInboundEmail() fire-and-forget
+  - Always returns 200 (prevents SendGrid retry storms)
+
+### Orchestrator (server/lib/orchestrator.ts)
+- [x] Claude claude-sonnet-4-6 intent classifier — 6 intents: claim_listing, catering_reply, permit_inquiry, opt_out, general_inquiry, spam
+- [x] **Claim Agent** — extracts truck name with Claude, matches food_trucks table by email/domain/name, sets status→claimed, sends confirmation email
+- [x] **Catering Agent** — extracts catering fields from email body with Claude, updates food_trucks table, sends confirmation
+- [x] **Permit Inquiry Agent** — extracts CT town name, looks up towns table, generates personalized reply with Claude (fee, form type, portal URL)
+- [x] **Opt-Out Agent** — sets opted_out=true on food_trucks, suppresses future outreach, sends removal confirmation
+- [x] **General Inquiry Agent** — Claude generates branded PermitPilot support reply
+- [x] All sub-agents write to agent_logs for full audit trail
+- [x] `classifyEmailDryRun()` — dry-run classify for admin testing (no email sent)
+
+### Admin Dashboard — Orchestrator Tab
+- [x] Stats row: Total emails | Claimed via email | Permit inquiries | Opt-outs
+- [x] Recent inbound emails table (paginated 20/page): From | Subject | Intent | Truck | Status | Time
+- [x] Agent logs table (paginated 20/page): Agent | Action | Success | Duration | Time
+- [x] "Test Orchestrator" dry-run panel: paste email body → Classify Intent → shows intent + sub-agent (no email sent)
+- [x] Admin endpoints: GET /api/admin/orchestrator/stats, /emails, /logs, POST /api/admin/orchestrator/classify
+
+### Anthropic SDK
+- [x] @anthropic-ai/sdk ^0.79.0 installed in package.json
+
+### SendGrid Inbound Parse Setup (instructions in route comment)
+- MX record: mail.permitpilot.cloud → mx.sendgrid.net (Priority 10)
+- Webhook URL: https://permitpilot.cloud/api/email/inbound
+
+---
+
 ## Technical Architecture
 
 ### Frontend Stack
@@ -383,6 +422,7 @@
 | `server/lib/portal-automation-service.ts` | Playwright portal automation |
 | `server/lib/form-discovery-service.ts` | Playwright web crawler for form discovery |
 | `server/lib/vault-service.ts` | Master data vault operations |
+| `server/lib/orchestrator.ts` | Autonomous email orchestrator + 5 sub-agents |
 | `client/src/App.tsx` | Main router |
 | `client/src/pages/directory.tsx` | Public CT food truck directory |
 | `client/src/pages/truck-profile.tsx` | Individual truck listing page |
@@ -400,6 +440,7 @@
 | `SENDGRID_API_KEY` | Transactional email via SendGrid |
 | `SESSION_SECRET` | Express session signing |
 | `DATALAB_API_KEY` | Datalab AI for PDF field matching |
+| `ANTHROPIC_API_KEY` | Claude claude-sonnet-4-6 for orchestrator intent classification + sub-agent replies |
 
 ---
 

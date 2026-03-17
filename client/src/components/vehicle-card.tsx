@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles, Upload, Plus, Save } from "lucide-react";
+import { Truck, Caravan, MoreVertical, FileText, Image, CheckCircle, Pencil, Trash2, FolderOpen, X, ExternalLink, Maximize2, ChevronDown, ChevronRight, ScanText, Calendar, CreditCard, Building2, Loader2, Sparkles, Upload, Plus, Save, Download, Zap, CheckCircle2, Circle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
@@ -89,10 +89,21 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
   const [scanningDocIndex, setScanningDocIndex] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
   const [isParsingAll, setIsParsingAll] = useState(false);
+  const [parseAllProgress, setParseAllProgress] = useState<{ current: number; total: number } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadCategory, setUploadCategory] = useState("other");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Document Detail Modal state
+  const [detailDoc, setDetailDoc] = useState<{ doc: DocumentType; index: number } | null>(null);
+  const [parseResult, setParseResult] = useState<{
+    fieldsExtracted: number;
+    newFields: string[];
+    updatedFields: string[];
+    vaultCompleteness: { score: number; missingFields: string[] } | null;
+  } | null>(null);
+  const [isParsingDoc, setIsParsingDoc] = useState(false);
   
   const parsedData = (profile.parsedDataLog && typeof profile.parsedDataLog === 'object') 
     ? profile.parsedDataLog as Record<string, Record<string, { value: string; confidence: number }>>
@@ -203,21 +214,64 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
     }
   };
 
-  const handleParseAllDocuments = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsParsingAll(true);
+  const handleParseDocument = async (docIndex: number) => {
+    setIsParsingDoc(true);
+    setParseResult(null);
     try {
-      const response = await apiRequest("POST", `/api/profiles/${profile.id}/parse-all-documents`);
+      const response = await apiRequest("POST", `/api/profiles/${profile.id}/parse-document/${docIndex}`);
       const data = await response.json();
       if (data.success) {
-        toast({
-          title: "Documents Analyzed",
-          description: `Extracted data from ${data.documentsAnalyzed} documents.`,
+        setParseResult({
+          fieldsExtracted: data.fieldsExtracted,
+          newFields: data.newFields || [],
+          updatedFields: data.updatedFields || [],
+          vaultCompleteness: data.vaultCompleteness,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
       } else {
-        throw new Error(data.message || "Failed to parse documents");
+        throw new Error(data.message || "Failed to parse document");
       }
+    } catch (error: any) {
+      toast({
+        title: "Extraction Failed",
+        description: error.message || "Could not extract data from document.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsingDoc(false);
+    }
+  };
+
+  const handleParseAllDocuments = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const docs = profile.uploadsJson?.documents || [];
+    const unanalyzed = docs.map((d: any, i: number) => ({ d, i })).filter(({ d }: any) => !d.analyzedAt);
+    if (unanalyzed.length === 0) {
+      toast({ title: "All docs already analyzed", description: "Every document has been processed." });
+      return;
+    }
+    setIsParsingAll(true);
+    setParseAllProgress({ current: 0, total: unanalyzed.length });
+    let totalFields = 0;
+    try {
+      for (let idx = 0; idx < unanalyzed.length; idx++) {
+        setParseAllProgress({ current: idx + 1, total: unanalyzed.length });
+        try {
+          const response = await apiRequest("POST", `/api/profiles/${profile.id}/parse-document/${unanalyzed[idx].i}`);
+          const data = await response.json();
+          if (data.success) totalFields += data.fieldsExtracted || 0;
+        } catch {
+          // continue with next doc
+        }
+        if (idx < unanalyzed.length - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      toast({
+        title: "All Documents Analyzed",
+        description: `Extracted ${totalFields} fields from ${unanalyzed.length} documents.`,
+      });
     } catch (error: any) {
       toast({
         title: "Analysis Failed",
@@ -226,6 +280,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
       });
     } finally {
       setIsParsingAll(false);
+      setParseAllProgress(null);
     }
   };
 
@@ -580,10 +635,15 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                   className="w-full"
                   data-testid="button-parse-all-documents"
                 >
-                  {isParsingAll ? (
+                  {isParsingAll && parseAllProgress ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Analyzing {documents.length} Documents...
+                      Parsing doc {parseAllProgress.current} of {parseAllProgress.total}...
+                    </>
+                  ) : isParsingAll ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Analyzing...
                     </>
                   ) : (
                     <>
@@ -612,9 +672,10 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                 {documents.slice(0, 4).map((doc, idx) => (
                   <div
                     key={idx}
-                    className="w-12 h-12 rounded-md border bg-muted shrink-0 overflow-hidden"
+                    className="relative w-12 h-12 rounded-md border bg-muted shrink-0 overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all"
                     title={doc.name}
                     data-testid={`doc-thumbnail-${idx}`}
+                    onClick={(e) => { e.stopPropagation(); setDetailDoc({ doc, index: idx }); setParseResult(null); }}
                   >
                     {doc.url && doc.type?.startsWith("image/") ? (
                       <img
@@ -627,6 +688,14 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                         <FileText className="w-5 h-5" />
                       </div>
                     )}
+                    {/* Parse status indicator */}
+                    <div className="absolute top-0.5 right-0.5">
+                      {(doc as any).analyzedAt ? (
+                        <CheckCircle2 className="w-3 h-3 text-green-500 bg-white rounded-full" />
+                      ) : (
+                        <Circle className="w-3 h-3 text-amber-400 bg-white rounded-full" />
+                      )}
+                    </div>
                   </div>
                 ))}
                 {documents.length > 4 && (
@@ -639,6 +708,123 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
           </div>
         </div>
       </Card>
+
+      {/* Document Detail Modal */}
+      <Dialog open={!!detailDoc} onOpenChange={(open) => { if (!open) { setDetailDoc(null); setParseResult(null); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="truncate pr-6">{detailDoc?.doc.name || "Document"}</DialogTitle>
+          </DialogHeader>
+
+          {detailDoc && (
+            <div className="space-y-4">
+              {/* Category */}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <FolderOpen className="w-4 h-4" />
+                <span>{CATEGORY_MAP[normalizeCategory(detailDoc.doc.folder)] || "Uncategorized"}</span>
+                {(detailDoc.doc as any).analyzedAt && (
+                  <span className="ml-auto flex items-center gap-1 text-green-600 text-xs">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Analyzed
+                  </span>
+                )}
+              </div>
+
+              {/* Preview */}
+              <div className="border rounded-lg overflow-hidden bg-muted min-h-[200px] flex items-center justify-center">
+                {detailDoc.doc.type?.startsWith("image/") ? (
+                  <img src={detailDoc.doc.url} alt={detailDoc.doc.name} className="max-w-full max-h-[300px] object-contain" />
+                ) : isPdf(detailDoc.doc) ? (
+                  <iframe
+                    src={(() => {
+                      try {
+                        const match = detailDoc.doc.url.match(/^data:([^;]+);base64,(.+)$/);
+                        if (match) {
+                          const bytes = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0));
+                          const blob = new Blob([bytes], { type: match[1] });
+                          return URL.createObjectURL(blob);
+                        }
+                      } catch {}
+                      return detailDoc.doc.url;
+                    })()}
+                    className="w-full h-[300px]"
+                    title={detailDoc.doc.name}
+                  />
+                ) : (
+                  <div className="text-muted-foreground text-sm">Preview not available</div>
+                )}
+              </div>
+
+              {/* Parse result feedback */}
+              {parseResult && (
+                <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900 p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400 font-medium text-sm">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Extracted {parseResult.fieldsExtracted} fields
+                    {parseResult.vaultCompleteness && (
+                      <span className="ml-auto text-xs">Vault: {parseResult.vaultCompleteness.score}% complete</span>
+                    )}
+                  </div>
+                  {parseResult.newFields.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">New fields found:</p>
+                      <div className="grid grid-cols-2 gap-1">
+                        {parseResult.newFields.slice(0, 8).map(f => (
+                          <span key={f} className="text-xs bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 rounded px-1.5 py-0.5 truncate">{f.split('.')[1]?.replace(/_/g, ' ') || f}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {parseResult.updatedFields.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400 mb-1">Updated fields:</p>
+                      <div className="grid grid-cols-2 gap-1">
+                        {parseResult.updatedFields.slice(0, 6).map(f => (
+                          <span key={f} className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 rounded px-1.5 py-0.5 truncate">{f.split('.')[1]?.replace(/_/g, ' ') || f}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={() => handleParseDocument(detailDoc.index)}
+                  disabled={isParsingDoc}
+                >
+                  {isParsingDoc ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Reading with AI...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Extract Data from This Doc
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleDocClick(detailDoc.doc)}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download
+                </Button>
+              </div>
+
+              {parseResult && (
+                <Button variant="outline" className="w-full" onClick={() => { setDetailDoc(null); setParseResult(null); }}>
+                  Close & Refresh
+                </Button>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showDocuments} onOpenChange={setShowDocuments}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
@@ -719,9 +905,9 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                         className="border rounded-lg overflow-visible bg-muted group relative"
                         data-testid={`document-preview-${originalIndex}`}
                       >
-                        <div 
+                        <div
                           className="cursor-pointer"
-                          onClick={() => handleDocClick(doc)}
+                          onClick={() => { setDetailDoc({ doc, index: originalIndex }); setParseResult(null); }}
                         >
                           {doc.url && doc.type?.startsWith("image/") ? (
                             <div className="relative">
@@ -733,9 +919,14 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                                 <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                               </div>
+                              <div className="absolute top-1 right-1">
+                                {(doc as any).analyzedAt
+                                  ? <CheckCircle2 className="w-4 h-4 text-green-500 bg-white rounded-full" />
+                                  : <Circle className="w-4 h-4 text-amber-400 bg-white rounded-full" />}
+                              </div>
                             </div>
                           ) : (
-                            <div className="w-full h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
+                            <div className="relative w-full h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
                               <FileText className="w-8 h-8" />
                               {isPdf(doc) && (
                                 <span className="text-xs flex items-center gap-1">
@@ -743,6 +934,11 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                                   Tap to view
                                 </span>
                               )}
+                              <div className="absolute top-1 right-1">
+                                {(doc as any).analyzedAt
+                                  ? <CheckCircle2 className="w-4 h-4 text-green-500 bg-white rounded-full" />
+                                  : <Circle className="w-4 h-4 text-amber-400 bg-white rounded-full" />}
+                              </div>
                             </div>
                           )}
                         </div>
