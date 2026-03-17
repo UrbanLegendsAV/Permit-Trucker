@@ -3691,6 +3691,49 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  // POST /api/directory/:slug/claim-authenticated — claim listing, create profile, sync vault
+  app.post("/api/directory/:slug/claim-authenticated", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { slug } = req.params;
+      const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug));
+      if (!truck) return res.status(404).json({ message: "Truck not found" });
+      if (truck.status === "claimed") return res.status(409).json({ message: "Listing already claimed" });
+
+      // Mark truck as claimed
+      await db.update(foodTrucks).set({
+        status: "claimed",
+        claimedByUserId: userId,
+        claimedAt: new Date(),
+      }).where(eq(foodTrucks.slug, slug));
+
+      // Create vehicle profile from truck data
+      const profile = await storage.createProfile({
+        userId,
+        vehicleType: "truck",
+        vehicleName: truck.name,
+        menuType: truck.cuisine ?? undefined,
+      } as any);
+
+      // Sync profile to vault (gets vehicleName/cuisine at minimum)
+      const vault = await syncProfileToVault(userId, profile.id);
+
+      // Seed extra fields directly into vault
+      if (vault && (truck.email || truck.description)) {
+        await storage.updateDataVault(vault.id, {
+          ...(truck.email && { email: truck.email }),
+          ...(truck.name && { businessName: truck.name }),
+        } as any);
+      }
+
+      res.json({ success: true, profileId: profile.id, truckData: truck });
+    } catch (error) {
+      console.error("Error claiming truck (authenticated):", error);
+      res.status(500).json({ message: "Failed to claim listing" });
+    }
+  });
+
   /*
     SENDGRID INBOUND PARSE SETUP:
     1. Go to SendGrid → Settings → Inbound Parse

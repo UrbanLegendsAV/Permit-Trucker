@@ -685,6 +685,9 @@ export const foodTrucks = pgTable("food_trucks", {
   cateringContactEmail: text("catering_contact_email"),
   cateringContactPhone: text("catering_contact_phone"),
   cateringWebsite: text("catering_website"),
+  // Claim tracking
+  claimedByUserId: text("claimed_by_user_id"),
+  claimedAt: timestamp("claimed_at"),
 });
 
 export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: true, createdAt: true });

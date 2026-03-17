@@ -1,15 +1,14 @@
 import { useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useParams, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { useParams, Link, useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import {
   ArrowLeft, ExternalLink, Instagram, CheckCircle2, MapPin, Tag,
   Phone, Mail, Globe, Share2, Utensils, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
 import { TopHeader } from "@/components/top-header";
-import { apiRequest } from "@/lib/queryClient";
 
 // ── Type ──────────────────────────────────────────────────────────────────────
 
@@ -62,8 +61,8 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
 
 export default function TruckProfilePage() {
   const { slug } = useParams<{ slug: string }>();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
+  const { isAuthenticated } = useAuth();
 
   const { data: truck, isLoading, error } = useQuery<FoodTruck>({
     queryKey: [`/api/directory/${slug}`],
@@ -111,16 +110,13 @@ export default function TruckProfilePage() {
     return () => { document.getElementById("truck-jsonld")?.remove(); };
   }, [truck]);
 
-  const claimMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/directory/claim", { slug }),
-    onSuccess: () => {
-      toast({ title: "Listing claimed!", description: "We'll be in touch to verify your truck." });
-      queryClient.invalidateQueries({ queryKey: [`/api/directory/${slug}`] });
-    },
-    onError: () => {
-      toast({ title: "Sign in to claim", description: "Create a free account to claim this listing.", variant: "destructive" });
-    },
-  });
+  const handleClaim = () => {
+    if (isAuthenticated) {
+      navigate(`/claim/${slug}`);
+    } else {
+      navigate(`/auth?next=/claim/${slug}`);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -157,11 +153,10 @@ export default function TruckProfilePage() {
             </p>
             <Button
               size="sm"
-              onClick={() => claimMutation.mutate()}
-              disabled={claimMutation.isPending}
+              onClick={handleClaim}
               className="bg-[#F5A623] hover:bg-[#F5A623]/90 text-black font-semibold shrink-0"
             >
-              {claimMutation.isPending ? "Claiming..." : "Claim Listing"}
+              Claim Listing
             </Button>
           </div>
         </div>
@@ -289,7 +284,7 @@ export default function TruckProfilePage() {
                 <p className="text-sm text-[#8897B2]">
                   Does this truck offer catering?{" "}
                   <button
-                    onClick={() => claimMutation.mutate()}
+                    onClick={handleClaim}
                     className="text-[#F5A623] hover:underline"
                   >
                     Claim your listing
@@ -358,7 +353,7 @@ export default function TruckProfilePage() {
                 <p className="text-sm text-[#8897B2]">Connect your account to show active permits.</p>
               ) : (
                 <p className="text-sm text-[#8897B2]">
-                  <button onClick={() => claimMutation.mutate()} className="text-[#F5A623] hover:underline">
+                  <button onClick={handleClaim} className="text-[#F5A623] hover:underline">
                     Claim this listing
                   </button>{" "}
                   to show permit status.

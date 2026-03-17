@@ -125,6 +125,11 @@ export async function runMigrations(): Promise<void> {
     await client.query(`
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS opted_out BOOLEAN DEFAULT false;
     `);
+    // Claim tracking on food_trucks
+    await client.query(`
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_by_user_id TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP;
+    `);
     console.log('[DB] Migrations applied successfully');
   } catch (err) {
     console.error('[DB] Migration error:', err);

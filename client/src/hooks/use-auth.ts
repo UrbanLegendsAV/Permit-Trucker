@@ -98,7 +98,8 @@ export function useAuth() {
     mutationFn: login,
     onSuccess: (user) => {
       queryClient.setQueryData(["/api/auth/user"], user);
-      window.location.href = "/";
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.href = next || "/";
     },
   });
 
@@ -106,7 +107,8 @@ export function useAuth() {
     mutationFn: register,
     onSuccess: (user) => {
       queryClient.setQueryData(["/api/auth/user"], user);
-      window.location.href = "/";
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.href = next || "/";
     },
   });
 
