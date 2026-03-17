@@ -1,7 +1,10 @@
-# PermitTruck - Project Progress
+# PermitPilot — Project Progress
 
-## Overview
-PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food truck and trailer operators navigate the complex permit application process across municipalities, starting with Connecticut.
+> **App name:** PermitPilot (rebranded from PermitTruck — March 2026)
+> **Domain:** permitpilot.cloud
+> **Repo:** github.com/UrbanLegendsAV/Permit-Trucker
+> **Hosting:** Replit
+> **Last updated:** March 16, 2026
 
 ---
 
@@ -59,7 +62,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Zip/city search via Nominatim geocoding
 - [x] Food truck markers on map
 - [x] Click-to-view truck detail panels
-- [x] "0 trucks nearby" indicator
 
 ### Public Profiles for Truckers
 - [x] Opt-in public profile toggle
@@ -72,8 +74,7 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 ### Reviews System
 - [x] Star rating component (1-5 stars)
 - [x] Anonymous review submission
-- [x] Optional reviewer name
-- [x] Optional review text
+- [x] Optional reviewer name + review text
 - [x] IP-based rate limiting (max 5 reviews/hour)
 - [x] Reviews displayed in truck panels
 
@@ -84,12 +85,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] User role assignment (owner-only)
 - [x] Configuration storage in database
 - [x] Reviews moderation queue (approve/deny/delete)
-
-### Public Profile Opt-In (Onboarding)
-- [x] New "Visibility" step (step 5) in onboarding flow
-- [x] Opt-in toggle for public profile creation
-- [x] Business name and description fields
-- [x] Automatic public profile creation when opted in
 
 ### Permit Packet Generation
 - [x] Print-ready permit application packets
@@ -103,7 +98,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Tesseract.js integration for image scanning
 - [x] Pattern extraction for dates, licenses, VIN/plates
 - [x] Auto-fill onboarding fields from scanned documents
-- [x] Progress indicator during OCR processing
 - [x] Scan button appears on image uploads only
 
 ### PWA Support
@@ -111,7 +105,6 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Service worker for offline caching
 - [x] Stale-while-revalidate strategy for static assets
 - [x] Network-first strategy for API calls with offline fallback
-- [x] Production-only service worker registration
 
 ### Database Schema Additions
 - [x] `public_profiles` table with business info
@@ -122,14 +115,13 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 
 ---
 
-## Phase 3: TruckPermitAI - Intelligent Form Filling (COMPLETE)
+## Phase 3: TruckPermitAI — Intelligent Form Filling (COMPLETE)
 
 ### Auto-OCR Document Processing
 - [x] Auto-run Tesseract.js OCR on image upload
 - [x] Extract VIN, license plates, dates, license numbers
 - [x] Auto-populate vehicle profile fields from OCR data
 - [x] Toast notifications showing extracted data
-- [x] Extracted data preview on vehicle cards
 
 ### Smart Form Pre-Filling
 - [x] "Pre-Fill with My Data" button for fillable town forms
@@ -139,13 +131,7 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Bethel 9-page form fully mapped (46 form fields)
 - [x] Contact info auto-fill (name, address, phone, business name)
 - [x] Checkbox auto-fill (water supply, toilet facilities, license type)
-- [x] Event section fields (location, dates, hours - from permit wizard)
-
-### AI Portal Assistant
-- [x] "Start AI Assist" button for towns with online portals
-- [x] Portal URL integration
-- [ ] Embedded portal WebView with sidebar
-- [ ] AI-powered field detection and filling
+- [x] Event section fields (location, dates, hours — from permit wizard)
 
 ### Location Optimizer (Spots)
 - [x] New Spots page for finding high-traffic locations
@@ -163,83 +149,48 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] External links to municipality websites
 - [x] Fillable form indicators
 
-### Permit Wizard Improvements
-- [x] Draft progress saving (persists permit step and data on refresh)
-- [x] Town selection visual highlighting (blue ring on selected town)
-- [x] Zustand store persistence for newPermit state
-- [x] permitStep state persistence
-
 ### Gemini AI Integration
 - [x] Document parsing with Gemini 2.5 Flash
 - [x] Structured data extraction for profiles
-- [x] Dynamic category support (operations, menu_and_prep, safety, license_info)
+- [x] Dynamic category support
 - [x] ParsedUserData TypeScript interface for type safety
 
 ### Connecticut Health Districts & Town Coverage
-- [x] Health districts table with normalized data (name, website, phone, email)
+- [x] Health districts table with normalized data
 - [x] All 169 CT towns seeded with county and health district associations
-- [x] District-based filtering in town search (dropdown selector)
+- [x] District-based filtering in town search
 - [x] Auto-populate portal URLs from health district websites
-- [x] API endpoints: GET /api/health-districts, GET /api/health-districts/:id/towns
-- [x] Comprehensive seed script (server/seed-ct-towns.ts) for all CT coverage
+- [x] API: GET /api/health-districts, GET /api/health-districts/:id/towns
 
 ---
 
-## Phase 4: Autonomous PDF Filling Infrastructure (IN PROGRESS)
+## Phase 4: Autonomous PDF Filling Infrastructure (COMPLETE)
 
 ### Database-Backed Form System
-- [x] `town_forms` table with columns: id, townId, name, formType, fileData (base64), fieldMappings (JSON), isFillable, sourceUrl
+- [x] `town_forms` table: id, townId, name, formType, fileData (base64), fieldMappings (JSON), isFillable, sourceUrl
 - [x] Admin dashboard form upload (PDF file + metadata)
 - [x] Base64 encoding for PDF storage in PostgreSQL
-- [x] API: GET `/api/towns/:townId/forms` - returns all forms for a town
-- [x] API: POST `/api/towns/:townId/forms/:formId/generate` - generates filled PDF
-- [x] Frontend displays "Official Forms" section with "Fillable" badges
-- [x] "Generate Filled Form" and "View PDF" buttons per form
+- [x] API: GET /api/towns/:townId/forms
+- [x] API: POST /api/towns/:townId/forms/:formId/generate
 
 ### PDF Generation Pipeline
-- [x] `fillPdfFromDatabase()` function in `server/lib/pdf-service.ts`
-- [x] Retrieves form template from database by formId
+- [x] `fillPdfFromDatabase()` in server/lib/pdf-service.ts
 - [x] Uses pdf-lib to load PDF and access AcroForm fields
-- [x] Maps profile data to form fields using `fieldMappings` JSON
+- [x] Maps profile data to form fields using fieldMappings JSON
 - [x] Returns filled PDF as binary blob for download
 
-### Datalab AI Integration (COMPLETED)
-- [x] Datalab API key configured in secrets
+### Datalab AI Integration
+- [x] Datalab API key in Replit Secrets
 - [x] AI-powered semantic field detection and matching
 - [x] Automatic fallback: uses Datalab when fieldMappings is empty
-- [x] Profile data extraction for Datalab field_data payload
 - [x] Async polling for Datalab job completion (up to 60 seconds)
 - [x] Fallback to local pdf-lib filling if Datalab fails
-
-### How PDF Generation Now Works
-1. User clicks "Generate Filled Form" for a town's form
-2. Backend checks if `fieldMappings` is configured in database
-3. **If no fieldMappings** → Uses Datalab AI:
-   - Sends PDF + user profile data with semantic descriptions
-   - Datalab AI matches fields intelligently (e.g., "business_name" → "NAME OF BUSINESS" field)
-   - Polls for completion, downloads filled PDF
-4. **If fieldMappings exists** → Uses local pdf-lib:
-   - Direct field name mapping via configured JSON
-   - Faster, no external API call
-
-### Two Submission Paths
-1. **PDF Auto-Fill Path** (ACTIVE)
-   - Primary: Datalab AI for intelligent field matching
-   - Fallback: pdf-lib with manual fieldMappings
-   - Supports any PDF form without pre-configuration
-
-2. **Portal Automation Path** (Infrastructure Ready)
-   - Store portal credentials (AES-256-CBC encrypted)
-   - Playwright browser automation
-   - Navigate to OpenGov/ViewPoint portals
-   - Fill fields programmatically
-   - Submit with user approval
 
 ### Master Data Vault
 - [x] `data_vaults` table with 50+ standardized fields
 - [x] Single source of truth for all user data
 - [x] Fields: businessName, ownerName, address, phone, email, ein, vehicleInfo, licenses, insurance, etc.
-- [x] Sync from parsed documents via `syncParsedDataToVault()`
+- [x] Sync from parsed documents via syncParsedDataToVault()
 - [x] Completeness scoring for data quality
 
 ### Submission Jobs Tracking
@@ -247,6 +198,90 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - [x] Status: pending, processing, completed, failed, needs_approval
 - [x] Stores filled PDF result for download
 - [x] Error logging for debugging
+
+### ViewPoint Cloud Portal Automation
+- [x] Playwright-based portal automation in server/lib/portal-automation-service.ts
+- [x] AES-256-CBC encrypted credential storage
+- [x] Navigate to OpenGov/ViewPoint portals
+- [x] Fill fields programmatically
+- [x] Submit with user approval gate
+
+### Form Discovery Service
+- [x] Rewrote from AI URL hallucination to real Playwright web crawler
+- [x] Crawls town and health district websites for permit PDFs
+- [x] Live end-to-end fill test vs West Hartford Temporary Food Permit — 100% accuracy on 25 fields
+
+---
+
+## Phase 5: PermitPilot Rebrand + CT Food Truck Directory (COMPLETE)
+
+### Rebrand: PermitTruck → PermitPilot (commit 442907b)
+- [x] All "PermitTruck" strings replaced across client/, server/, configs
+- [x] package.json name → "permit-pilot"
+- [x] index.html title → "PermitPilot — Your Permit Copilot"
+- [x] User-Agent strings updated to PermitPilot/1.0
+- [x] Fonts swapped: Inter → Plus Jakarta Sans (display) + DM Sans (body)
+- [x] tailwind.config.ts: fontFamily.display + fontFamily.body tokens added
+- [x] CSS brand color tokens added to index.css:
+  - `--color-primary: #1B4FD8` (Authority Blue)
+  - `--color-success: #00C896` (Clearance Green)
+  - `--color-bg-dark: #0A0F1E` (Midnight Navy)
+  - `--color-warning: #F5A623` (Permit Amber)
+  - `--color-bg-light: #F5F7FA` (Cloud White)
+  - `--color-text-secondary: #8897B2` (Slate Gray)
+- [x] Logo SVGs wired in: logo-light.svg, logo-dark.svg, icon.svg, icon-dark.svg
+- [x] manifest.json icon paths updated
+- [x] All UI components updated (top-header, landing, auth, profile, permit-packet)
+
+### Domain & Email Infrastructure
+- [x] Domain purchased: `permitpilot.cloud` (GoDaddy, $2.99/yr)
+- [x] SendGrid domain authentication verified for `permitpilot.cloud`
+- [x] SendGrid domain authentication verified for `brazilianbbqboys.com` (existing)
+- [x] Ready to send from `hello@permitpilot.cloud` or `outreach@permitpilot.cloud`
+- [x] Existing SendGrid Essentials 50K plan ($19.95/mo) — no upgrade needed
+
+### CT Food Truck Directory (commit 87d949e)
+- [x] `food_trucks` table added to shared/schema.ts (16 fields)
+  - slug, name, cuisine, towns[], website, email, phone, instagramHandle
+  - description, status (unclaimed/claimed/listed), imageUrl, source
+  - outreachSent (boolean), outreachSentAt, createdAt
+- [x] Auto-migration via runMigrations() in server/db.ts on startup
+- [x] 8 CT food trucks seeded in server/seed.ts:
+  - Brazilian BBQ Boys (status: claimed)
+  - Taco Road Trip, Rich's Wings & Things, Jesse's Ice Cream Truck
+  - Nicky Zooks, Fullmoon Taco Truck, The Blind Rhino, Chefo's Eatery (all unclaimed)
+- [x] API: GET /api/directory (public, ?cuisine= and ?town= filters)
+- [x] API: GET /api/directory/:slug (public, single truck)
+- [x] API: POST /api/directory/claim (auth-required, sets status → claimed)
+- [x] Page: /directory — dark navy hero, sticky filter bar, responsive card grid
+  - Green "Claimed" badge / Amber "Unclaimed — Is this yours?" badge
+  - Live text + cuisine + town filtering
+- [x] Page: /directory/:slug — individual truck profile
+  - Amber banner for unclaimed trucks with "Claim Listing" CTA
+  - Town pills, business links, contact info
+  - "File permit for [town]" buttons → /new-permit?town=X (monetization hook)
+- [x] Routes added to App.tsx: /directory and /directory/:slug
+- [x] "Directory" link added to public nav (no login required)
+
+---
+
+## Phase 6: SendGrid Outreach Agent (COMPLETE)
+
+### Completed
+- [x] Built server/lib/outreach-service.ts
+  - `extractEmailFromWebsite()` — fetches truck website, regex-extracts contact email
+  - `buildOutreachEmail()` — branded HTML template with listing URL + permit upsell
+  - `runOutreachAgent()` — iterates unclaimed trucks, sends via SendGrid, marks outreachSent
+  - `sendTestOutreachEmail()` — preview send without touching DB
+  - Sends from hello@permitpilot.cloud, 1 email/sec rate limit
+- [x] @sendgrid/mail installed in package.json
+- [x] Branded HTML email template — #0A0F1E header, #1B4FD8 CTA, opt-out footer
+- [x] POST /api/admin/outreach — admin-only, 24h cooldown via configs table
+- [x] POST /api/admin/outreach/test — single test send, no DB changes
+- [x] Admin "Outreach" tab (6th tab in admin.tsx)
+  - Stats: unclaimed total / with contact / already sent
+  - Test form: email + truck slug dropdown
+  - Run button with amber warning + results table
 
 ---
 
@@ -267,107 +302,91 @@ PermitTruck is a mobile-first Progressive Web App (PWA) designed to help food tr
 - PostgreSQL via Drizzle ORM
 - Replit Auth (OpenID Connect)
 - Passport.js for auth middleware
+- Playwright (Chromium) for portal automation + form discovery
+- SendGrid (Essentials 50K) for transactional email
 
 ### Key Files
 | File | Purpose |
 |------|---------|
-| `shared/schema.ts` | Database schema + types |
-| `server/routes.ts` | API endpoints |
+| `shared/schema.ts` | Database schema + types (includes food_trucks table) |
+| `server/routes.ts` | API endpoints (includes /api/directory routes) |
 | `server/storage.ts` | Data access layer |
-| `server/seed.ts` | Town + config seeding |
-| `server/lib/pdf-service.ts` | PDF generation with pdf-lib |
+| `server/seed.ts` | Town + food truck seeding |
+| `server/seed-ct-towns.ts` | All 169 CT towns with health districts |
+| `server/lib/pdf-service.ts` | PDF generation with pdf-lib + Datalab |
+| `server/lib/portal-automation-service.ts` | Playwright portal automation |
+| `server/lib/form-discovery-service.ts` | Playwright web crawler for form discovery |
+| `server/lib/vault-service.ts` | Master data vault operations |
 | `client/src/App.tsx` | Main router |
+| `client/src/pages/directory.tsx` | Public CT food truck directory |
+| `client/src/pages/truck-profile.tsx` | Individual truck listing page |
 | `client/src/pages/discover.tsx` | Consumer map page |
 | `client/src/pages/admin.tsx` | Admin dashboard |
 | `client/src/pages/profile.tsx` | User profile page |
 | `client/src/pages/onboarding.tsx` | Multi-step onboarding flow |
-| `client/src/pages/permit-detail.tsx` | Permit application detail page |
-| `client/src/components/permit-packet.tsx` | PDF generation UI |
-| `client/src/components/requirements-checklist.tsx` | Town requirements display |
-| `client/src/lib/ocr.ts` | OCR utility (Tesseract.js) |
 | `client/public/sw.js` | Service worker for PWA |
+| `BRAND_BIBLE.md` | Brand identity source of truth |
+
+### Secrets in Replit (never in source code)
+| Secret Key | Purpose |
+|------------|---------|
+| `GOOGLE_API_KEY` | Gemini Vision for non-fillable PDF mapping |
+| `SENDGRID_API_KEY` | Transactional email via SendGrid |
+| `SESSION_SECRET` | Express session signing |
+| `DATALAB_API_KEY` | Datalab AI for PDF field matching |
 
 ---
 
 ## API Endpoints
 
-### Public
-- `GET /api/public-profiles` - List public food trucks
-- `GET /api/reviews/:publicProfileId` - Get reviews for truck
-- `POST /api/reviews` - Submit anonymous review
+### Public (no auth)
+- `GET /api/directory` — List all food trucks (?cuisine= ?town= filters)
+- `GET /api/directory/:slug` — Single truck by slug
+- `GET /api/public-profiles` — List public food trucks (map)
+- `GET /api/reviews/:publicProfileId` — Reviews for a truck
+- `POST /api/reviews` — Submit anonymous review
 
 ### Authenticated
-- `GET /api/profiles` - User's vehicle profiles
-- `POST /api/profiles` - Create vehicle profile
-- `GET /api/permits` - User's permits
-- `POST /api/permits` - Create permit application
-- `GET /api/badges` - User's earned badges
-- `GET /api/towns` - All towns with requirements
-- `GET /api/me/role` - Current user's role
-
-### Town Forms (New)
-- `GET /api/towns/:townId/forms` - Get all forms for a town (returns `{ forms, fillableForms }`)
-- `GET /api/towns/:townId/forms/:formId` - Get single form details
-- `POST /api/towns/:townId/forms/:formId/generate` - Generate filled PDF
+- `POST /api/directory/claim` — Claim a truck listing
+- `GET /api/profiles` — User's vehicle profiles
+- `POST /api/profiles` — Create vehicle profile
+- `GET /api/permits` — User's permits
+- `POST /api/permits` — Create permit application
+- `GET /api/badges` — User's earned badges
+- `GET /api/towns` — All towns with requirements
+- `GET /api/me/role` — Current user's role
+- `GET /api/health-districts` — All CT health districts
+- `GET /api/towns/:townId/forms` — Forms for a town
+- `POST /api/towns/:townId/forms/:formId/generate` — Generate filled PDF
 
 ### Admin Only
-- `GET/POST /api/admin/configs` - Manage settings
-- `POST /api/admin/towns` - Create town
-- `PATCH /api/admin/towns/:id` - Update town
-- `DELETE /api/admin/towns/:id` - Delete town
-- `POST /api/admin/towns/:townId/forms` - Upload form to town
+- `GET/POST /api/admin/configs` — Manage settings
+- `POST/PATCH/DELETE /api/admin/towns` — Town CRUD
+- `POST /api/admin/towns/:townId/forms` — Upload form
+- `POST /api/admin/outreach` — Run SendGrid outreach agent (24h rate limit)
+- `POST /api/admin/outreach/test` — Send single test email (no DB changes)
 
 ### Owner Only
-- `PATCH /api/admin/users/:id/role` - Assign user roles
+- `PATCH /api/admin/users/:id/role` — Assign user roles
 
 ---
 
 ## Configuration Defaults
-
-| Setting | Default Value | Description |
-|---------|---------------|-------------|
+| Setting | Default | Description |
+|---------|---------|-------------|
 | `pro_price` | $99 | Pro plan monthly price |
-| `basic_price` | $0 | Basic plan price (free) |
+| `basic_price` | $0 | Basic plan (free) |
 | `max_vehicles` | 5 | Max vehicles per user |
 | `pioneer_threshold` | 60% | Confidence below which Pioneer badge earned |
 
 ---
 
-## Next Steps (Priority)
-
-### Testing & Validation
-1. [ ] Test Datalab integration end-to-end with Newtown forms
-2. [ ] Verify filled PDF contains user's business data
-3. [ ] Test fallback behavior when Datalab fails
-
-### Enhancements
-- [ ] Add progress indicator during Datalab processing (takes 10-60 seconds)
-- [ ] Cache filled PDFs to avoid re-processing
-- [ ] Add admin UI for manual fieldMappings (for faster local filling)
-- [ ] Add regression tests for PDF generation
-
-### Future Phases
-- [ ] Push notifications for permit expiry
-- [ ] Email reminders
-- [ ] Multi-state expansion (beyond CT)
-- [ ] Pro subscription integration (Stripe)
-- [ ] Trucker forums/discussion
-- [ ] Event calendar integration
-- [ ] Route planning tools
+## Workflow Rules (never break these)
+1. **All code changes in Claude Code (terminal)** — commit to GitHub
+2. **Replit is for `git pull` and live testing only** — zero code edits in Replit
+3. **Secrets stay in Replit Secrets** — never hardcode API keys in source
+4. **AI hallucination ≠ real crawling** — use Playwright for form discovery, not Gemini URL guessing
 
 ---
 
-## Current Status
-**Phase 4 COMPLETE** - Datalab AI integration is now active. When you click "Generate Filled Form":
-1. System automatically uses Datalab AI for intelligent field matching
-2. Datalab detects PDF form fields and matches them to your profile data semantically
-3. No manual fieldMappings configuration required - works with any PDF form
-
-**How It Works**:
-- Sends your profile data (business name, address, phone, commissary info, etc.) with semantic descriptions
-- Datalab AI matches these to the actual PDF field names (e.g., "business_name" → "NAME OF BUSINESS")
-- Returns a filled PDF in 10-60 seconds
-
-**Fallback**: If Datalab fails or times out, falls back to local pdf-lib filling using database fieldMappings.
-
-Last Updated: December 29, 2025
+*Source of truth for PermitPilot. Drop updated versions in project root as PROGRESS.md.*

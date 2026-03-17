@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +96,7 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="pricing" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 mr-2" />
               Pricing
@@ -116,6 +116,10 @@ export default function Admin() {
             <TabsTrigger value="users" data-testid="tab-users">
               <Users className="w-4 h-4 mr-2" />
               Users
+            </TabsTrigger>
+            <TabsTrigger value="outreach" data-testid="tab-outreach">
+              <Mail className="w-4 h-4 mr-2" />
+              Outreach
             </TabsTrigger>
           </TabsList>
 
@@ -137,6 +141,10 @@ export default function Admin() {
 
           <TabsContent value="users">
             <UsersTab users={users} isLoading={usersLoading} isOwner={isOwner} />
+          </TabsContent>
+
+          <TabsContent value="outreach">
+            <OutreachTab />
           </TabsContent>
         </Tabs>
       </main>
@@ -840,7 +848,7 @@ function UsersTab({ users, isLoading, isOwner }: { users: UserData[]; isLoading:
           <div key={user.id} className="flex items-center justify-between p-3 bg-muted/50 rounded">
             <div>
               <p className="font-medium">
-                {user.firstName || user.lastName 
+                {user.firstName || user.lastName
                   ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
                   : "Unknown User"}
               </p>
@@ -867,5 +875,179 @@ function UsersTab({ users, isLoading, isOwner }: { users: UserData[]; isLoading:
         ))}
       </div>
     </Card>
+  );
+}
+
+// ── Outreach Tab ─────────────────────────────────────────────────────────────
+
+type OutreachResult = {
+  name: string;
+  status: "sent" | "skipped" | "failed";
+  reason?: string;
+  email?: string;
+  error?: string;
+};
+
+type OutreachSummary = {
+  sent: number;
+  failed: number;
+  skipped: number;
+  results: OutreachResult[];
+};
+
+type DirectoryTruck = {
+  id: number;
+  slug: string;
+  name: string;
+  status: string | null;
+  outreachSent: boolean | null;
+  website: string | null;
+  email: string | null;
+};
+
+function OutreachTab() {
+  const { toast } = useToast();
+  const [testEmail, setTestEmail] = useState("");
+  const [testSlug, setTestSlug] = useState("");
+  const [runResults, setRunResults] = useState<OutreachSummary | null>(null);
+
+  const { data: trucks = [] } = useQuery<DirectoryTruck[]>({
+    queryKey: ["/api/directory"],
+    queryFn: () => fetch("/api/directory").then((r) => r.json()),
+  });
+
+  const unclaimed = trucks.filter((t) => t.status === "unclaimed");
+  const withContact = unclaimed.filter((t) => t.website || t.email);
+  const alreadySent = unclaimed.filter((t) => t.outreachSent);
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/admin/outreach/test", { email: testEmail, slug: testSlug }),
+    onSuccess: () => {
+      toast({ title: "Test email sent!", description: `Sent to ${testEmail}` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const runMutation = useMutation<OutreachSummary>({
+    mutationFn: () =>
+      apiRequest("POST", "/api/admin/outreach").then((r: any) => r),
+    onSuccess: (data) => {
+      setRunResults(data);
+      toast({ title: `Outreach complete — ${data.sent} sent, ${data.failed} failed, ${data.skipped} skipped` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Outreach failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <Card className="p-6">
+        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+          <Mail className="w-5 h-5 text-primary" />
+          Food Truck Outreach Agent
+        </h2>
+        <div className="grid grid-cols-3 gap-4 mb-2">
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-foreground">{unclaimed.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">Unclaimed trucks</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-primary">{withContact.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">With website/email</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-green-500">{alreadySent.length}</p>
+            <p className="text-xs text-muted-foreground mt-1">Already contacted</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Test Send */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <Send className="w-4 h-4" /> Send Test Email
+        </h3>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Input
+            placeholder="your@email.com"
+            value={testEmail}
+            onChange={(e) => setTestEmail(e.target.value)}
+            className="flex-1"
+          />
+          <Select value={testSlug} onValueChange={setTestSlug}>
+            <SelectTrigger className="w-full sm:w-56">
+              <SelectValue placeholder="Select a truck" />
+            </SelectTrigger>
+            <SelectContent>
+              {trucks.map((t) => (
+                <SelectItem key={t.slug} value={t.slug}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={() => testMutation.mutate()}
+            disabled={!testEmail || !testSlug || testMutation.isPending}
+          >
+            {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send Test"}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Run Outreach */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-3 flex items-center gap-2">
+          <Mail className="w-4 h-4" /> Run Outreach Agent
+        </h3>
+        <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-4">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            This will email all unclaimed trucks that haven't been contacted yet. Max 50/day. Can only run once every 24 hours.
+          </p>
+        </div>
+        <Button
+          onClick={() => runMutation.mutate()}
+          disabled={runMutation.isPending}
+          className="bg-primary"
+        >
+          {runMutation.isPending ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running...</>
+          ) : (
+            <><Mail className="w-4 h-4 mr-2" /> Run Outreach Agent</>
+          )}
+        </Button>
+
+        {/* Results */}
+        {runResults && (
+          <div className="mt-6">
+            <div className="flex gap-4 mb-4 text-sm">
+              <span className="text-green-600 font-medium">✓ {runResults.sent} sent</span>
+              <span className="text-red-500 font-medium">✗ {runResults.failed} failed</span>
+              <span className="text-muted-foreground">— {runResults.skipped} skipped</span>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {runResults.results.map((r, i) => (
+                <div key={i} className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
+                  <span className="font-medium">{r.name}</span>
+                  <div className="flex items-center gap-2">
+                    {r.email && <span className="text-muted-foreground text-xs">{r.email}</span>}
+                    <Badge
+                      variant={r.status === "sent" ? "default" : r.status === "failed" ? "destructive" : "secondary"}
+                      className="text-xs"
+                    >
+                      {r.status}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -38,6 +38,7 @@ import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab,
 import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured, executeFormPortalSubmission, isPortalForm, detectPortalProvider } from "./lib/portal-automation-service";
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
 import { PermitType } from "../shared/validation-rules";
+import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
 import { z } from "zod";
 
 const pdfFillSchema = z.object({
@@ -2380,6 +2381,51 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error fetching user role:", error);
       res.status(500).json({ message: "Failed to fetch user role" });
+    }
+  });
+
+  // ── Outreach Agent (admin only) ─────────────────────────────────────────
+
+  // POST /api/admin/outreach — run full outreach for all unclaimed trucks
+  app.post("/api/admin/outreach", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      // Rate-limit: only allow one run per 24 hours using configs table
+      const lastRunConfig = await storage.getConfig("outreach_last_run");
+      if (lastRunConfig) {
+        const lastRun = new Date(lastRunConfig.value);
+        const hoursSince = (Date.now() - lastRun.getTime()) / (1000 * 60 * 60);
+        if (hoursSince < 24) {
+          return res.status(429).json({
+            message: `Outreach was last run ${Math.round(hoursSince)}h ago. Wait ${Math.round(24 - hoursSince)}h before running again.`,
+          });
+        }
+      }
+
+      // Record run time
+      await storage.setConfig("outreach_last_run", new Date().toISOString(), "Timestamp of last outreach agent run");
+
+      const summary = await runOutreachAgent();
+      res.json(summary);
+    } catch (error) {
+      console.error("Error running outreach agent:", error);
+      const message = error instanceof Error ? error.message : "Outreach agent failed";
+      res.status(500).json({ message });
+    }
+  });
+
+  // POST /api/admin/outreach/test — send a single test email (no DB changes)
+  app.post("/api/admin/outreach/test", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { email, slug } = req.body as { email: string; slug: string };
+      if (!email || !slug) {
+        return res.status(400).json({ message: "email and slug are required" });
+      }
+      await sendTestOutreachEmail(email, slug);
+      res.json({ success: true, message: `Test email sent to ${email}` });
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      const message = error instanceof Error ? error.message : "Failed to send test email";
+      res.status(500).json({ message });
     }
   });
 
