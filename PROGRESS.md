@@ -265,6 +265,41 @@
 
 ---
 
+## Phase 5B: Public Access, Catering, Rich Profiles, Map Toggle (COMPLETE)
+
+### Public Access
+- [x] /directory and /directory/:slug confirmed public — no auth middleware
+- [x] /api/public-profiles and /api/reviews/:id confirmed public
+- [x] mobile-nav.tsx checks useAuth() — returns null for unauthenticated visitors
+- [x] top-header.tsx: auth-aware — public nav (Find Trucks | For Food Trucks | Sign In + List Your Truck) for visitors, theme toggle + notifications for logged-in users
+- [x] / root redirects unauthenticated users to /directory (was /discover)
+
+### Unified Map + Directory
+- [x] directory.tsx: Grid View / Map View toggle added to filter bar
+- [x] Map View embeds Leaflet map from /api/public-profiles data inline in /directory
+- [x] /discover redirects to /directory?view=map
+
+### Catering Fields (food_trucks table)
+- [x] 9 new fields added to shared/schema.ts: offersPrivateCatering, cateringMinGuests, cateringMaxGuests, cateringPricePerPerson, cateringDescription, cateringEventTypes[], cateringContactEmail, cateringContactPhone, cateringWebsite
+- [x] Migration added to server/db.ts runMigrations()
+- [x] Seed data updated: Brazilian BBQ Boys (full catering profile), Taco Road Trip, The Blind Rhino (catering enabled)
+
+### Rich Truck Profile (/directory/:slug)
+- [x] SEO: document.title + meta description via useEffect
+- [x] JSON-LD structured data (FoodEstablishment schema)
+- [x] Hero band (180px, cuisine-based background color)
+- [x] Unclaimed amber banner with Claim Listing button
+- [x] Two-column layout: 65% content / 35% sidebar
+- [x] About section, Where We Operate (town pills), Catering section (event type tags, guest range, price, CTA button)
+- [x] Right sidebar: contact card, Share link, Permit Status card, Report incorrect info
+- [x] Bottom CTA strip: permit filing upsell
+- [x] TopHeader with public nav wired in
+
+### Outreach Email Update
+- [x] Catering section added to email: asks for yes/no, event types, guest range, price, contact
+
+---
+
 ## Phase 6: SendGrid Outreach Agent (COMPLETE)
 
 ### Completed

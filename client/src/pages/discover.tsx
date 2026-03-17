@@ -441,9 +441,9 @@ function TruckCard({
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Discover() {
-  usePageTitle(
-    "Find Food Trucks in Connecticut | PermitPilot"
-  );
+  // Redirect to the unified directory map view
+  useEffect(() => { window.location.replace("/directory?view=map"); }, []);
+  usePageTitle("Find Food Trucks in Connecticut | PermitPilot");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCounty, setSelectedCounty] = useState("All");

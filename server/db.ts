@@ -45,6 +45,18 @@ export async function runMigrations(): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    // Catering fields for food_trucks
+    await client.query(`
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS offers_private_catering BOOLEAN DEFAULT false;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_min_guests INTEGER;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_max_guests INTEGER;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_price_per_person TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_description TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_event_types TEXT[];
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_contact_email TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_contact_phone TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_website TEXT;
+    `);
     console.log('[DB] Migrations applied successfully');
   } catch (err) {
     console.error('[DB] Migration error:', err);

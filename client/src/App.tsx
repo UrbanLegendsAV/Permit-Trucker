@@ -40,7 +40,7 @@ function AppRouter() {
 
   return (
     <Switch>
-      <Route path="/" component={isAuthenticated ? Dashboard : Discover} />
+      <Route path="/" component={isAuthenticated ? Dashboard : DirectoryPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/discover" component={Discover} />
       <Route path="/dashboard" component={Dashboard} />

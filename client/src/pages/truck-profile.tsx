@@ -1,10 +1,17 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { ArrowLeft, ExternalLink, Instagram, CheckCircle2, MapPin, Tag } from "lucide-react";
+import {
+  ArrowLeft, ExternalLink, Instagram, CheckCircle2, MapPin, Tag,
+  Phone, Mail, Globe, Share2, Utensils, Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { TopHeader } from "@/components/top-header";
 import { apiRequest } from "@/lib/queryClient";
+
+// ── Type ──────────────────────────────────────────────────────────────────────
 
 type FoodTruck = {
   id: number;
@@ -19,7 +26,39 @@ type FoodTruck = {
   description: string | null;
   status: string | null;
   imageUrl: string | null;
+  offersPrivateCatering: boolean | null;
+  cateringMinGuests: number | null;
+  cateringMaxGuests: number | null;
+  cateringPricePerPerson: string | null;
+  cateringDescription: string | null;
+  cateringEventTypes: string[] | null;
+  cateringContactEmail: string | null;
+  cateringContactPhone: string | null;
+  cateringWebsite: string | null;
 };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function heroBgForCuisine(cuisine: string | null) {
+  if (!cuisine) return "#0A0F1E";
+  const c = cuisine.toLowerCase();
+  if (c.includes("bbq") || c.includes("grill")) return "#1a0a00";
+  if (c.includes("taco") || c.includes("mexican")) return "#0a1a00";
+  if (c.includes("ice cream") || c.includes("dessert")) return "#0a0a1a";
+  if (c.includes("wing")) return "#1a0800";
+  return "#0A0F1E";
+}
+
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  weddings:      "bg-pink-500/20 text-pink-300 border-pink-500/30",
+  birthdays:     "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  corporate:     "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  festivals:     "bg-orange-500/20 text-orange-300 border-orange-500/30",
+  graduations:   "bg-teal-500/20 text-teal-300 border-teal-500/30",
+  "block parties": "bg-green-500/20 text-green-300 border-green-500/30",
+};
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TruckProfilePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -28,12 +67,49 @@ export default function TruckProfilePage() {
 
   const { data: truck, isLoading, error } = useQuery<FoodTruck>({
     queryKey: [`/api/directory/${slug}`],
-    queryFn: () => fetch(`/api/directory/${slug}`).then((r) => {
-      if (!r.ok) throw new Error("Truck not found");
-      return r.json();
-    }),
+    queryFn: () =>
+      fetch(`/api/directory/${slug}`).then((r) => {
+        if (!r.ok) throw new Error("Truck not found");
+        return r.json();
+      }),
     enabled: !!slug,
   });
+
+  // SEO
+  useEffect(() => {
+    if (truck) {
+      document.title = `${truck.name} — CT Food Truck | PermitPilot`;
+      let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = "description";
+        document.head.appendChild(meta);
+      }
+      meta.content = truck.description
+        ? `${truck.description.slice(0, 155)}…`
+        : `${truck.name} is a Connecticut food truck${truck.cuisine ? ` specializing in ${truck.cuisine}` : ""}. View their listing on PermitPilot.`;
+    }
+    return () => { document.title = "PermitPilot — Your permit copilot."; };
+  }, [truck]);
+
+  // JSON-LD structured data
+  useEffect(() => {
+    if (!truck) return;
+    const script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "truck-jsonld";
+    script.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "FoodEstablishment",
+      name: truck.name,
+      description: truck.description,
+      servesCuisine: truck.cuisine,
+      url: truck.website,
+      areaServed: truck.towns,
+    });
+    document.head.appendChild(script);
+    return () => { document.getElementById("truck-jsonld")?.remove(); };
+  }, [truck]);
 
   const claimMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/directory/claim", { slug }),
@@ -42,7 +118,7 @@ export default function TruckProfilePage() {
       queryClient.invalidateQueries({ queryKey: [`/api/directory/${slug}`] });
     },
     onError: () => {
-      toast({ title: "Could not claim listing", description: "Please sign in first.", variant: "destructive" });
+      toast({ title: "Sign in to claim", description: "Create a free account to claim this listing.", variant: "destructive" });
     },
   });
 
@@ -66,15 +142,18 @@ export default function TruckProfilePage() {
   }
 
   const isClaimed = truck.status === "claimed";
+  const heroBg = heroBgForCuisine(truck.cuisine);
 
   return (
     <div className="min-h-screen bg-[#0A0F1E] text-white">
-      {/* Unclaimed banner */}
+      <TopHeader />
+
+      {/* Unclaimed amber banner */}
       {!isClaimed && (
         <div className="bg-[#F5A623]/10 border-b border-[#F5A623]/30 px-4 py-3">
-          <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
             <p className="text-sm text-[#F5A623]">
-              Is this your truck? Claim it free and connect it to permit filing.
+              Is this your truck? Claim it free and connect to permit filing.
             </p>
             <Button
               size="sm"
@@ -88,101 +167,226 @@ export default function TruckProfilePage() {
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Back */}
-        <Link href="/directory">
-          <button className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white mb-6 transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Back to Directory
-          </button>
-        </Link>
-
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="font-display text-3xl font-bold mb-2">{truck.name}</h1>
-            <div className="flex flex-wrap items-center gap-2">
-              {truck.cuisine && (
-                <Badge className="bg-[#1B4FD8]/20 text-[#1B4FD8] border-[#1B4FD8]/30 gap-1">
-                  <Tag className="h-3 w-3" /> {truck.cuisine}
-                </Badge>
-              )}
-              {isClaimed && (
-                <Badge className="bg-[#00C896]/15 text-[#00C896] border-[#00C896]/30 gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Claimed
-                </Badge>
-              )}
-            </div>
+      {/* Hero band */}
+      <div style={{ backgroundColor: heroBg, minHeight: "180px" }}
+        className="flex flex-col items-start justify-end px-6 pb-6 pt-10 max-w-full">
+        <div className="max-w-4xl mx-auto w-full">
+          <Link href="/directory">
+            <button className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white mb-4 transition-colors">
+              <ArrowLeft className="h-4 w-4" /> Back to Directory
+            </button>
+          </Link>
+          <h1 className="font-display text-4xl font-bold text-white mb-3">{truck.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            {truck.cuisine && (
+              <Badge className="bg-[#1B4FD8]/30 text-white border-[#1B4FD8]/50 gap-1">
+                <Tag className="h-3 w-3" /> {truck.cuisine}
+              </Badge>
+            )}
+            {isClaimed ? (
+              <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Claimed
+              </Badge>
+            ) : (
+              <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30">Unclaimed</Badge>
+            )}
+            {truck.offersPrivateCatering && (
+              <Badge className="bg-white/10 text-white border-white/20 gap-1">
+                <Utensils className="h-3 w-3" /> Available for catering
+              </Badge>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Description */}
-        {truck.description && (
-          <p className="text-[#8897B2] text-base leading-relaxed mb-6">{truck.description}</p>
-        )}
+      {/* Two-column body */}
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8">
 
-        {/* Towns */}
-        {truck.towns && truck.towns.length > 0 && (
-          <div className="mb-6">
-            <h2 className="text-sm font-semibold text-[#8897B2] uppercase tracking-wide mb-2 flex items-center gap-1">
-              <MapPin className="h-3.5 w-3.5" /> Serves
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {truck.towns.map((town) => (
-                <span
-                  key={town}
-                  className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white"
+          {/* LEFT COLUMN */}
+          <div className="space-y-8">
+
+            {/* About */}
+            <section>
+              <h2 className="font-display font-semibold text-lg mb-3">About</h2>
+              {truck.description ? (
+                <p className="text-[#8897B2] leading-relaxed">{truck.description}</p>
+              ) : (
+                <p className="text-[#8897B2] italic">
+                  {isClaimed ? "No description yet." : "Claim this listing to add a description."}
+                </p>
+              )}
+            </section>
+
+            {/* Where We Operate */}
+            {truck.towns && truck.towns.length > 0 && (
+              <section>
+                <h2 className="font-display font-semibold text-lg mb-3 flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-[#8897B2]" /> Where We Operate
+                </h2>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {truck.towns.map((town) => (
+                    <span key={town}
+                      className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white">
+                      {town}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-[#8897B2]">Available for private events in these CT towns.</p>
+              </section>
+            )}
+
+            {/* Catering & Private Events */}
+            {truck.offersPrivateCatering ? (
+              <section>
+                <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+                  <Utensils className="h-5 w-5 text-[#00C896]" /> Catering &amp; Private Events
+                </h2>
+
+                {/* Event type tags */}
+                {truck.cateringEventTypes && truck.cateringEventTypes.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {truck.cateringEventTypes.map((type) => (
+                      <span key={type}
+                        className={`text-xs font-medium px-3 py-1 rounded-full border capitalize ${EVENT_TYPE_COLORS[type] || "bg-white/10 text-white border-white/20"}`}>
+                        {type}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Guest range */}
+                {(truck.cateringMinGuests || truck.cateringMaxGuests) && (
+                  <div className="flex items-center gap-2 text-sm text-[#8897B2] mb-3">
+                    <Users className="h-4 w-4 shrink-0" />
+                    Serves {truck.cateringMinGuests ?? "?"} – {truck.cateringMaxGuests ?? "?"} guests
+                  </div>
+                )}
+
+                {/* Price */}
+                {truck.cateringPricePerPerson && (
+                  <p className="text-sm text-[#8897B2] mb-3">
+                    <span className="text-white font-medium">{truck.cateringPricePerPerson}</span>
+                  </p>
+                )}
+
+                {/* Catering description */}
+                {truck.cateringDescription && (
+                  <p className="text-[#8897B2] text-sm leading-relaxed mb-4">{truck.cateringDescription}</p>
+                )}
+
+                {/* CTA */}
+                <a
+                  href={`mailto:${truck.cateringContactEmail || truck.email || ""}?subject=Catering Inquiry — ${truck.name}`}
+                  className="inline-flex items-center gap-2 bg-[#00C896] hover:bg-[#00C896]/90 text-[#0A0F1E] font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors"
                 >
-                  {town}
-                </span>
-              ))}
+                  <Mail className="h-4 w-4" />
+                  Request a Catering Quote
+                </a>
+              </section>
+            ) : !isClaimed ? (
+              <section className="border border-white/10 rounded-xl p-5">
+                <p className="text-sm text-[#8897B2]">
+                  Does this truck offer catering?{" "}
+                  <button
+                    onClick={() => claimMutation.mutate()}
+                    className="text-[#F5A623] hover:underline"
+                  >
+                    Claim your listing
+                  </button>{" "}
+                  to add catering info and get found by event planners.
+                </p>
+              </section>
+            ) : null}
+          </div>
+
+          {/* RIGHT COLUMN */}
+          <div className="space-y-5">
+
+            {/* Contact card */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+              <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">Links &amp; Contact</h3>
+              {truck.website && (
+                <a href={truck.website} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm">
+                  <Globe className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{truck.website.replace(/^https?:\/\/(www\.)?/, "")}</span>
+                </a>
+              )}
+              {truck.instagramHandle && (
+                <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                  <Instagram className="h-4 w-4 shrink-0" /> {truck.instagramHandle}
+                </a>
+              )}
+              {truck.phone && (
+                <a href={`tel:${truck.phone}`}
+                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                  <Phone className="h-4 w-4 shrink-0" /> {truck.phone}
+                </a>
+              )}
+              {truck.email && (
+                <a href={`mailto:${truck.email}`}
+                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                  <Mail className="h-4 w-4 shrink-0" /> {truck.email}
+                </a>
+              )}
+              {!truck.website && !truck.instagramHandle && !truck.phone && !truck.email && (
+                <p className="text-[#8897B2] text-sm">
+                  No contact info yet.{!isClaimed && " Claim this listing to add yours."}
+                </p>
+              )}
             </div>
-          </div>
-        )}
 
-        {/* Contact / Links */}
-        <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-[#8897B2] uppercase tracking-wide">Links & Contact</h2>
-          {truck.website && (
-            <a
-              href={truck.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm"
-            >
-              <ExternalLink className="h-4 w-4" /> {truck.website}
-            </a>
-          )}
-          {truck.instagramHandle && (
-            <a
-              href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm"
-            >
-              <Instagram className="h-4 w-4" /> {truck.instagramHandle}
-            </a>
-          )}
-          {truck.phone && (
-            <a href={`tel:${truck.phone}`} className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
-              {truck.phone}
-            </a>
-          )}
-          {!truck.website && !truck.instagramHandle && !truck.phone && (
-            <p className="text-[#8897B2] text-sm">No contact info yet.{!isClaimed && " Claim this listing to add yours."}</p>
-          )}
+            {/* Share */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href);
+                }}
+                className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white transition-colors w-full"
+              >
+                <Share2 className="h-4 w-4" /> Copy link to share
+              </button>
+            </div>
+
+            {/* Permit status card */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+              <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-2">Permit Status</h3>
+              {isClaimed ? (
+                <p className="text-sm text-[#8897B2]">Connect your account to show active permits.</p>
+              ) : (
+                <p className="text-sm text-[#8897B2]">
+                  <button onClick={() => claimMutation.mutate()} className="text-[#F5A623] hover:underline">
+                    Claim this listing
+                  </button>{" "}
+                  to show permit status.
+                </p>
+              )}
+            </div>
+
+            {/* Report */}
+            <p className="text-xs text-[#8897B2] text-center">
+              <a href={`mailto:hello@permitpilot.cloud?subject=Incorrect info — ${truck.name}`}
+                className="hover:underline">
+                Report incorrect info
+              </a>
+            </p>
+          </div>
         </div>
+      </div>
 
-        {/* CTA — permit filing */}
-        {isClaimed && (
-          <div className="mt-6 bg-[#1B4FD8]/10 border border-[#1B4FD8]/30 rounded-xl p-5 text-center">
-            <p className="text-sm text-[#8897B2] mb-3">Ready to file permits for {truck.name}?</p>
-            <Link href="/auth">
-              <Button className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white">
-                Start Filing Permits
-              </Button>
-            </Link>
-          </div>
-        )}
+      {/* Bottom CTA strip */}
+      <div className="bg-[#0A0F1E] border-t border-white/10 px-6 py-10 text-center">
+        <p className="text-[#8897B2] text-base mb-4 max-w-xl mx-auto">
+          Operating in CT? PermitPilot handles your permits — town by town, forms pre-filled.
+        </p>
+        <Link href="/new-permit">
+          <Button className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold">
+            Start Filing Permits →
+          </Button>
+        </Link>
       </div>
     </div>
   );

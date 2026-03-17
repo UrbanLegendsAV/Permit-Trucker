@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { LayoutDashboard, FileText, Trophy, User, MapPin, Sparkles } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 const navItems = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -11,9 +12,12 @@ const navItems = [
 
 export function MobileNav() {
   const [location] = useLocation();
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) return null;
 
   return (
-    <nav 
+    <nav
       className="fixed bottom-0 left-0 right-0 h-16 bg-background/80 backdrop-blur-xl border-t border-border z-50 safe-area-inset-bottom"
       data-testid="nav-mobile"
     >
@@ -24,9 +28,7 @@ export function MobileNav() {
             <Link key={path} href={path}>
               <button
                 className={`flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 px-3 rounded-lg transition-colors ${
-                  isActive
-                    ? "text-primary"
-                    : "text-muted-foreground"
+                  isActive ? "text-primary" : "text-muted-foreground"
                 }`}
                 data-testid={`nav-${label.toLowerCase()}`}
               >

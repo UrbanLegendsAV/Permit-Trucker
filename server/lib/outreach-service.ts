@@ -61,6 +61,17 @@ function buildOutreachEmail(truckName: string, slug: string): Record<string, any
       <div class="permit-note">
         <p>&#x1F7E2; <strong>Bonus:</strong> PermitPilot also auto-files Connecticut health department permits for food trucks — town by town, forms pre-filled. Operators save hours per permit.</p>
       </div>
+      <div style="margin-top:24px; padding:20px 24px; background:#F0F4FF; border-radius:8px; border:1px solid #c7d4f7;">
+        <p style="font-size:14px; color:#1B4FD8; font-weight:700; margin:0 0 10px;">&#x1F37D;&#xFE0F; Do you offer private catering?</p>
+        <p style="font-size:14px; color:#444; margin:0 0 10px;">Reply to this email and let us know:</p>
+        <ul style="font-size:14px; color:#444; margin:0; padding-left:20px; line-height:2;">
+          <li>Yes/No for private catering</li>
+          <li>Event types you serve (weddings, corporate, birthdays, etc.)</li>
+          <li>Guest range and price per person</li>
+          <li>Best contact for catering inquiries</li>
+        </ul>
+        <p style="font-size:14px; color:#444; margin:12px 0 0;">We'll add it to your listing and event planners searching PermitPilot will find you.</p>
+      </div>
     </div>
     <div class="footer">
       <p>PermitPilot &middot; Connecticut's Food Truck Hub &middot; <a href="https://permitpilot.cloud">permitpilot.cloud</a></p>

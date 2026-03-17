@@ -650,6 +650,16 @@ export const foodTrucks = pgTable("food_trucks", {
   outreachSent: boolean("outreach_sent").default(false),
   outreachSentAt: timestamp("outreach_sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Catering fields
+  offersPrivateCatering: boolean("offers_private_catering").default(false),
+  cateringMinGuests: integer("catering_min_guests"),
+  cateringMaxGuests: integer("catering_max_guests"),
+  cateringPricePerPerson: text("catering_price_per_person"),
+  cateringDescription: text("catering_description"),
+  cateringEventTypes: text("catering_event_types").array(),
+  cateringContactEmail: text("catering_contact_email"),
+  cateringContactPhone: text("catering_contact_phone"),
+  cateringWebsite: text("catering_website"),
 });
 
 export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: true, createdAt: true });
