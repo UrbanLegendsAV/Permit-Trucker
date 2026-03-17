@@ -108,12 +108,14 @@ Subject: ${email.subject}
 Body: ${(email.bodyText || '').slice(0, 1000)}
 
 Classify this email as exactly ONE of these intents:
-- claim_listing: sender wants to claim their food truck listing
-- catering_reply: sender is providing catering information for their listing
-- permit_inquiry: asking how to get a permit in a specific CT town
-- opt_out: wants to unsubscribe or be removed
-- general_inquiry: general question about PermitPilot
-- spam: irrelevant or automated message
+- claim_listing: sender wants to claim their food truck listing on PermitPilot
+- catering_reply: a food truck owner is providing catering details — look for phrases like "yes we cater", "we offer catering", "we do events", "our minimum is", "price per person", "we can accommodate", event types (weddings, corporate, parties), guest counts, contact info for booking, or any response to a catering outreach email
+- permit_inquiry: asking how to get a food truck permit in a specific CT town
+- opt_out: wants to unsubscribe, be removed, or stop receiving emails
+- general_inquiry: general question about PermitPilot not covered above
+- spam: irrelevant, automated bounce, or marketing message not related to food trucks
+
+IMPORTANT: If the email body mentions catering capacity, event types, pricing, or is replying to a catering-related outreach, classify as catering_reply even if the subject line is generic.
 
 Reply with ONLY the intent label, nothing else.`,
       },
@@ -254,23 +256,25 @@ async function handleCateringReply(
 
   const extractResponse = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 400,
+    max_tokens: 500,
     messages: [
       {
         role: 'user',
-        content: `Extract catering info from this food truck owner email. Return valid JSON only, no commentary:
+        content: `Extract catering info from this food truck owner email. Return valid JSON only, no commentary.
+Include every field you can infer — leave null for fields not mentioned:
 {
   "offersPrivateCatering": true,
-  "cateringEventTypes": ["weddings","corporate"],
+  "cateringEventTypes": ["weddings","corporate events","birthday parties"],
   "cateringMinGuests": 50,
   "cateringMaxGuests": 300,
   "cateringPricePerPerson": "$18",
-  "cateringDescription": "We bring the full setup...",
+  "cateringDescription": "We bring the full setup including...",
   "cateringContactEmail": "book@truck.com",
-  "cateringContactPhone": "(203) 555-1234"
+  "cateringContactPhone": "(203) 555-1234",
+  "cateringWebsite": "https://truck.com/catering"
 }
 
-Email body: ${(email.bodyText || '').slice(0, 1200)}`,
+Email body: ${(email.bodyText || '').slice(0, 1500)}`,
       },
     ],
   });
@@ -282,18 +286,60 @@ Email body: ${(email.bodyText || '').slice(0, 1200)}`,
       const cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '');
       cateringData = JSON.parse(cleaned);
     } catch {
-      // partial fallback
+      // partial fallback — proceed with empty, still try to match truck
     }
   }
 
-  // Find truck by sender email
+  // ── 4-pass truck matching ──────────────────────────────────────────────────
   const senderEmail = (email.from || '').toLowerCase();
-  const [matched] = await db
-    .select()
-    .from(foodTrucks)
-    .where(eq(foodTrucks.email, senderEmail))
-    .limit(1);
+  const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
 
+  const allTrucks = await db.select().from(foodTrucks);
+
+  // Pass 1: exact email match
+  let matched = allTrucks.find(
+    (t) => t.email?.toLowerCase() === senderEmail,
+  );
+
+  // Pass 2: sender domain matches truck website domain
+  if (!matched && senderDomain && senderDomain !== 'gmail.com' && senderDomain !== 'yahoo.com' && senderDomain !== 'hotmail.com') {
+    matched = allTrucks.find(
+      (t) => t.website && t.website.toLowerCase().includes(senderDomain),
+    );
+  }
+
+  // Pass 3: Claude extracts truck name → fuzzy slug/name match
+  if (!matched) {
+    const nameExtract = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 60,
+      messages: [
+        {
+          role: 'user',
+          content: `What food truck name is this email about or from? Return ONLY the truck name, nothing else. If unclear, return "unknown".
+
+From: ${email.from}
+Subject: ${email.subject}
+Body: ${(email.bodyText || '').slice(0, 600)}`,
+        },
+      ],
+    });
+    const extractedName =
+      nameExtract.content[0].type === 'text'
+        ? nameExtract.content[0].text.trim()
+        : '';
+    if (extractedName && extractedName.toLowerCase() !== 'unknown') {
+      matched = allTrucks.find(
+        (t) =>
+          t.name.toLowerCase().includes(extractedName.toLowerCase()) ||
+          t.slug
+            .toLowerCase()
+            .includes(extractedName.toLowerCase().replace(/\s+/g, '-')),
+      );
+    }
+  }
+
+  // Pass 4: graceful no-match — log and return without replying
   if (!matched) {
     await logAgentAction({
       agentName: 'catering',
@@ -307,15 +353,15 @@ Email body: ${(email.bodyText || '').slice(0, 1200)}`,
     return { replied: false, action: 'no_match' };
   }
 
-  // Update catering fields
+  // ── Update catering fields ─────────────────────────────────────────────────
   const updateData: Record<string, any> = {};
   if (cateringData.offersPrivateCatering !== undefined)
     updateData.offersPrivateCatering = Boolean(cateringData.offersPrivateCatering);
-  if (cateringData.cateringEventTypes)
+  if (cateringData.cateringEventTypes?.length)
     updateData.cateringEventTypes = cateringData.cateringEventTypes;
-  if (cateringData.cateringMinGuests)
+  if (cateringData.cateringMinGuests != null)
     updateData.cateringMinGuests = Number(cateringData.cateringMinGuests) || null;
-  if (cateringData.cateringMaxGuests)
+  if (cateringData.cateringMaxGuests != null)
     updateData.cateringMaxGuests = Number(cateringData.cateringMaxGuests) || null;
   if (cateringData.cateringPricePerPerson)
     updateData.cateringPricePerPerson = cateringData.cateringPricePerPerson;
@@ -325,6 +371,8 @@ Email body: ${(email.bodyText || '').slice(0, 1200)}`,
     updateData.cateringContactEmail = cateringData.cateringContactEmail;
   if (cateringData.cateringContactPhone)
     updateData.cateringContactPhone = cateringData.cateringContactPhone;
+  if (cateringData.cateringWebsite)
+    updateData.cateringWebsite = cateringData.cateringWebsite;
 
   if (Object.keys(updateData).length > 0) {
     await db
@@ -333,15 +381,37 @@ Email body: ${(email.bodyText || '').slice(0, 1200)}`,
       .where(eq(foodTrucks.id, matched.id));
   }
 
+  // ── Personalized confirmation email ───────────────────────────────────────
   const listingUrl = `https://permitpilot.cloud/directory/${matched.slug}`;
+  const eventTypesLine =
+    cateringData.cateringEventTypes?.length
+      ? `We've listed you as available for: ${(cateringData.cateringEventTypes as string[]).join(', ')}.`
+      : '';
+  const pricingLine =
+    cateringData.cateringPricePerPerson
+      ? `Pricing (${cateringData.cateringPricePerPerson}/person) is now displayed on your listing.`
+      : '';
+  const guestsLine =
+    cateringData.cateringMinGuests || cateringData.cateringMaxGuests
+      ? `Capacity: ${cateringData.cateringMinGuests ?? '?'}–${cateringData.cateringMaxGuests ?? '?'} guests.`
+      : '';
+  const permitCta = `\n\nOne more thing — operating at private events in CT often requires a temporary food service permit for each town. PermitPilot can file those for you in 60 seconds: permitpilot.cloud`;
+
+  const textBody = `Hi!\n\nYour catering info for ${matched.name} is now live at ${listingUrl}.\n\n${[eventTypesLine, guestsLine, pricingLine].filter(Boolean).join(' ')}\n\nEvent planners searching PermitPilot will now be able to find and contact you directly.${permitCta}\n\n— The PermitPilot Team`;
+
+  const htmlBody = `<p>Hi!</p>
+<p>Your catering info for <strong>${matched.name}</strong> is now live at <a href="${listingUrl}">${listingUrl}</a>.</p>
+${eventTypesLine ? `<p>${eventTypesLine}</p>` : ''}
+${[guestsLine, pricingLine].filter(Boolean).length ? `<p>${[guestsLine, pricingLine].filter(Boolean).join(' ')}</p>` : ''}
+<p>Event planners searching PermitPilot will now be able to find and contact you directly.</p>
+<p><strong>One more thing</strong> — operating at private events in CT often requires a temporary food service permit for each town. <a href="https://permitpilot.cloud">PermitPilot can file those for you in 60 seconds.</a></p>
+<p>— The PermitPilot Team</p>`;
+
   const sent = await sendReply(
     email.from!,
-    `Your catering info is live on PermitPilot`,
-    `Hi!\n\nThanks! Your catering info is now live at ${listingUrl}.\n\nEvent planners searching PermitPilot can now find and contact you for weddings, corporate events, and more.\n\n— PermitPilot`,
-    `<p>Hi!</p>
-<p>Thanks! Your catering info is now live at <a href="${listingUrl}">${listingUrl}</a>.</p>
-<p>Event planners searching PermitPilot can now find and contact you for weddings, corporate events, and more.</p>
-<p>— PermitPilot</p>`,
+    `Your catering info is live on PermitPilot — ${matched.name}`,
+    textBody,
+    htmlBody,
   );
 
   await logAgentAction({
@@ -452,13 +522,18 @@ async function handleOptOut(
   const start = Date.now();
 
   const senderEmail = (email.from || '').toLowerCase();
+  const senderDomain = senderEmail.includes('@') ? senderEmail.split('@')[1] : '';
 
-  // Find truck by sender email and mark opted out
-  const [matched] = await db
-    .select()
-    .from(foodTrucks)
-    .where(eq(foodTrucks.email, senderEmail))
-    .limit(1);
+  // Find truck: pass 1 exact email, pass 2 website domain
+  const allTrucksForOptOut = await db.select().from(foodTrucks);
+  let matched = allTrucksForOptOut.find(
+    (t) => t.email?.toLowerCase() === senderEmail,
+  );
+  if (!matched && senderDomain && senderDomain !== 'gmail.com' && senderDomain !== 'yahoo.com' && senderDomain !== 'hotmail.com') {
+    matched = allTrucksForOptOut.find(
+      (t) => t.website && t.website.toLowerCase().includes(senderDomain),
+    );
+  }
 
   if (matched) {
     await db

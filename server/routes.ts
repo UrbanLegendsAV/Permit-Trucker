@@ -42,7 +42,10 @@ import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
 import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
+import multer from "multer";
 import { z } from "zod";
+
+const multerMemory = multer({ storage: multer.memoryStorage() });
 
 const pdfFillSchema = z.object({
   permitId: z.string().min(1, "Permit ID is required"),
@@ -3746,9 +3749,9 @@ For text fields that require descriptive answers about food safety practices, se
        will now route through this webhook automatically
   */
   // PUBLIC — no auth (SendGrid requires a fast 200 response)
-  app.post("/api/email/inbound", async (req, res) => {
+  app.post("/api/email/inbound", multerMemory.any(), async (req, res) => {
     try {
-      // SendGrid posts as multipart/form-data or JSON depending on settings
+      // SendGrid posts as multipart/form-data — multer parses it into req.body
       const body = req.body as Record<string, any>;
 
       const from: string = body.from || body.sender || "";
