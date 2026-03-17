@@ -91,6 +91,8 @@ export default function PermitDetailPage() {
   const [portalAssistFormId, setPortalAssistFormId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [fetchingFormId, setFetchingFormId] = useState<string | null>(null);
+  const [generatedPacketUrl, setGeneratedPacketUrl] = useState<string | null>(null);
+  const [generatedPacketFilename, setGeneratedPacketFilename] = useState<string>("");
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -371,17 +373,25 @@ export default function PermitDetailPage() {
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get('content-disposition') || '';
+      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+      const dlFilename = filenameMatch?.[1] || `PermitPilot-${town?.townName || 'permit'}-${new Date().toISOString().slice(0,10)}.pdf`;
+
+      // Trigger immediate download
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${town?.townName || "permit"}_package.pdf`;
+      a.download = dlFilename;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      toast({ 
-        title: "Package Generated", 
-        description: "Your permit package has been downloaded with your information pre-filled." 
+      // Store for "Download Again" button
+      setGeneratedPacketUrl(url);
+      setGeneratedPacketFilename(dlFilename);
+
+      toast({
+        title: "Package Generated",
+        description: "Your permit package has been downloaded with your information pre-filled."
       });
     } catch (error: any) {
       toast({ 
@@ -715,6 +725,20 @@ export default function PermitDetailPage() {
           </TabsContent>
 
           <TabsContent value="forms" className="space-y-4 mt-4">
+            {generatedPacketUrl && (
+              <div className="mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg flex items-center justify-between">
+                <span className="text-sm text-green-700 dark:text-green-300 font-medium">Packet generated!</span>
+                <Button size="sm" variant="outline" onClick={() => {
+                  const a = document.createElement('a');
+                  a.href = generatedPacketUrl;
+                  a.download = generatedPacketFilename;
+                  a.click();
+                }}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Again
+                </Button>
+              </div>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Required Forms for {town?.townName}</CardTitle>

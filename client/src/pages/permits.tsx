@@ -8,7 +8,7 @@ import { PermitCard, PermitCardSkeleton } from "@/components/permit-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, FileText, Clock, CheckCircle, XCircle } from "lucide-react";
+import { Plus, FileText, Clock, CheckCircle, XCircle, Download } from "lucide-react";
 import type { Permit, Town } from "@shared/schema";
 
 type FilterType = "all" | "active" | "pending" | "expired";
@@ -151,12 +151,42 @@ export default function PermitsPage() {
         ) : (
           <div className="space-y-3">
             {filteredPermits.map(permit => (
-              <PermitCard
-                key={permit.id}
-                permit={permit}
-                town={getTownForPermit(permit)}
-                onClick={() => setLocation(`/permits/${permit.id}`)}
-              />
+              <div key={permit.id} className="relative group">
+                <PermitCard
+                  permit={permit}
+                  town={getTownForPermit(permit)}
+                  onClick={() => setLocation(`/permits/${permit.id}`)}
+                />
+                <button
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity bg-background border rounded p-1.5 shadow-sm text-muted-foreground hover:text-foreground z-10"
+                  title="Download permit packet"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const response = await fetch(`/api/permits/${permit.id}/download`, { credentials: 'include' });
+                      if (!response.ok) {
+                        const err = await response.json();
+                        alert(err.message || 'No packet generated yet. Open the permit and generate first.');
+                        return;
+                      }
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const contentDisposition = response.headers.get('content-disposition') || '';
+                      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                      const filename = filenameMatch?.[1] || 'permit_package.pdf';
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = filename;
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                    } catch {
+                      alert('Download failed. Please try again.');
+                    }
+                  }}
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         )}

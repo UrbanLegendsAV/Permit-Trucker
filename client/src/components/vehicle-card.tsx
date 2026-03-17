@@ -504,6 +504,15 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
     return doc.type === "application/pdf" || doc.name.toLowerCase().endsWith(".pdf");
   };
 
+  const handleDownload = (doc: DocumentType) => {
+    const link = document.createElement('a');
+    link.href = doc.url;
+    link.download = doc.name || 'document';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <>
       <Card
@@ -809,7 +818,7 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => handleDocClick(detailDoc.doc)}
+                  onClick={() => handleDownload(detailDoc.doc)}
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Download
@@ -942,6 +951,14 @@ export function VehicleCard({ profile, permitCount = 0, onClick, onEdit, onDelet
                             </div>
                           )}
                         </div>
+                        {/* Download icon on thumbnail */}
+                        <button
+                          className="absolute bottom-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded p-0.5 text-white z-10"
+                          onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
+                          title={`Download ${doc.name}`}
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
                         <div className="p-2 bg-background border-t space-y-2">
                           <div className="flex items-center justify-between gap-1">
                             <p className="text-xs truncate flex-1" title={doc.name}>{doc.name}</p>

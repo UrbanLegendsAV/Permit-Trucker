@@ -80,6 +80,8 @@ const generatePacketSchema = z.object({
 // IMPORTANT: These are town-agnostic documents - do NOT include permit-application
 // as those are specific to individual towns and would cause cross-town contamination
 const PERMIT_PACKET_DOC_CATEGORIES = [
+  // NOTE: "permit-application" intentionally excluded — we only bundle supporting evidence,
+  // never blank permit forms (which would pollute TFE packets with Farmers' Market forms etc.)
   "menu",           // Menu with Prices
   "trailer_diagram", // Trailer/Truck Diagram
   "coi",            // Certificate of Insurance (Liability)
@@ -1566,6 +1568,14 @@ ${prompt}`;
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
 
+      // FIX 3: Auto-sync vault before generating to ensure latest profile data is used
+      try {
+        await syncProfileToVault((req.user as any).id, profileId);
+        console.log("[Generate] Vault synced for profile", profileId);
+      } catch (syncErr: any) {
+        console.warn("[Generate] Vault sync failed (non-fatal):", syncErr.message);
+      }
+
       // Fetch Data Vault for structured data overlay
       const vaultData = await storage.getDataVaultByProfileId(profileId);
       
@@ -2051,7 +2061,27 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
       }
 
       const town = await storage.getTown(townId);
-      const filename = `${town?.townName || 'permit'}_${form.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      const filename = `PermitPilot-${(town?.townName || 'permit').replace(/\s+/g, '-')}-${form.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+      // Store generated PDF in submission_jobs for re-download later
+      const permitIdForStorage = req.body.permitId;
+      if (permitIdForStorage) {
+        try {
+          const pdfBase64 = Buffer.from(pdfBytes).toString('base64');
+          await storage.createSubmissionJob({
+            userId: (req.user as any).id,
+            permitId: permitIdForStorage,
+            townId,
+            submissionType: 'pdf_fill',
+            status: 'completed',
+            filledPdfData: pdfBase64,
+            filledPdfFilename: filename,
+          } as any);
+          console.log(`[Generate] Stored filled PDF in submission_jobs for permit ${permitIdForStorage}`);
+        } catch (storeErr: any) {
+          console.warn('[Generate] Failed to store PDF (non-fatal):', storeErr.message);
+        }
+      }
 
       res.set({
         'Content-Type': 'application/pdf',
@@ -2062,6 +2092,27 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
     } catch (error: any) {
       console.error("Error generating PDF from database form:", error);
       res.status(500).json({ message: error.message || "Failed to generate PDF" });
+    }
+  });
+
+  // Re-download a previously generated permit packet
+  app.get("/api/permits/:permitId/download", isAuthenticated, async (req: any, res) => {
+    try {
+      const { permitId } = req.params;
+      const jobs = await storage.getSubmissionJobsByPermitId(permitId);
+      const job = (jobs as any[]).find((j: any) => j.filledPdfData && j.status === 'completed');
+      if (!job?.filledPdfData) {
+        return res.status(404).json({ message: "Packet not yet generated — please generate first" });
+      }
+      const pdfBytes = Buffer.from(job.filledPdfData, 'base64');
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${job.filledPdfFilename || 'permit_package.pdf'}"`,
+        'Content-Length': pdfBytes.length,
+      });
+      res.send(pdfBytes);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

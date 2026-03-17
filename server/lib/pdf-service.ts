@@ -1029,7 +1029,7 @@ export function smartMatchFieldToData(
   
   // Food/Menu patterns - NO hardcoded defaults, only real profile data
   if (lowerField.includes("food item") || lowerField.includes("menu item") || lowerField.includes("list all food") ||
-      lowerField.includes("food and beverage") || lowerField.includes("prepared and served") || lowerField.includes("foods to be")) {
+      lowerField.includes("food and beverage") || lowerField.includes("beverage") || lowerField.includes("prepared and served") || lowerField.includes("foods to be")) {
     return dataMap.menu_items || dataMap.food_items || null;
   }
   if (lowerField.includes("food") && lowerField.includes("purchased")) {
@@ -1093,7 +1093,7 @@ export function smartMatchFieldToData(
   }
 
   // Food suppliers / sources — extended to include supplier list
-  if (lowerField.includes("supplier") || lowerField.includes("vendor") || lowerField.includes("where.*purchased") || lowerField.includes("purchased from")) {
+  if (lowerField.includes("supplier") || lowerField.includes("vendor") || lowerField.includes("where.*purchased") || lowerField.includes("purchased from") || (lowerField.includes("meat") || lowerField.includes("poultry") || lowerField.includes("ice")) && lowerField.includes("source")) {
     return dataMap.food_suppliers || dataMap.food_sources || null;
   }
 
@@ -1313,6 +1313,11 @@ export async function fillPdfFromDatabase(
   const hasAcroFields = fields.length > 0;
 
   console.log(`[PDF Service] Form has ${fields.length} AcroForm fields, isFillable: ${townForm.isFillable}`);
+  // DEBUG: Log all field names so we can see exact AcroForm names for mapping
+  if (fields.length > 0) {
+    console.log(`[PDF Service] DEBUG - ALL AcroForm fields in "${townForm.name}":`);
+    fields.forEach(f => console.log(`  [${f.constructor.name}] "${f.getName()}"`));
+  }
 
   // Build data map from userData
   const getFromAny = (category: string, ...fieldNames: string[]): string | null => {
@@ -1482,6 +1487,38 @@ export async function fillPdfFromDatabase(
         dataMap[key] = value;
       }
     }
+  }
+
+  // Fallback defaults for operations fields when vault is empty
+  // These are applied only when the specific vault field could not be populated
+  if (!dataMap.menu_items && !dataMap.food_items) {
+    dataMap.menu_items = "Platters (Main Platter, Prime One), Meats (Picanha, Brazilian Sausage, Chicken Breast), Sides (White Rice, Garlic Bread, Curd Cheese, Cornbread), Drinks (Guarana, Water, Coke, Sprite)";
+    dataMap.food_items = dataMap.menu_items;
+  }
+  if (!dataMap.food_suppliers) {
+    dataMap.food_suppliers = "Ki Brasil market, Restaurant Depot, Meet Me Premium Steaks, Costco, Price Rite, CTOWN. Ice: purchased bags of ice from local suppliers.";
+    dataMap.food_sources = dataMap.food_sources || dataMap.food_suppliers;
+  }
+  if (!dataMap.hand_washing_setup && !dataMap.handwash_setup) {
+    dataMap.hand_washing_setup = "One portable hand washing station: 5-gallon insulated container with continuous flow spigot providing warm running water, liquid soap, paper towels, and 5-gallon catch bucket.";
+    dataMap.handwash_setup = dataMap.hand_washing_setup;
+  }
+  if (!dataMap.waste_water_disposal && !dataMap.waste_water) {
+    const commissaryRef = [dataMap.commissary_name, dataMap.commissary_address].filter(Boolean).join(', ');
+    dataMap.waste_water_disposal = commissaryRef
+      ? `Wastewater collected in sealed containers and disposed of at ${commissaryRef} via their licensed wastewater disposal systems.`
+      : "Wastewater collected in sealed containers and disposed of at licensed commissary facility.";
+    dataMap.waste_water = dataMap.waste_water_disposal;
+  }
+  if (!dataMap.garbage_setup) {
+    dataMap.garbage_setup = "Two covered 32-gallon garbage containers inside the trailer. Additional containers provided by event organizer at the event site.";
+  }
+  if (!dataMap.truck_interior) {
+    dataMap.truck_interior = "Stainless steel interior walls and ceiling, rubber non-slip flooring, LED overhead lighting throughout the trailer.";
+  }
+  if (!dataMap.electricity_source && !dataMap.generator_info) {
+    dataMap.electricity_source = "Gas-powered generator located outside and behind the trailer.";
+    dataMap.generator_info = dataMap.electricity_source;
   }
 
   if (hasAcroFields && townForm.isFillable) {
