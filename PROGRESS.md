@@ -4,7 +4,7 @@
 > **Domain:** permitpilot.cloud
 > **Repo:** github.com/UrbanLegendsAV/Permit-Trucker
 > **Hosting:** Replit
-> **Last updated:** March 17, 2026
+> **Last updated:** March 17, 2026 (Sessions 1–3 complete)
 
 ---
 
@@ -21,6 +21,7 @@
 - [x] Vehicle type selection (food truck, trailer, cart)
 - [x] Business information collection
 - [x] Equipment checklist
+- [x] **Docs-first 5-step redesign** (see Phase 9)
 
 ### Vehicle Profiles
 - [x] Create/edit vehicle profiles
@@ -377,6 +378,7 @@
 - [x] `agent_logs` table: agentName, action, input, output, success, errorMessage, durationMs, relatedEmailId, relatedTruckSlug
 - [x] `opted_out` boolean column added to food_trucks table
 - [x] `POST /api/email/inbound` — public SendGrid Inbound Parse webhook
+  - **multer middleware** parses multipart/form-data (fixed in Phase 11)
   - Deduplicates by Message-ID header
   - Saves raw email, calls processInboundEmail() fire-and-forget
   - Always returns 200 (prevents SendGrid retry storms)
@@ -384,7 +386,7 @@
 ### Orchestrator (server/lib/orchestrator.ts)
 - [x] Claude claude-sonnet-4-6 intent classifier — 6 intents: claim_listing, catering_reply, permit_inquiry, opt_out, general_inquiry, spam
 - [x] **Claim Agent** — extracts truck name with Claude, matches food_trucks table by email/domain/name, sets status→claimed, sends confirmation email
-- [x] **Catering Agent** — extracts catering fields from email body with Claude, updates food_trucks table, sends confirmation
+- [x] **Catering Agent** — extracts catering fields from email body with Claude (incl. phone + website), 4-pass truck matching, personalized confirmation with event types + permit CTA (bugs fixed in Phase 11)
 - [x] **Permit Inquiry Agent** — extracts CT town name, looks up towns table, generates personalized reply with Claude (fee, form type, portal URL)
 - [x] **Opt-Out Agent** — sets opted_out=true on food_trucks, suppresses future outreach, sends removal confirmation
 - [x] **General Inquiry Agent** — Claude generates branded PermitPilot support reply
@@ -400,10 +402,106 @@
 
 ### Anthropic SDK
 - [x] @anthropic-ai/sdk ^0.79.0 installed in package.json
+- [x] multer + @types/multer installed (multipart/form-data parsing for SendGrid webhook)
 
 ### SendGrid Inbound Parse Setup (instructions in route comment)
 - MX record: mail.permitpilot.cloud → mx.sendgrid.net (Priority 10)
 - Webhook URL: https://permitpilot.cloud/api/email/inbound
+
+---
+
+## Phase 9: Docs-First Onboarding + Claim Flow (COMPLETE)
+
+### Docs-First Onboarding Redesign (onboarding.tsx)
+- [x] 5-step flow: Vehicle Type → Business Info → Your Documents → Fill Gaps → Visibility
+- [x] Draft profile auto-created after step 1 (business info) so profile ID is available for per-doc parsing
+- [x] Step 2 — 7 categorized document upload zones (health permit, state license, vehicle registration, insurance, commissary contract, past permit, other)
+- [x] Per-doc AI parsing: reads file → PATCH profile uploadsJson → POST parse-document/:docIndex → updates vault score
+- [x] "Skip all and enter manually →" link always visible
+- [x] Step 3 (Fill Gaps) adapts based on vault completeness:
+  - ≥85%: success screen ("You're all set!")
+  - 60–84%: show missing fields only (targeted gap-fill)
+  - <60%: full suppliers + operations form
+- [x] `VAULT_FIELD_INPUTS` map: vault key → input metadata (label, placeholder, type)
+- [x] `gapFillValues` local state: each missing field saved via `PATCH /api/vault/field` on finish
+- [x] `finishMutation`: saves suppliers, syncs vault, creates public profile from draft
+
+### Claim Flow (/claim/:slug)
+- [x] New page: `client/src/pages/claim-flow.tsx` — 4 steps:
+  1. **Verify** — shows truck card, "This is my truck" button
+  2. **Merge confirmation** — field-by-field green ✓ / amber ○ diff
+  3. **Doc upload** — same 7-zone pattern as onboarding with per-doc parsing
+  4. **Done** — vault score + live listing URL
+- [x] `POST /api/directory/:slug/claim-authenticated` — sets status→claimed, claimedByUserId, claimedAt; creates vehicle profile; calls syncProfileToVault(); seeds email/name into vault; returns `{ success, profileId, truckData }`
+- [x] `truck-profile.tsx` claim button: authenticated → `/claim/:slug`, unauthenticated → `/auth?next=/claim/:slug`
+- [x] `use-auth.ts`: `loginMutation` + `registerMutation` `onSuccess` now read `?next=` param and redirect accordingly
+- [x] `App.tsx`: route `/claim/:slug` → `<ClaimFlow>`
+
+---
+
+## Phase 10: Admin / Data Fixes (COMPLETE)
+
+### ADMIN_EMAILS Auto-Grant
+- [x] `ADMIN_EMAILS` env var (comma-separated) processed in `runMigrations()` on every startup
+- [x] `UPDATE users SET role = 'owner' WHERE email = $1 AND role != 'owner'` — idempotent
+
+### Brazilian BBQ Boys Data Fixes (db.ts startup UPDATEs)
+- [x] Corrects email → `brazilianbbqboys@gmail.com`
+- [x] Corrects catering contact email (was `catering@brazilianbbqboys.com`)
+- [x] Fixes description (removed chimichurri; uses authentic churrasco copy)
+- [x] Expands towns: Danbury, Ridgefield, Hartford, West Hartford, New Haven, Fairfield County
+- [x] Links truck to admin user account via `claimed_by_user_id` (matches any of 3 known admin emails)
+
+### Seed Data
+- [x] `food_trucks` insert switched to `onConflictDoUpdate` — safe to re-run on every startup
+- [x] Brazilian BBQ Boys seed row corrected to match production data
+
+### Background Services (server/index.ts)
+- [x] Enrichment stub: `setTimeout` 10s → imports `truck-enrichment-service.ts`, calls `enrichAllTrucks()` if present
+- [x] Geocoding stub: `setTimeout` 15s → imports `geocoding-service.ts`, calls `geocodeAllTrucks()` if present
+
+### Profile Page — Account Info
+- [x] Role badge shown next to display name: green "Owner" badge or blue "Admin" badge
+- [x] User email displayed in profile card
+
+### Mobile Nav — Admin Link
+- [x] `useQuery` for `/api/me/role` added to `MobileNav`
+- [x] Admin nav item (`ShieldCheck` icon) appended only for `owner` or `admin` roles
+- [x] Nav item min-width reduced from 64px → 56px to fit 6 items
+
+### Schema
+- [x] `claimedByUserId` + `claimedAt` columns added to `food_trucks` in `shared/schema.ts`
+- [x] Migration added to `runMigrations()`
+
+---
+
+## Phase 11: Orchestrator Bug Fixes (COMPLETE)
+
+### BUG 1 — Multipart Parsing (from/subject null in admin)
+- [x] `multer` + `@types/multer` installed
+- [x] `multerMemory.any()` middleware added to `POST /api/email/inbound`
+- [x] SendGrid's `multipart/form-data` payload now parsed correctly — `from`, `to`, `subject`, `text`, `html` all populated
+
+### BUG 2 — Catering Reply Misclassified as Spam
+- [x] `classifyEmailIntent()` prompt strengthened with explicit catering signals:
+  - Phrases: "yes we cater", "we offer catering", "we do events", "our minimum is"
+  - Data types: event types, guest counts, pricing, capacity, booking contact info
+  - Rule: classify as `catering_reply` even with generic subject line if body contains these signals
+
+### BUG 3 — Catering Reply: Richer Extraction + Personalized Confirmation
+- [x] Extraction JSON schema now includes `cateringContactPhone` + `cateringWebsite`
+- [x] Confirmation email is personalized:
+  - Names specific event types extracted (e.g., "weddings, corporate events")
+  - Shows capacity range and pricing if extracted
+  - Includes permit CTA: "CT events need per-town temporary food service permits — file in 60 seconds at permitpilot.cloud"
+- [x] Email subject includes truck name: "Your catering info is live on PermitPilot — {truck name}"
+
+### BUG 4 — 4-Pass Truck Matching
+- [x] Applied to `handleCateringReply()` and `handleOptOut()`:
+  1. **Pass 1**: Exact email match (`food_trucks.email = senderEmail`)
+  2. **Pass 2**: Sender domain vs truck website domain (skips free email hosts: gmail/yahoo/hotmail)
+  3. **Pass 3**: Claude extracts truck name from email → fuzzy slug/name match
+  4. **Pass 4**: Graceful no-match — logs to `agent_logs`, returns without sending email
 
 ---
 
@@ -446,7 +544,8 @@
 | `client/src/pages/discover.tsx` | Consumer map page |
 | `client/src/pages/admin.tsx` | Admin dashboard |
 | `client/src/pages/profile.tsx` | User profile page |
-| `client/src/pages/onboarding.tsx` | Multi-step onboarding flow |
+| `client/src/pages/onboarding.tsx` | Docs-first 5-step onboarding flow |
+| `client/src/pages/claim-flow.tsx` | 4-step truck claim flow (/claim/:slug) |
 | `client/public/sw.js` | Service worker for PWA |
 | `BRAND_BIBLE.md` | Brand identity source of truth |
 
@@ -471,7 +570,8 @@
 - `POST /api/reviews` — Submit anonymous review
 
 ### Authenticated
-- `POST /api/directory/claim` — Claim a truck listing
+- `POST /api/directory/claim` — Claim a truck listing (legacy)
+- `POST /api/directory/:slug/claim-authenticated` — Full claim: sets status, creates profile, syncs vault
 - `GET /api/profiles` — User's vehicle profiles
 - `POST /api/profiles` — Create vehicle profile
 - `GET /api/permits` — User's permits
