@@ -1,8 +1,8 @@
-# PermitTruck
+# PermitPilot
 
 ## Overview
 
-PermitTruck is a mobile-first Progressive Web App (PWA) designed to streamline the complex permit application process for food truck and trailer operators, starting with Connecticut. It offers town-specific guidance, document management, requirements checklists, and a gamified system to incentivize community contributions. The platform aims to become the definitive resource for food truck operators by crowdsourcing municipal permitting information through a "pioneer" model, enabling users to help build a comprehensive database of regulatory requirements.
+PermitPilot is a mobile-first Progressive Web App (PWA) designed to streamline the complex permit application process for food truck and trailer operators, starting with Connecticut. It offers town-specific guidance, document management, requirements checklists, and a gamified system to incentivize community contributions. The platform aims to become the definitive resource for food truck operators by crowdsourcing municipal permitting information through a "pioneer" model, enabling users to help build a comprehensive database of regulatory requirements.
 
 ## User Preferences
 
@@ -26,7 +26,7 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-PermitTruck uses a monorepo architecture for its client, server, and shared code. The application is designed mobile-first, utilizing React 18 with TypeScript for the frontend and Node.js with Express for the backend.
+PermitPilot uses a monorepo architecture for its client, server, and shared code. The application is designed mobile-first, utilizing React 18 with TypeScript for the frontend and Node.js with Express for the backend.
 
 ### UI/UX Decisions
 - **Mobile-First Design**: Features fixed bottom navigation, sticky top headers, and progressive disclosure for complex workflows through step-based forms.

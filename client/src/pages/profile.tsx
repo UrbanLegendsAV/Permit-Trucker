@@ -136,7 +136,7 @@ export default function ProfilePage() {
               <h2 className="font-display text-xl font-bold truncate">
                 {user?.firstName && user?.lastName
                   ? `${user.firstName} ${user.lastName}`
-                  : "PermitTruck User"}
+                  : "PermitPilot User"}
               </h2>
               <p className="text-sm text-muted-foreground truncate flex items-center gap-1">
                 <Mail className="w-3.5 h-3.5" />
@@ -281,7 +281,7 @@ export default function ProfilePage() {
         </Button>
 
         <p className="text-xs text-center text-muted-foreground">
-          PermitTruck v1.0.0 - Always verify permits with official sources
+          PermitPilot v1.0.0 — Always verify permits with official sources
         </p>
       </main>
 

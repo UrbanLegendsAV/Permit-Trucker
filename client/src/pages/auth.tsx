@@ -56,12 +56,10 @@ export default function AuthPage() {
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Truck className="w-8 h-8 text-primary" />
-              </div>
+              <img src="/icon.svg" alt="PermitPilot" className="h-14 w-14" />
             </div>
-            <CardTitle className="text-2xl">Welcome to PermitTruck</CardTitle>
-            <CardDescription>Sign in to manage your food truck permits</CardDescription>
+            <CardTitle className="text-2xl font-display">Welcome to PermitPilot</CardTitle>
+            <CardDescription>Your permit copilot for CT food trucks</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="login" className="w-full">

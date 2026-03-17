@@ -1,4 +1,4 @@
-import { Truck, Shield, Award, Zap, MapPin, ArrowRight, CheckCircle } from "lucide-react";
+import { Shield, Award, Zap, MapPin, ArrowRight, CheckCircle, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,18 +46,24 @@ export default function LandingPage() {
               Now Live in Connecticut
             </Badge>
             
-            <div className="flex items-center justify-center w-20 h-20 rounded-2xl bg-primary/10 mb-2">
-              <Truck className="w-10 h-10 text-primary" />
-            </div>
-            
+            <img
+              src="/logo-light.svg"
+              alt="PermitPilot"
+              className="h-12 w-auto mb-2 dark:hidden"
+            />
+            <img
+              src="/logo-dark.svg"
+              alt="PermitPilot"
+              className="h-12 w-auto mb-2 hidden dark:block"
+            />
+
             <h1 className="font-display text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight max-w-3xl">
-              Food Truck Permits,{" "}
-              <span className="text-primary">Simplified</span>
+              Your permit copilot.
             </h1>
-            
+
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl">
-              Navigate the complex world of food truck and trailer permitting with PermitTruck. 
-              Your AI-powered assistant for Connecticut and beyond.
+              PermitPilot files Connecticut food truck permits for you — automatically, town by town.
+              Upload your docs once. We handle the rest.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -94,7 +100,7 @@ export default function LandingPage() {
               Everything You Need to Permit
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              From application to approval, PermitTruck guides you every step of the way
+              From application to approval, PermitPilot guides you every step of the way
             </p>
           </div>
           
@@ -184,8 +190,8 @@ export default function LandingPage() {
             Ready to Start Permitting?
           </h2>
           <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-            Join food truck owners across Connecticut who are using PermitTruck 
-            to simplify their permitting process.
+            Join food truck owners across Connecticut who are using PermitPilot
+            to file permits faster.
           </p>
           <Button 
             size="lg" 
@@ -203,14 +209,14 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <Truck className="w-5 h-5 text-primary" />
-              <span className="font-display font-bold">PermitTruck</span>
+              <img src="/icon.svg" alt="PermitPilot" className="h-5 w-5" />
+              <span className="font-display font-bold">PermitPilot</span>
             </div>
             <p className="text-sm text-muted-foreground text-center">
               Always verify permit requirements with official town sources.
             </p>
             <p className="text-sm text-muted-foreground">
-              2024 PermitTruck. All rights reserved.
+              © 2026 PermitPilot. All rights reserved.
             </p>
           </div>
         </div>
