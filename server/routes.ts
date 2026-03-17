@@ -3,9 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticatedFlexible } from "./replit_integrations/auth";
 const isAuthenticated = isAuthenticatedFlexible; // Use flexible auth for all routes to support both OIDC and email
-import { 
-  insertProfileSchema, 
-  insertPermitSchema, 
+import {
+  insertProfileSchema,
+  insertPermitSchema,
   insertBadgeSchema,
   insertTownSchema,
   insertPublicProfileSchema,
@@ -13,6 +13,9 @@ import {
   insertTownFormSchema,
   insertTownRequestSchema,
 } from "@shared/schema";
+import { db } from "./db";
+import { foodTrucks } from "@shared/schema";
+import { eq, ilike, sql as drizzleSql } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import { 
   fillPdfForm, 
@@ -3287,6 +3290,54 @@ For text fields that require descriptive answers about food safety practices, se
       console.error("Error generating field mappings:", error);
       const message = error instanceof Error ? error.message : "Failed to generate field mappings";
       res.status(500).json({ message });
+    }
+  });
+
+  // ── CT Food Truck Directory ──────────────────────────────────────────────
+
+  // GET /api/directory — list all trucks, optional ?cuisine= and ?town= filters
+  app.get("/api/directory", async (req, res) => {
+    try {
+      const { cuisine, town } = req.query as { cuisine?: string; town?: string };
+      let query = db.select().from(foodTrucks);
+      const rows = await query;
+      const filtered = rows.filter((t) => {
+        if (cuisine && t.cuisine?.toLowerCase() !== cuisine.toLowerCase()) return false;
+        if (town && !t.towns?.some((tw) => tw.toLowerCase().includes(town.toLowerCase()))) return false;
+        return true;
+      });
+      res.json(filtered);
+    } catch (error) {
+      console.error("Error fetching directory:", error);
+      res.status(500).json({ message: "Failed to fetch directory" });
+    }
+  });
+
+  // GET /api/directory/:slug — single truck
+  app.get("/api/directory/:slug", async (req, res) => {
+    try {
+      const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, req.params.slug));
+      if (!truck) return res.status(404).json({ message: "Truck not found" });
+      res.json(truck);
+    } catch (error) {
+      console.error("Error fetching truck:", error);
+      res.status(500).json({ message: "Failed to fetch truck" });
+    }
+  });
+
+  // POST /api/directory/claim — claim a listing (requires auth)
+  app.post("/api/directory/claim", isAuthenticated, async (req: any, res) => {
+    try {
+      const { slug } = req.body as { slug: string };
+      if (!slug) return res.status(400).json({ message: "slug is required" });
+      const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug));
+      if (!truck) return res.status(404).json({ message: "Truck not found" });
+      if (truck.status === "claimed") return res.status(409).json({ message: "Listing already claimed" });
+      await db.update(foodTrucks).set({ status: "claimed" }).where(eq(foodTrucks.slug, slug));
+      res.json({ success: true, message: "Listing claimed successfully" });
+    } catch (error) {
+      console.error("Error claiming truck:", error);
+      res.status(500).json({ message: "Failed to claim listing" });
     }
   });
 

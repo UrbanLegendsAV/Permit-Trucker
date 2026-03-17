@@ -25,6 +25,26 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE public_profiles ADD COLUMN IF NOT EXISTS claimed_by_user_id TEXT;
       ALTER TABLE public_profiles ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP;
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS food_trucks (
+        id SERIAL PRIMARY KEY,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        cuisine TEXT,
+        towns TEXT[],
+        website TEXT,
+        email TEXT,
+        phone TEXT,
+        instagram_handle TEXT,
+        description TEXT,
+        status TEXT DEFAULT 'unclaimed',
+        image_url TEXT,
+        source TEXT,
+        outreach_sent BOOLEAN DEFAULT false,
+        outreach_sent_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
     console.log('[DB] Migrations applied successfully');
   } catch (err) {
     console.error('[DB] Migration error:', err);

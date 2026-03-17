@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, jsonb, pgEnum, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -631,4 +631,28 @@ export type InsertSubmissionJob = z.infer<typeof insertSubmissionJobSchema>;
 export type SubmissionJob = typeof submissionJobs.$inferSelect;
 
 export type InsertPortalCredential = z.infer<typeof insertPortalCredentialSchema>;
+
+// CT Food Truck Directory — public listing (no user account required)
+export const foodTrucks = pgTable("food_trucks", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").unique().notNull(),
+  name: text("name").notNull(),
+  cuisine: text("cuisine"),
+  towns: text("towns").array(),
+  website: text("website"),
+  email: text("email"),
+  phone: text("phone"),
+  instagramHandle: text("instagram_handle"),
+  description: text("description"),
+  status: text("status").default("unclaimed"),   // 'unclaimed' | 'claimed' | 'listed'
+  imageUrl: text("image_url"),
+  source: text("source"),
+  outreachSent: boolean("outreach_sent").default(false),
+  outreachSentAt: timestamp("outreach_sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: true, createdAt: true });
+export type InsertFoodTruck = z.infer<typeof insertFoodTruckSchema>;
+export type FoodTruck = typeof foodTrucks.$inferSelect;
 export type PortalCredential = typeof portalCredentials.$inferSelect;

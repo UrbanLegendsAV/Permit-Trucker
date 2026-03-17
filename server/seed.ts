@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { towns, configs, profiles, publicProfiles, reviews } from "@shared/schema";
+import { towns, configs, profiles, publicProfiles, reviews, foodTrucks } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { runFullCTSeed } from "./seed-ct-towns";
 import bcrypt from "bcrypt";
@@ -798,7 +798,91 @@ export async function seedTowns() {
       await db.insert(publicProfiles).values(pub).onConflictDoNothing();
     }
     console.log(`Seeded ${ctPublicProfiles.length} CT directory food trucks`);
-    
+
+    // Seed food_trucks table (CT Food Truck Directory)
+    console.log("Seeding food_trucks directory...");
+    const ctFoodTrucks = [
+      {
+        slug: "brazilian-bbq-boys",
+        name: "Brazilian BBQ Boys",
+        cuisine: "Brazilian BBQ",
+        towns: ["Hartford", "West Hartford", "New Haven"],
+        website: "https://www.brazilianbbqboys.com",
+        instagramHandle: "@brazilianbbqboys",
+        description: "Authentic Brazilian churrasco on wheels. Picanha, linguiça, and slow-roasted meats with chimichurri.",
+        status: "claimed",
+        source: "founder",
+      },
+      {
+        slug: "taco-road-trip",
+        name: "Taco Road Trip",
+        cuisine: "Mexican",
+        towns: ["Stamford", "Greenwich", "Norwalk"],
+        description: "Street-style tacos made fresh to order. Carnitas, al pastor, and fish tacos with housemade salsa.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "richs-wings-and-things",
+        name: "Rich's Wings & Things",
+        cuisine: "Wings / American",
+        towns: ["Bridgeport", "New Haven", "Milford"],
+        description: "Buffalo wings, tenders, and loaded fries. Sauces from mild to ghost pepper.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "jesses-ice-cream-truck",
+        name: "Jesse's Ice Cream Truck",
+        cuisine: "Ice Cream / Desserts",
+        towns: ["Glastonbury", "South Windsor", "Manchester"],
+        description: "Soft serve, sundaes, and novelty ice cream. CT's favorite summer tradition.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "nicky-zooks",
+        name: "Nicky Zooks",
+        cuisine: "American / Comfort Food",
+        towns: ["Waterbury", "Naugatuck", "Ansonia"],
+        description: "Loaded burgers, cheese steaks, and comfort food classics done the CT way.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "fullmoon-taco-truck",
+        name: "Fullmoon Taco Truck",
+        cuisine: "Mexican",
+        towns: ["New London", "Groton", "Norwich"],
+        description: "Late-night tacos, burritos, and elotes. Open until the crowd goes home.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "the-blind-rhino-food-truck",
+        name: "The Blind Rhino Food Truck",
+        cuisine: "Wings / BBQ",
+        towns: ["Shelton", "Derby", "Ansonia"],
+        website: "https://www.theblindrhino.com",
+        description: "Extension of the Blind Rhino bar & grill. Craft wings, smash burgers, and street fries.",
+        status: "unclaimed",
+        source: "research",
+      },
+      {
+        slug: "chefos-eatery",
+        name: "Chefo's Eatery",
+        cuisine: "Latin Fusion",
+        towns: ["Hartford", "Bristol", "New Britain"],
+        description: "Latin-inspired street food. Pernil tacos, tostones, arroz con pollo wraps, and fresh aguas frescas.",
+        status: "unclaimed",
+        source: "research",
+      },
+    ];
+    for (const truck of ctFoodTrucks) {
+      await db.insert(foodTrucks).values(truck).onConflictDoNothing();
+    }
+    console.log(`Seeded ${ctFoodTrucks.length} food trucks into directory`);
+
     await runFullCTSeed();
     
     // Seed default email/password user
