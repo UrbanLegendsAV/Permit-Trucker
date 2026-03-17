@@ -112,6 +112,34 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await seedTowns();
 
+  // Background enrichment — runs 10s after startup
+  setTimeout(async () => {
+    try {
+      console.log('[Enrichment] Starting background run...');
+      const mod = await import('./lib/truck-enrichment-service');
+      if (typeof (mod as any).enrichAllTrucks === 'function') {
+        await (mod as any).enrichAllTrucks(db);
+        console.log('[Enrichment] Complete');
+      }
+    } catch (err) {
+      console.error('[Enrichment] Failed:', err);
+    }
+  }, 10000);
+
+  // Background geocoding — runs 15s after startup
+  setTimeout(async () => {
+    try {
+      console.log('[Geocoding] Starting background run...');
+      const mod = await import('./lib/geocoding-service');
+      if (typeof (mod as any).geocodeAllTrucks === 'function') {
+        await (mod as any).geocodeAllTrucks(db);
+        console.log('[Geocoding] Complete');
+      }
+    } catch (err) {
+      console.error('[Geocoding] Failed:', err);
+    }
+  }, 15000);
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

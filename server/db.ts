@@ -131,6 +131,56 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP;
     `);
     console.log('[DB] Migrations applied successfully');
+
+    // Grant owner role to admin emails from environment
+    // Set ADMIN_EMAILS=email1@example.com,email2@example.com in Replit Secrets
+    const adminEmails = process.env.ADMIN_EMAILS?.split(',')
+      .map((e: string) => e.trim())
+      .filter(Boolean) ?? [];
+    if (adminEmails.length > 0) {
+      for (const email of adminEmails) {
+        await client.query(
+          `UPDATE users SET role = 'owner' WHERE email = $1 AND role != 'owner'`,
+          [email]
+        );
+      }
+      console.log(`[Admin] Granted owner role to: ${adminEmails.join(', ')}`);
+    }
+
+    // Fix known bad data for Brazilian BBQ Boys
+    await client.query(`
+      UPDATE food_trucks SET
+        email = 'brazilianbbqboys@gmail.com',
+        catering_contact_email = 'brazilianbbqboys@gmail.com',
+        description = 'Authentic Brazilian churrasco on wheels. Picanha, linguiça, and slow-roasted meats with our signature sauces. Family-run, live-fire, serving CT.',
+        towns = ARRAY['Danbury','Ridgefield','Hartford','West Hartford','New Haven','Fairfield County']
+      WHERE slug = 'brazilian-bbq-boys'
+        AND (
+          email IS NULL
+          OR catering_contact_email = 'catering@brazilianbbqboys.com'
+          OR description LIKE '%chimichurri%'
+        )
+    `);
+
+    // Link Brazilian BBQ Boys to the admin user account
+    await client.query(`
+      UPDATE food_trucks
+      SET
+        claimed_by_user_id = (
+          SELECT id FROM users
+          WHERE email = ANY(ARRAY[
+            'brazilianbbqboys@gmail.com',
+            'imperialamazon1@gmail.com',
+            '23luis.leite@gmail.com'
+          ])
+          ORDER BY created_at ASC
+          LIMIT 1
+        ),
+        claimed_at = NOW(),
+        status = 'claimed'
+      WHERE slug = 'brazilian-bbq-boys'
+        AND claimed_by_user_id IS NULL
+    `);
   } catch (err) {
     console.error('[DB] Migration error:', err);
   } finally {

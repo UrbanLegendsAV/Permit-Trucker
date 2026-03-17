@@ -222,11 +222,19 @@ export default function ProfilePage() {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <h2 className="font-display text-xl font-bold truncate">
-                {user?.firstName && user?.lastName
-                  ? `${user.firstName} ${user.lastName}`
-                  : "PermitPilot User"}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-display text-xl font-bold truncate">
+                  {user?.firstName && user?.lastName
+                    ? `${user.firstName} ${user.lastName}`
+                    : "PermitPilot User"}
+                </h2>
+                {roleData?.role === "owner" && (
+                  <Badge className="bg-green-500/20 text-green-600 border-green-500/30 text-xs">Owner</Badge>
+                )}
+                {roleData?.role === "admin" && (
+                  <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 text-xs">Admin</Badge>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground truncate flex items-center gap-1">
                 <Mail className="w-3.5 h-3.5" />
                 {user?.email || "No email"}

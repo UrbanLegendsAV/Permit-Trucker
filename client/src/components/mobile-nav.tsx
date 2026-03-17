@@ -1,8 +1,9 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, FileText, Trophy, User, MapPin, Sparkles } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, User, Sparkles, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 
-const navItems = [
+const baseNavItems = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/permits", icon: FileText, label: "Permits" },
   { path: "/spots", icon: Sparkles, label: "Spots" },
@@ -14,7 +15,17 @@ export function MobileNav() {
   const [location] = useLocation();
   const { isAuthenticated } = useAuth();
 
+  const { data: roleData } = useQuery<{ role: string }>({
+    queryKey: ["/api/me/role"],
+    enabled: isAuthenticated,
+  });
+
   if (!isAuthenticated) return null;
+
+  const isAdmin = roleData?.role === "admin" || roleData?.role === "owner";
+  const navItems = isAdmin
+    ? [...baseNavItems, { path: "/admin", icon: ShieldCheck, label: "Admin" }]
+    : baseNavItems;
 
   return (
     <nav
@@ -27,7 +38,7 @@ export function MobileNav() {
           return (
             <Link key={path} href={path}>
               <button
-                className={`flex flex-col items-center justify-center gap-1 min-w-[64px] py-2 px-3 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] py-2 px-2 rounded-lg transition-colors ${
                   isActive ? "text-primary" : "text-muted-foreground"
                 }`}
                 data-testid={`nav-${label.toLowerCase()}`}

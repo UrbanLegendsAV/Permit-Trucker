@@ -806,10 +806,11 @@ export async function seedTowns() {
         slug: "brazilian-bbq-boys",
         name: "Brazilian BBQ Boys",
         cuisine: "Brazilian BBQ",
-        towns: ["Hartford", "West Hartford", "New Haven"],
+        towns: ["Danbury", "Ridgefield", "Hartford", "West Hartford", "New Haven", "Fairfield County"],
         website: "https://www.brazilianbbqboys.com",
+        email: "brazilianbbqboys@gmail.com",
         instagramHandle: "@brazilianbbqboys",
-        description: "Authentic Brazilian churrasco on wheels. Picanha, linguiça, and slow-roasted meats with chimichurri.",
+        description: "Authentic Brazilian churrasco on wheels. Picanha, linguiça, and slow-roasted meats with our signature sauces. Family-run, live-fire, serving CT.",
         status: "claimed",
         source: "founder",
         offersPrivateCatering: true,
@@ -818,7 +819,7 @@ export async function seedTowns() {
         cateringPricePerPerson: "$18–$28/person",
         cateringDescription: "Full-service Brazilian churrasco for weddings, corporate events, and private parties. We bring the grill, the meat, and the experience.",
         cateringEventTypes: ["weddings", "corporate", "birthdays", "festivals", "graduations", "block parties"],
-        cateringContactEmail: "catering@brazilianbbqboys.com",
+        cateringContactEmail: "brazilianbbqboys@gmail.com",
       },
       {
         slug: "taco-road-trip",
@@ -896,7 +897,25 @@ export async function seedTowns() {
       },
     ];
     for (const truck of ctFoodTrucks) {
-      await db.insert(foodTrucks).values(truck).onConflictDoNothing();
+      await db.insert(foodTrucks).values(truck).onConflictDoUpdate({
+        target: foodTrucks.slug,
+        set: {
+          name: truck.name,
+          cuisine: truck.cuisine,
+          towns: truck.towns,
+          website: (truck as any).website ?? null,
+          email: (truck as any).email ?? null,
+          instagramHandle: (truck as any).instagramHandle ?? null,
+          description: truck.description,
+          offersPrivateCatering: (truck as any).offersPrivateCatering ?? false,
+          cateringMinGuests: (truck as any).cateringMinGuests ?? null,
+          cateringMaxGuests: (truck as any).cateringMaxGuests ?? null,
+          cateringPricePerPerson: (truck as any).cateringPricePerPerson ?? null,
+          cateringDescription: (truck as any).cateringDescription ?? null,
+          cateringEventTypes: (truck as any).cateringEventTypes ?? null,
+          cateringContactEmail: (truck as any).cateringContactEmail ?? null,
+        },
+      });
     }
     console.log(`Seeded ${ctFoodTrucks.length} food trucks into directory`);
 
