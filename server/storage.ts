@@ -1,5 +1,5 @@
-import { 
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts,
+import {
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts, foodSuppliers,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -15,6 +15,7 @@ import {
   type SubmissionJob, type InsertSubmissionJob,
   type PortalCredential, type InsertPortalCredential,
   type HealthDistrict,
+  type FoodSupplier, type InsertFoodSupplier,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -612,6 +613,29 @@ export class DatabaseStorage implements IStorage {
 
   async getTownsByDistrict(districtId: string): Promise<Town[]> {
     return db.select().from(towns).where(eq(towns.healthDistrictId, districtId)).orderBy(towns.townName);
+  }
+
+  // Food Suppliers methods
+  async getFoodSuppliersByUserId(userId: string): Promise<FoodSupplier[]> {
+    return db.select().from(foodSuppliers).where(eq(foodSuppliers.userId, userId)).orderBy(foodSuppliers.createdAt);
+  }
+
+  async getFoodSuppliersByProfileId(profileId: string): Promise<FoodSupplier[]> {
+    return db.select().from(foodSuppliers).where(eq(foodSuppliers.profileId, profileId)).orderBy(foodSuppliers.createdAt);
+  }
+
+  async createFoodSupplier(supplier: InsertFoodSupplier): Promise<FoodSupplier> {
+    const [newSupplier] = await db.insert(foodSuppliers).values(supplier as any).returning();
+    return newSupplier;
+  }
+
+  async deleteFoodSupplier(id: number, userId: string): Promise<void> {
+    await db.delete(foodSuppliers).where(and(eq(foodSuppliers.id, id), eq(foodSuppliers.userId, userId)));
+  }
+
+  // Also used by vault debug endpoint
+  async getProfilesByUserId(userId: string): Promise<Profile[]> {
+    return db.select().from(profiles).where(eq(profiles.userId, userId)).orderBy(profiles.createdAt);
   }
 }
 

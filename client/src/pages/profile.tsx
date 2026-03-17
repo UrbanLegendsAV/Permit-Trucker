@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -13,7 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw } from "lucide-react";
+import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
 import type { Profile, Permit } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -69,20 +69,48 @@ export default function ProfilePage() {
 
   const syncVaultMutation = useMutation({
     mutationFn: async (profileId: string) => {
-      const res = await fetch(`/api/vault/sync/${profileId}`, {
+      const res = await fetch(`/api/profiles/${profileId}/sync-vault`, {
         method: 'POST',
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Sync failed');
       return res.json();
     },
-    onSuccess: (data) => {
-      toast({ title: "Data Vault Synced", description: `${data.fieldCount || 'All'} fields updated.` });
+    onSuccess: () => {
+      toast({ title: "Permit data updated", description: "Your next PDF will use the latest information." });
     },
     onError: () => {
       toast({ title: "Sync Failed", description: "Could not sync to data vault.", variant: "destructive" });
     },
   });
+
+  const parsePastPermitMutation = useMutation({
+    mutationFn: async ({ profileId, file }: { profileId: string; file: File }) => {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const res = await fetch(`/api/profiles/${profileId}/parse-past-permit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pdfBase64: base64 }),
+      });
+      if (!res.ok) throw new Error('Parse failed');
+      return res.json() as Promise<{ extracted: Record<string, string>; fieldCount: number }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profiles"] });
+      toast({
+        title: `Extracted ${data.fieldCount} fields from your past permit`,
+        description: "Your permit data has been updated. Your next application will use this information.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Parse Failed", description: "Could not extract data from the PDF.", variant: "destructive" });
+    },
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeParseProfileId, setActiveParseProfileId] = useState<string | null>(null);
 
   const { data: profiles = [], isLoading: profilesLoading } = useQuery<Profile[]>({
     queryKey: ["/api/profiles"],
@@ -94,12 +122,48 @@ export default function ProfilePage() {
     enabled: isAuthenticated,
   });
 
+  const { data: vaultData } = useQuery<Record<string, any> | null>({
+    queryKey: ["/api/vault"],
+    enabled: isAuthenticated,
+    queryFn: async () => {
+      const res = await fetch("/api/vault", { credentials: "include" });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Failed to fetch vault");
+      return res.json();
+    },
+  });
+
   const { data: roleData } = useQuery<{ role: string }>({
     queryKey: ["/api/me/role"],
     enabled: isAuthenticated,
   });
 
   const isAdmin = roleData?.role === "admin" || roleData?.role === "owner";
+
+  // Compute vault completeness score
+  const VAULT_FIELDS = [
+    { key: "businessName", label: "Business Name" },
+    { key: "ownerName", label: "Owner Name" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "mailingStreet", label: "Mailing Address" },
+    { key: "commissaryName", label: "Commissary Name" },
+    { key: "commissaryAddress", label: "Commissary Address" },
+    { key: "menuDescription", label: "Menu Description" },
+    { key: "waterSupplyType", label: "Water Supply" },
+    { key: "hotHoldingMethod", label: "Hot Holding Method" },
+    { key: "coldHoldingMethod", label: "Cold Holding Method" },
+    { key: "foodSuppliers", label: "Food Suppliers" },
+    { key: "electricitySource", label: "Electricity Source" },
+    { key: "wasteWaterDisposal", label: "Wastewater Disposal" },
+    { key: "handWashingSetup", label: "Hand Washing Setup" },
+    { key: "truckInteriorDescription", label: "Interior Surfaces" },
+    { key: "garbageSetup", label: "Garbage Setup" },
+  ] as const;
+
+  const filledCount = vaultData ? VAULT_FIELDS.filter(f => vaultData[f.key]).length : 0;
+  const completenessScore = Math.round((filledCount / VAULT_FIELDS.length) * 100);
+  const missingFields = vaultData ? VAULT_FIELDS.filter(f => !vaultData[f.key]).map(f => f.label) : [];
 
   const getInitials = () => {
     if (user?.firstName && user?.lastName) {
@@ -192,7 +256,7 @@ export default function ProfilePage() {
                     onDeleteDocument={(profileId, docIndex) => deleteDocumentMutation.mutate({ profileId, docIndex })}
                     onUpdateDocumentCategory={(profileId, docIndex, category) => updateDocumentCategoryMutation.mutate({ profileId, docIndex, category })}
                   />
-                  <div className="flex justify-end">
+                  <div className="flex gap-2 justify-end flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
@@ -200,7 +264,16 @@ export default function ProfilePage() {
                       disabled={syncVaultMutation.isPending}
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      {syncVaultMutation.isPending ? "Syncing..." : "Sync to Data Vault"}
+                      {syncVaultMutation.isPending ? "Syncing..." : "Sync Permit Data"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setActiveParseProfileId(profile.id); fileInputRef.current?.click(); }}
+                      disabled={parsePastPermitMutation.isPending}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {parsePastPermitMutation.isPending && activeParseProfileId === profile.id ? "Extracting..." : "Upload Past Permit"}
                     </Button>
                   </div>
                 </div>
@@ -208,6 +281,64 @@ export default function ProfilePage() {
             </div>
           )}
         </section>
+
+        {/* Vault completeness score */}
+        {vaultData && (
+          <>
+            <Separator />
+            <section>
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                Permit Data
+              </h3>
+              <Card className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {completenessScore >= 80 ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-amber-500" />
+                    )}
+                    <span className="font-medium">
+                      {completenessScore >= 80 ? "Permit Data: " : "Permit Data: "}
+                      <span className={completenessScore >= 80 ? "text-green-600" : completenessScore >= 50 ? "text-amber-600" : "text-red-600"}>
+                        {completenessScore}% complete
+                      </span>
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${completenessScore >= 80 ? "bg-green-500" : completenessScore >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                    style={{ width: `${completenessScore}%` }}
+                  />
+                </div>
+                {missingFields.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Missing: {missingFields.slice(0, 5).join(", ")}{missingFields.length > 5 ? ` +${missingFields.length - 5} more` : ""}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Upload a past permit PDF above to auto-fill missing fields.
+                </p>
+              </Card>
+            </section>
+          </>
+        )}
+
+        {/* Hidden file input for past permit upload */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file && activeParseProfileId) {
+              parsePastPermitMutation.mutate({ profileId: activeParseProfileId, file });
+            }
+            e.target.value = "";
+          }}
+        />
 
         {profiles.length > 0 && (
           <>

@@ -836,6 +836,15 @@ export function buildDataMapFromParsedData(
       menu_items: vaultData.foodItemsList?.join(', ') || null,
       food_items: vaultData.foodItemsList?.join(', ') || null,
       food_sources: vaultData.foodSourceLocations?.join(', ') || null,
+      // New operations fields
+      food_suppliers: (vaultData as any).foodSuppliers || null,
+      electricity_source: (vaultData as any).electricitySource || null,
+      generator_info: (vaultData as any).generatorInfo || null,
+      waste_water_disposal: (vaultData as any).wasteWaterDisposal || null,
+      hand_washing_setup: (vaultData as any).handWashingSetup || null,
+      truck_interior: (vaultData as any).truckInteriorDescription || null,
+      garbage_setup: (vaultData as any).garbageSetup || null,
+      overnight_parking: (vaultData as any).overnightParkingAddress || null,
     };
     if (vaultData.mailingCity && vaultData.mailingState && vaultData.mailingZip) {
       vaultOverrides.city_state_zip = `${vaultData.mailingCity}, ${vaultData.mailingState} ${vaultData.mailingZip}`;
@@ -1059,15 +1068,33 @@ export function smartMatchFieldToData(
   
   // Waste disposal patterns - NO hardcoded defaults
   if (lowerField.includes("waste") && (lowerField.includes("water") || lowerField.includes("disposal"))) {
-    return dataMap.waste_water || null;
+    return dataMap.waste_water_disposal || dataMap.waste_water || null;
   }
   if (lowerField.includes("garbage") || lowerField.includes("trash") || lowerField.includes("refuse")) {
-    return dataMap.garbage_disposal || null;
+    return dataMap.garbage_setup || dataMap.garbage_disposal || null;
   }
-  
+
   // Handwashing patterns - NO hardcoded defaults
   if (lowerField.includes("handwash") || lowerField.includes("hand wash") || lowerField.includes("hand-wash") || lowerField.includes("hand washing")) {
-    return dataMap.handwash_setup || dataMap.sanitizing_method || null;
+    return dataMap.hand_washing_setup || dataMap.handwash_setup || dataMap.sanitizing_method || null;
+  }
+
+  // Electricity / power source patterns
+  if (lowerField.includes("electricity") || lowerField.includes("power source") || lowerField.includes("electric source")) {
+    return dataMap.electricity_source || null;
+  }
+  if (lowerField.includes("generator")) {
+    return dataMap.generator_info || dataMap.electricity_source || null;
+  }
+
+  // Floor / wall / ceiling / interior patterns
+  if (lowerField.includes("floor") || lowerField.includes("ceiling") || lowerField.includes("interior surface") || lowerField.includes("walls")) {
+    return dataMap.truck_interior || null;
+  }
+
+  // Food suppliers / sources — extended to include supplier list
+  if (lowerField.includes("supplier") || lowerField.includes("vendor") || lowerField.includes("where.*purchased") || lowerField.includes("purchased from")) {
+    return dataMap.food_suppliers || dataMap.food_sources || null;
   }
 
   // Vehicle type/equipment type
@@ -1436,6 +1463,15 @@ export async function fillPdfFromDatabase(
       menu_items: vaultData.foodItemsList?.join(', ') || null,
       food_items: vaultData.foodItemsList?.join(', ') || null,
       food_sources: vaultData.foodSourceLocations?.join(', ') || null,
+      // Operations fields
+      food_suppliers: (vaultData as any).foodSuppliers || null,
+      electricity_source: (vaultData as any).electricitySource || null,
+      generator_info: (vaultData as any).generatorInfo || null,
+      waste_water_disposal: (vaultData as any).wasteWaterDisposal || null,
+      hand_washing_setup: (vaultData as any).handWashingSetup || null,
+      truck_interior: (vaultData as any).truckInteriorDescription || null,
+      garbage_setup: (vaultData as any).garbageSetup || null,
+      overnight_parking: (vaultData as any).overnightParkingAddress || null,
     };
     if (vaultData.mailingCity && vaultData.mailingState && vaultData.mailingZip) {
       vaultOverrides.city_state_zip = `${vaultData.mailingCity}, ${vaultData.mailingState} ${vaultData.mailingZip}`;
@@ -1803,4 +1839,74 @@ Rules:
   console.log(`[PDF Service] Saved ${mappingCount} fieldMappings to town_forms row ${townFormId}.`);
 
   return fieldMappings;
+}
+
+/**
+ * Parse a past permit PDF using Gemini Vision and return extracted field values.
+ * Used to backfill the data vault from historical permit applications.
+ */
+export async function parsePastPermit(pdfBytes: Uint8Array): Promise<Record<string, string>> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error("GOOGLE_API_KEY not configured");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+  const base64Pdf = Buffer.from(pdfBytes).toString("base64");
+
+  const prompt = `This is a food truck health permit application. Extract all filled-in field values and return as JSON with these exact keys (only include fields that have actual filled values — skip blanks):
+
+{
+  "businessName": "",
+  "ownerName": "",
+  "address": "",
+  "phone": "",
+  "email": "",
+  "menuItems": "",
+  "foodTransportMethod": "",
+  "tempMonitoring": "",
+  "foodSuppliers": "",
+  "handWashingSetup": "",
+  "waterSupply": "",
+  "wasteWaterDisposal": "",
+  "garbageSetup": "",
+  "truckInteriorDescription": "",
+  "electricitySource": "",
+  "commissaryName": "",
+  "commissaryAddress": "",
+  "commissaryPhone": "",
+  "hotHoldingMethod": "",
+  "coldHoldingMethod": ""
+}
+
+Return only valid JSON. No markdown fences. No explanation.`;
+
+  const result = await model.generateContent([
+    {
+      inlineData: {
+        mimeType: "application/pdf",
+        data: base64Pdf,
+      },
+    },
+    prompt,
+  ]);
+
+  const text = result.response.text().trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+
+  try {
+    const parsed = JSON.parse(text);
+    // Filter out empty / null values
+    const extracted: Record<string, string> = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      if (val && typeof val === "string" && val.trim()) {
+        extracted[key] = val.trim();
+      }
+    }
+    return extracted;
+  } catch {
+    console.error("[parsePastPermit] Failed to parse Gemini response:", text.substring(0, 200));
+    throw new Error("Failed to parse Gemini response as JSON");
+  }
 }

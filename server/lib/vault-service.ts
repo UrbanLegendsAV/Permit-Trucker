@@ -1,4 +1,7 @@
 import { storage } from "../storage";
+import { db } from "../db";
+import { profiles as profilesTable, dataVaults } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import type { DataVault, InsertDataVault, Profile } from "@shared/schema";
 
 interface ParsedDataLog {
@@ -235,6 +238,90 @@ export async function syncParsedDataToVault(profileId: string): Promise<DataVaul
   vaultData.confidenceScores = confidenceScores;
   vaultData.fieldSources = fieldSources;
   vaultData.lastSyncedFromParsedLog = new Date();
+
+  if (vault) {
+    return await storage.updateDataVault(vault.id, vaultData) ?? null;
+  } else {
+    return await storage.createDataVault(vaultData as InsertDataVault);
+  }
+}
+
+export async function syncProfileToVault(userId: string, profileId: string): Promise<DataVault | null> {
+  const profile = await storage.getProfile(profileId);
+  if (!profile) {
+    console.error(`syncProfileToVault: profile not found: ${profileId}`);
+    return null;
+  }
+
+  let vault = await storage.getDataVaultByProfileId(profileId);
+
+  const vaultData: Partial<InsertDataVault> = {
+    userId: profile.userId,
+    profileId: profile.id,
+  };
+
+  // Map from extractedData JSONB (set by document AI parsing)
+  const extracted = profile.extractedData as Record<string, string> | null;
+  if (extracted) {
+    if (extracted.businessName) vaultData.businessName = extracted.businessName;
+    if (extracted.ownerName) vaultData.ownerName = extracted.ownerName;
+    if (extracted.vin) vaultData.vehicleVin = extracted.vin;
+    if (extracted.licensePlate) vaultData.vehicleLicensePlate = extracted.licensePlate;
+  }
+
+  // Direct profile columns (highest priority — user-entered)
+  if (profile.commissaryName) vaultData.commissaryName = profile.commissaryName;
+  if (profile.commissaryAddress) vaultData.commissaryAddress = profile.commissaryAddress;
+  if ((profile as any).vinPlate && !vaultData.vehicleVin) vaultData.vehicleVin = (profile as any).vinPlate;
+
+  // Map operations data from onboarding step
+  const ops = (profile as any).operationsData as Record<string, any> | null;
+  if (ops) {
+    if (ops.electricitySource) vaultData.electricitySource = ops.electricitySource;
+    if (ops.generatorInfo) vaultData.generatorInfo = ops.generatorInfo;
+    if (ops.wasteWaterDisposal) vaultData.wasteWaterDisposal = ops.wasteWaterDisposal;
+    if (ops.handWashingSetup) vaultData.handWashingSetup = ops.handWashingSetup;
+    if (ops.truckInteriorDescription) vaultData.truckInteriorDescription = ops.truckInteriorDescription;
+    if (ops.garbageSetup) vaultData.garbageSetup = ops.garbageSetup;
+    if (ops.overnightParkingAddress) vaultData.overnightParkingAddress = ops.overnightParkingAddress;
+    if (ops.overnightParkingAuthorized !== undefined) vaultData.overnightParkingAuthorized = ops.overnightParkingAuthorized;
+    if (ops.commissaryPhone) vaultData.commissaryPhone = ops.commissaryPhone;
+    if (ops.hasCommissaryContract !== undefined) vaultData.hasCommissaryContract = ops.hasCommissaryContract;
+  }
+
+  // Build foodSuppliers string from food_suppliers table
+  try {
+    const suppliers = await storage.getFoodSuppliersByProfileId(profileId);
+    if (suppliers.length > 0) {
+      vaultData.foodSuppliers = suppliers
+        .map(s => s.supplierName + (s.suppliesWhat ? ` (${s.suppliesWhat})` : ''))
+        .join(', ');
+    }
+  } catch {
+    // non-fatal
+  }
+
+  // Map contact_info from parsedDataLog (phone, email, mailing address)
+  const parsedLog = profile.parsedDataLog as ParsedDataLog | null;
+  if (parsedLog?.contact_info) {
+    const ci = parsedLog.contact_info;
+    if (ci.phone?.value) vaultData.phone = ci.phone.value;
+    if (ci.email?.value) vaultData.email = ci.email.value;
+    if (ci.mailing_address?.value) {
+      const addr = parseAddress(ci.mailing_address.value);
+      if (addr.street) vaultData.mailingStreet = addr.street;
+      if (addr.city) vaultData.mailingCity = addr.city;
+      if (addr.state) vaultData.mailingState = addr.state;
+      if (addr.zip) vaultData.mailingZip = addr.zip;
+    }
+    // Fallback to parsedDataLog names only if not already set from extractedData
+    if (ci.business_name?.value && !vaultData.businessName) {
+      vaultData.businessName = ci.business_name.value;
+    }
+    if (ci.applicant_name?.value && !vaultData.ownerName) {
+      vaultData.ownerName = ci.applicant_name.value;
+    }
+  }
 
   if (vault) {
     return await storage.updateDataVault(vault.id, vaultData) ?? null;

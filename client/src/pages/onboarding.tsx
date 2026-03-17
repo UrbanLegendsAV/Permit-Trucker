@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Truck, Caravan, ArrowLeft, ArrowRight, Check, Upload, Globe, Eye, EyeOff, MapPin } from "lucide-react";
+import { Truck, Caravan, ArrowLeft, ArrowRight, Check, Globe, Eye, EyeOff, MapPin, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -14,8 +14,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const steps = ["Vehicle Type", "Details", "Food Info", "Documents", "Visibility"];
+const steps = ["Vehicle Type", "Details", "Food Info", "Suppliers & Ops", "Documents", "Visibility"];
+
+const SUPPLIER_SUGGESTIONS = ["Ki Brasil market", "Restaurant Depot", "Costco", "Price Rite", "CTOWN"];
 
 export default function Onboarding() {
   const [, setLocation] = useLocation();
@@ -33,6 +36,19 @@ export default function Onboarding() {
 
   const createProfileMutation = useMutation({
     mutationFn: async () => {
+      const operationsData = {
+        commissaryPhone: onboarding.commissaryPhone || undefined,
+        hasCommissaryContract: onboarding.hasCommissaryContract || undefined,
+        overnightParkingAddress: onboarding.overnightParkingAddress || undefined,
+        overnightParkingAuthorized: onboarding.overnightParkingAuthorized || undefined,
+        electricitySource: onboarding.electricitySource || undefined,
+        generatorInfo: onboarding.generatorInfo || undefined,
+        wasteWaterDisposal: onboarding.wasteWaterDisposal || undefined,
+        handWashingSetup: onboarding.handWashingSetup || undefined,
+        truckInteriorDescription: onboarding.truckInteriorDescription || undefined,
+        garbageSetup: onboarding.garbageSetup || undefined,
+      };
+
       const profileResponse = await apiRequest("POST", "/api/profiles", {
         userId: user?.id,
         vehicleType: onboarding.vehicleType,
@@ -43,13 +59,28 @@ export default function Onboarding() {
         hasQfoCert: onboarding.hasQfoCert,
         commissaryName: onboarding.commissaryName,
         commissaryAddress: onboarding.commissaryAddress,
+        operationsData,
         uploadsJson: { documents: onboarding.documents },
-        extractedData: Object.keys(onboarding.extractedData).length > 0 
-          ? onboarding.extractedData 
+        extractedData: Object.keys(onboarding.extractedData).length > 0
+          ? onboarding.extractedData
           : null,
       });
 
       const profile = await profileResponse.json();
+
+      // Save suppliers
+      for (const s of onboarding.suppliers) {
+        if (s.name.trim()) {
+          await apiRequest("POST", "/api/suppliers", {
+            supplierName: s.name.trim(),
+            suppliesWhat: s.suppliesWhat.trim() || undefined,
+            profileId: profile.id,
+          });
+        }
+      }
+
+      // Sync vault after profile creation
+      await apiRequest("POST", `/api/profiles/${profile.id}/sync-vault`, {});
 
       // Create public profile if opted in
       if (onboarding.wantsPublicProfile) {
@@ -87,18 +118,13 @@ export default function Onboarding() {
 
   const canProceed = () => {
     switch (currentStep) {
-      case 0:
-        return onboarding.vehicleType !== null;
-      case 1:
-        return true;
-      case 2:
-        return true;
-      case 3:
-        return true;
-      case 4:
-        return true; // Public profile opt-in is optional
-      default:
-        return false;
+      case 0: return onboarding.vehicleType !== null;
+      case 1: return true;
+      case 2: return true;
+      case 3: return true; // Suppliers & Ops — all optional
+      case 4: return true;
+      case 5: return true; // Visibility — optional
+      default: return false;
     }
   };
 
@@ -318,6 +344,170 @@ export default function Onboarding() {
         )}
 
         {currentStep === 3 && (
+          <div className="space-y-8">
+            <div className="text-center mb-6">
+              <h2 className="font-display text-2xl font-bold mb-2">Suppliers & Operations</h2>
+              <p className="text-muted-foreground">Used to auto-fill health permit applications</p>
+            </div>
+
+            {/* FOOD SUPPLIERS */}
+            <div className="space-y-3">
+              <div>
+                <Label className="text-base font-semibold">Food Suppliers</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">This appears on health permit applications (Question 4)</p>
+              </div>
+              {onboarding.suppliers.map((s, i) => (
+                <div key={i} className="flex gap-2 items-start">
+                  <div className="flex-1 space-y-1">
+                    <Input
+                      placeholder="Supplier name (e.g. Restaurant Depot)"
+                      value={s.name}
+                      onChange={(e) => {
+                        const updated = [...onboarding.suppliers];
+                        updated[i] = { ...updated[i], name: e.target.value };
+                        setOnboardingField("suppliers", updated);
+                      }}
+                      className="h-10"
+                    />
+                    <Input
+                      placeholder="What they supply (e.g. meats, produce)"
+                      value={s.suppliesWhat}
+                      onChange={(e) => {
+                        const updated = [...onboarding.suppliers];
+                        updated[i] = { ...updated[i], suppliesWhat: e.target.value };
+                        setOnboardingField("suppliers", updated);
+                      }}
+                      className="h-10"
+                    />
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => {
+                    setOnboardingField("suppliers", onboarding.suppliers.filter((_, idx) => idx !== i));
+                  }}>
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={() => setOnboardingField("suppliers", [...onboarding.suppliers, { name: "", suppliesWhat: "" }])}>
+                <Plus className="w-4 h-4 mr-2" /> Add another supplier
+              </Button>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {SUPPLIER_SUGGESTIONS.map(s => (
+                  <button key={s} type="button"
+                    className="text-xs px-2 py-1 rounded border border-border text-muted-foreground hover:bg-muted"
+                    onClick={() => setOnboardingField("suppliers", [...onboarding.suppliers, { name: s, suppliesWhat: "" }])}>
+                    + {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* COMMISSARY */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Commissary</Label>
+              {!onboarding.commissaryName && (
+                <Input placeholder="Commissary name" value={onboarding.commissaryName}
+                  onChange={(e) => setOnboardingField("commissaryName", e.target.value)} className="h-10" />
+              )}
+              {onboarding.commissaryName && (
+                <p className="text-sm text-muted-foreground">Commissary: <strong>{onboarding.commissaryName}</strong></p>
+              )}
+              <Input placeholder="Commissary phone" value={onboarding.commissaryPhone}
+                onChange={(e) => setOnboardingField("commissaryPhone", e.target.value)} className="h-10" />
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="font-medium">Commissary contract on file?</Label>
+                    <p className="text-xs text-muted-foreground">Do you have a written commissary agreement?</p>
+                  </div>
+                  <Switch checked={onboarding.hasCommissaryContract}
+                    onCheckedChange={(v) => setOnboardingField("hasCommissaryContract", v)} />
+                </div>
+              </Card>
+            </div>
+
+            {/* OVERNIGHT PARKING */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Vehicle Overnight Parking</Label>
+              <Input placeholder="Where is your truck parked overnight? (address)"
+                value={onboarding.overnightParkingAddress}
+                onChange={(e) => setOnboardingField("overnightParkingAddress", e.target.value)} className="h-10" />
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="font-medium">Written parking authorization?</Label>
+                  </div>
+                  <Switch checked={onboarding.overnightParkingAuthorized}
+                    onCheckedChange={(v) => setOnboardingField("overnightParkingAuthorized", v)} />
+                </div>
+              </Card>
+            </div>
+
+            {/* ELECTRICITY */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Electricity Source</Label>
+              <Select value={onboarding.electricitySource} onValueChange={(v) => setOnboardingField("electricitySource", v)}>
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="How is electricity provided?" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Generator (gas)">Generator (gas)</SelectItem>
+                  <SelectItem value="Generator (propane)">Generator (propane)</SelectItem>
+                  <SelectItem value="Shore power (venue provided)">Shore power (venue provided)</SelectItem>
+                  <SelectItem value="Solar">Solar</SelectItem>
+                  <SelectItem value="None needed">None needed</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              {onboarding.electricitySource?.startsWith("Generator") && (
+                <Input placeholder="Generator make/model (e.g. Honda EU2200i)"
+                  value={onboarding.generatorInfo}
+                  onChange={(e) => setOnboardingField("generatorInfo", e.target.value)} className="h-10" />
+              )}
+            </div>
+
+            {/* WASTE WATER */}
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Wastewater Disposal</Label>
+              <Textarea placeholder="Where is wastewater disposed?"
+                value={onboarding.wasteWaterDisposal}
+                onChange={(e) => setOnboardingField("wasteWaterDisposal", e.target.value)}
+                onFocus={(e) => { if (!e.target.value) setOnboardingField("wasteWaterDisposal", "Disposed of at commissary via their wastewater disposal systems"); }}
+                rows={2} />
+            </div>
+
+            {/* HAND WASHING */}
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Hand Washing Setup</Label>
+              <Textarea placeholder="Describe your hand washing setup"
+                value={onboarding.handWashingSetup}
+                onChange={(e) => setOnboardingField("handWashingSetup", e.target.value)}
+                onFocus={(e) => { if (!e.target.value) setOnboardingField("handWashingSetup", "Portable hand washing station with soap, paper towels, and a gravity-fed water container with a catch bucket"); }}
+                rows={2} />
+            </div>
+
+            {/* FLOORS / WALLS / CEILING */}
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Interior Surfaces</Label>
+              <Textarea placeholder="Describe floors, walls, and ceiling"
+                value={onboarding.truckInteriorDescription}
+                onChange={(e) => setOnboardingField("truckInteriorDescription", e.target.value)}
+                onFocus={(e) => { if (!e.target.value) setOnboardingField("truckInteriorDescription", "Stainless steel walls and ceiling, rubber non-slip flooring, LED lighting throughout"); }}
+                rows={2} />
+            </div>
+
+            {/* GARBAGE */}
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Garbage Disposal</Label>
+              <Textarea placeholder="Describe garbage disposal setup"
+                value={onboarding.garbageSetup}
+                onChange={(e) => setOnboardingField("garbageSetup", e.target.value)}
+                onFocus={(e) => { if (!e.target.value) setOnboardingField("garbageSetup", "Two 32-gallon covered garbage containers inside the truck, additional containers provided by event organizer at the event site"); }}
+                rows={2} />
+            </div>
+          </div>
+        )}
+
+        {currentStep === 4 && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">
@@ -365,7 +555,7 @@ export default function Onboarding() {
           </div>
         )}
 
-        {currentStep === 4 && (
+        {currentStep === 5 && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="font-display text-2xl font-bold mb-2">

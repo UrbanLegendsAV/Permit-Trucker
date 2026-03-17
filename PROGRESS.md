@@ -300,6 +300,37 @@
 
 ---
 
+## Phase 7: Complete Permit Data Collection (COMPLETE)
+
+### Auto-fill Data Pipeline — End-to-End
+- [x] New onboarding step "Suppliers & Operations" (step 3 of 6)
+  - Food suppliers section: repeatable name+what inputs, quick-add suggestion chips
+  - Commissary extension: phone, commissary contract toggle
+  - Overnight parking: address + authorization toggle
+  - Electricity source: dropdown (Generator gas/propane, Shore power, Solar, None, Other)
+  - Generator make/model (conditional on Generator selection)
+  - Wastewater disposal, Hand washing setup, Interior surfaces, Garbage setup (all with pre-fill on focus)
+- [x] `food_suppliers` table added (id, userId, profileId, supplierName, suppliesWhat, createdAt)
+- [x] `operations_data` JSONB column added to profiles table
+- [x] 10 new fields added to `data_vaults` table:
+  - foodSuppliers, electricitySource, generatorInfo, wasteWaterDisposal
+  - handWashingSetup, truckInteriorDescription, garbageSetup
+  - overnightParkingAddress, overnightParkingAuthorized, hasCommissaryContract
+- [x] `syncProfileToVault()` maps all new operations fields + builds foodSuppliers from food_suppliers table
+- [x] `buildDataMapFromParsedData()` + `fillPdfFromDatabase()` include all new vault fields
+- [x] `smartMatchFieldToData()` extended: waste water, garbage, hand washing, electricity, floor/interior, supplier patterns
+- [x] Past permit PDF parsing via Gemini Vision (`parsePastPermit()`)
+  - POST /api/profiles/:id/parse-past-permit — accepts base64 PDF, extracts 20 fields, syncs to vault
+  - profile.tsx: "Upload Past Permit" button per vehicle profile
+- [x] Vault completeness score on profile page
+  - 17-field coverage check, color-coded (green/amber/red)
+  - Progress bar + missing field list
+- [x] API: GET /api/suppliers, POST /api/suppliers, DELETE /api/suppliers/:id
+- [x] Onboarding saves suppliers + operations data + calls sync-vault on profile creation
+- [x] Vault sync bug fix: PATCH /api/profiles/:id now calls syncProfileToVault() fire-and-forget
+
+---
+
 ## Phase 6: SendGrid Outreach Agent (COMPLETE)
 
 ### Completed

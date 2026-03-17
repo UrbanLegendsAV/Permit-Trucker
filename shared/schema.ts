@@ -49,6 +49,18 @@ export const profiles = pgTable("profiles", {
   }>(),
   parsedDataLog: jsonb("parsed_data_log").$type<Record<string, unknown>>(),
   userOverrides: jsonb("user_overrides").$type<Record<string, { value: string; savedAt: string; fieldName?: string }>>(),
+  operationsData: jsonb("operations_data").$type<{
+    electricitySource?: string;
+    generatorInfo?: string;
+    wasteWaterDisposal?: string;
+    handWashingSetup?: string;
+    truckInteriorDescription?: string;
+    garbageSetup?: string;
+    overnightParkingAddress?: string;
+    overnightParkingAuthorized?: boolean;
+    commissaryPhone?: string;
+    hasCommissaryContract?: boolean;
+  }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -506,11 +518,23 @@ export const dataVaults = pgTable("data_vaults", {
   liabilityInsurancePolicyNumber: varchar("liability_insurance_policy_number", { length: 100 }),
   liabilityInsuranceExpiry: timestamp("liability_insurance_expiry"),
   
+  // Operations & Site Info (from onboarding "Suppliers & Operations" step)
+  foodSuppliers: text("food_suppliers"),         // comma-separated for PDF filling
+  electricitySource: text("electricity_source"),
+  generatorInfo: text("generator_info"),
+  wasteWaterDisposal: text("waste_water_disposal"),
+  handWashingSetup: text("hand_washing_setup"),
+  truckInteriorDescription: text("truck_interior_description"),
+  garbageSetup: text("garbage_setup"),
+  overnightParkingAddress: text("overnight_parking_address"),
+  overnightParkingAuthorized: boolean("overnight_parking_authorized"),
+  hasCommissaryContract: boolean("has_commissary_contract"),
+
   // Metadata about data quality
   confidenceScores: jsonb("confidence_scores").$type<Record<string, number>>(),
   fieldSources: jsonb("field_sources").$type<Record<string, string>>(),
   lastSyncedFromParsedLog: timestamp("last_synced_from_parsed_log"),
-  
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -666,3 +690,17 @@ export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: t
 export type InsertFoodTruck = z.infer<typeof insertFoodTruckSchema>;
 export type FoodTruck = typeof foodTrucks.$inferSelect;
 export type PortalCredential = typeof portalCredentials.$inferSelect;
+
+// Food suppliers — tracked per user/profile for permit applications
+export const foodSuppliers = pgTable("food_suppliers", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  supplierName: text("supplier_name").notNull(),
+  suppliesWhat: text("supplies_what"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFoodSupplierSchema = createInsertSchema(foodSuppliers).omit({ id: true, createdAt: true });
+export type InsertFoodSupplier = z.infer<typeof insertFoodSupplierSchema>;
+export type FoodSupplier = typeof foodSuppliers.$inferSelect;

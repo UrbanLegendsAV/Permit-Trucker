@@ -27,13 +27,14 @@ import {
   buildDataMapFromParsedData,
   smartMatchFieldToData,
   generateFieldMappingsFromNonFillablePDF,
-  type ParsedUserData 
+  parsePastPermit,
+  type ParsedUserData
 } from "./lib/pdf-service";
 import { townResearchService } from "./lib/town-research-service";
 import { formDiscoveryService } from "./lib/form-discovery-service";
 import { generalApiLimiter, documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
-import { syncParsedDataToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
+import { syncParsedDataToVault, syncProfileToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
 import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
 import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured, executeFormPortalSubmission, isPortalForm, detectPortalProvider } from "./lib/portal-automation-service";
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
@@ -408,10 +409,103 @@ export async function registerRoutes(
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
       }
+      // Keep vault in sync whenever profile data changes (fire-and-forget)
+      syncProfileToVault((req.user as any).id, req.params.id).catch(err =>
+        console.error("syncProfileToVault after PATCH failed:", err)
+      );
       res.json(profile);
     } catch (error) {
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  app.post("/api/profiles/:id/sync-vault", isAuthenticated, async (req, res) => {
+    try {
+      const vault = await syncProfileToVault((req.user as any).id, req.params.id);
+      if (!vault) {
+        return res.status(404).json({ message: "Profile not found or vault sync failed" });
+      }
+      res.json(vault);
+    } catch (error) {
+      console.error("Error syncing vault:", error);
+      res.status(500).json({ message: "Failed to sync vault" });
+    }
+  });
+
+  // POST /api/profiles/:id/parse-past-permit — extract fields from a past permit PDF
+  app.post("/api/profiles/:id/parse-past-permit", isAuthenticated, async (req, res) => {
+    try {
+      const { pdfBase64 } = req.body as { pdfBase64: string };
+      if (!pdfBase64) {
+        return res.status(400).json({ message: "pdfBase64 is required" });
+      }
+      const pdfBytes = Uint8Array.from(Buffer.from(pdfBase64, "base64"));
+      const extracted = await parsePastPermit(pdfBytes);
+
+      // Update profile with extracted operations data where applicable
+      const profile = await storage.getProfile(req.params.id);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      const currentOps = ((profile as any).operationsData as Record<string, any>) || {};
+      const updatedOps = {
+        ...currentOps,
+        ...(extracted.wasteWaterDisposal && { wasteWaterDisposal: extracted.wasteWaterDisposal }),
+        ...(extracted.handWashingSetup && { handWashingSetup: extracted.handWashingSetup }),
+        ...(extracted.truckInteriorDescription && { truckInteriorDescription: extracted.truckInteriorDescription }),
+        ...(extracted.garbageSetup && { garbageSetup: extracted.garbageSetup }),
+        ...(extracted.electricitySource && { electricitySource: extracted.electricitySource }),
+      };
+
+      await storage.updateProfile(req.params.id, { operationsData: updatedOps } as any);
+
+      // Sync to vault
+      await syncProfileToVault((req.user as any).id, req.params.id);
+
+      res.json({ extracted, fieldCount: Object.keys(extracted).length });
+    } catch (error) {
+      console.error("Error parsing past permit:", error);
+      const msg = error instanceof Error ? error.message : "Failed to parse past permit";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // Food Supplier endpoints
+  app.get("/api/suppliers", isAuthenticated, async (req, res) => {
+    try {
+      const suppliers = await storage.getFoodSuppliersByUserId((req.user as any).id);
+      res.json(suppliers);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch suppliers" });
+    }
+  });
+
+  app.post("/api/suppliers", isAuthenticated, async (req, res) => {
+    try {
+      const { supplierName, suppliesWhat, profileId } = req.body as { supplierName: string; suppliesWhat?: string; profileId?: string };
+      if (!supplierName?.trim()) {
+        return res.status(400).json({ message: "supplierName is required" });
+      }
+      const supplier = await storage.createFoodSupplier({
+        userId: (req.user as any).id,
+        profileId: profileId || null,
+        supplierName: supplierName.trim(),
+        suppliesWhat: suppliesWhat?.trim() || null,
+      } as any);
+      res.status(201).json(supplier);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create supplier" });
+    }
+  });
+
+  app.delete("/api/suppliers/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteFoodSupplier(parseInt(req.params.id), (req.user as any).id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete supplier" });
     }
   });
 
@@ -2426,6 +2520,24 @@ For text fields that require descriptive answers about food safety practices, se
       console.error("Error sending test email:", error);
       const message = error instanceof Error ? error.message : "Failed to send test email";
       res.status(500).json({ message });
+    }
+  });
+
+  // GET /api/admin/vault-debug/:userId — inspect raw data_vaults row for a user
+  app.get("/api/admin/vault-debug/:userId", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const profiles = await storage.getProfilesByUserId(req.params.userId);
+      const vaults = await Promise.all(
+        profiles.map(p => storage.getDataVaultByProfileId(p.id))
+      );
+      res.json({
+        userId: req.params.userId,
+        profiles: profiles.map(p => ({ id: p.id, name: (p as any).name })),
+        vaults: vaults.filter(Boolean),
+      });
+    } catch (error) {
+      console.error("Error fetching vault debug info:", error);
+      res.status(500).json({ message: "Failed to fetch vault debug info" });
     }
   });
 

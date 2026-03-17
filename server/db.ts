@@ -57,6 +57,34 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_contact_phone TEXT;
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS catering_website TEXT;
     `);
+    // Operations data on profiles
+    await client.query(`
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS operations_data JSONB;
+    `);
+    // Food suppliers table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS food_suppliers (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        profile_id VARCHAR REFERENCES profiles(id),
+        supplier_name TEXT NOT NULL,
+        supplies_what TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    // New operations fields on data_vaults
+    await client.query(`
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS food_suppliers TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS electricity_source TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS generator_info TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS waste_water_disposal TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS hand_washing_setup TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS truck_interior_description TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS garbage_setup TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS overnight_parking_address TEXT;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS overnight_parking_authorized BOOLEAN;
+      ALTER TABLE data_vaults ADD COLUMN IF NOT EXISTS has_commissary_contract BOOLEAN;
+    `);
     console.log('[DB] Migrations applied successfully');
   } catch (err) {
     console.error('[DB] Migration error:', err);

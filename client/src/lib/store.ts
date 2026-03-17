@@ -21,6 +21,17 @@ interface OnboardingData {
   hasQfoCert: boolean;
   commissaryName: string;
   commissaryAddress: string;
+  commissaryPhone: string;
+  hasCommissaryContract: boolean;
+  suppliers: Array<{ name: string; suppliesWhat: string }>;
+  overnightParkingAddress: string;
+  overnightParkingAuthorized: boolean;
+  electricitySource: string;
+  generatorInfo: string;
+  wasteWaterDisposal: string;
+  handWashingSetup: string;
+  truckInteriorDescription: string;
+  garbageSetup: string;
   documents: Array<{ name: string; type: string; url: string; folder?: string }>;
   extractedData: ExtractedOCRData;
   wantsPublicProfile: boolean;
@@ -76,6 +87,17 @@ const initialOnboarding: OnboardingData = {
   hasQfoCert: false,
   commissaryName: '',
   commissaryAddress: '',
+  commissaryPhone: '',
+  hasCommissaryContract: false,
+  suppliers: [],
+  overnightParkingAddress: '',
+  overnightParkingAuthorized: false,
+  electricitySource: '',
+  generatorInfo: '',
+  wasteWaterDisposal: '',
+  handWashingSetup: '',
+  truckInteriorDescription: '',
+  garbageSetup: '',
   documents: [],
   extractedData: {},
   wantsPublicProfile: false,
