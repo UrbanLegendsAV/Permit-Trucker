@@ -15,7 +15,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { foodTrucks } from "@shared/schema";
-import { eq, ilike, sql as drizzleSql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import { 
   fillPdfForm, 

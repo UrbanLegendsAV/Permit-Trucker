@@ -1,11 +1,16 @@
-import sgMail from '@sendgrid/mail';
 import { db } from '../db';
 import { foodTrucks } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+// Lazy-load SendGrid so the server starts even if the package isn't yet installed
+async function getSgMail() {
+  const mod = await import('@sendgrid/mail');
+  const sgMail = mod.default;
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+  return sgMail;
+}
 
-function buildOutreachEmail(truckName: string, slug: string): sgMail.MailDataRequired {
+function buildOutreachEmail(truckName: string, slug: string): Record<string, any> {
   const listingUrl = `https://permitpilot.cloud/directory/${slug}`;
   return {
     to: '',
@@ -141,6 +146,7 @@ export async function runOutreachAgent(): Promise<OutreachSummary> {
     }
 
     try {
+      const sgMail = await getSgMail();
       const msg = buildOutreachEmail(truck.name, truck.slug);
       msg.to = contactEmail;
       await sgMail.send(msg);
@@ -165,6 +171,7 @@ export async function runOutreachAgent(): Promise<OutreachSummary> {
 }
 
 export async function sendTestOutreachEmail(toEmail: string, slug: string): Promise<void> {
+  const sgMail = await getSgMail();
   const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug));
   const truckName = truck?.name ?? slug;
   const msg = buildOutreachEmail(truckName, slug);
