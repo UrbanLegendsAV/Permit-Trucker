@@ -96,38 +96,38 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-8">
-            <TabsTrigger value="pricing" data-testid="tab-pricing">
-              <DollarSign className="w-4 h-4 mr-2" />
-              Pricing
+          <TabsList className="flex w-full overflow-x-auto gap-1 h-auto p-1 scrollbar-none">
+            <TabsTrigger value="pricing" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-pricing">
+              <DollarSign className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Pricing</span>
             </TabsTrigger>
-            <TabsTrigger value="towns" data-testid="tab-towns">
-              <MapPin className="w-4 h-4 mr-2" />
-              Towns
+            <TabsTrigger value="towns" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-towns">
+              <MapPin className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Towns</span>
             </TabsTrigger>
-            <TabsTrigger value="forms" data-testid="tab-forms">
-              <FileText className="w-4 h-4 mr-2" />
-              Forms
+            <TabsTrigger value="forms" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-forms">
+              <FileText className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Forms</span>
             </TabsTrigger>
-            <TabsTrigger value="reviews" data-testid="tab-reviews">
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Reviews
+            <TabsTrigger value="reviews" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-reviews">
+              <MessageSquare className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Reviews</span>
             </TabsTrigger>
-            <TabsTrigger value="users" data-testid="tab-users">
-              <Users className="w-4 h-4 mr-2" />
-              Users
+            <TabsTrigger value="users" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-users">
+              <Users className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
-            <TabsTrigger value="outreach" data-testid="tab-outreach">
-              <Mail className="w-4 h-4 mr-2" />
-              Outreach
+            <TabsTrigger value="outreach" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-outreach">
+              <Mail className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Outreach</span>
             </TabsTrigger>
-            <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">
-              <Bot className="w-4 h-4 mr-2" />
-              Orchestrator
+            <TabsTrigger value="orchestrator" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-orchestrator">
+              <Bot className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Orchestrator</span>
             </TabsTrigger>
-            <TabsTrigger value="crawler" data-testid="tab-crawler">
-              <Globe2 className="w-4 h-4 mr-2" />
-              Crawler
+            <TabsTrigger value="crawler" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-crawler">
+              <Globe2 className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Crawler</span>
             </TabsTrigger>
           </TabsList>
 
@@ -952,7 +952,10 @@ function OutreachTab() {
       apiRequest("POST", "/api/admin/outreach").then((r: any) => r),
     onSuccess: (data) => {
       setRunResults(data);
-      toast({ title: `Outreach complete — ${data.sent} sent, ${data.failed} failed, ${data.skipped} skipped` });
+      const sent = data?.sent ?? 0;
+      const failed = data?.failed ?? 0;
+      const skipped = data?.skipped ?? 0;
+      toast({ title: `Outreach complete — ${sent} sent, ${failed} failed, ${skipped} skipped` });
     },
     onError: (err: any) => {
       toast({ title: "Outreach failed", description: err.message, variant: "destructive" });
@@ -1041,12 +1044,13 @@ function OutreachTab() {
         {runResults && (
           <div className="mt-6">
             <div className="flex gap-4 mb-4 text-sm">
-              <span className="text-green-600 font-medium">✓ {runResults.sent} sent</span>
-              <span className="text-red-500 font-medium">✗ {runResults.failed} failed</span>
-              <span className="text-muted-foreground">— {runResults.skipped} skipped</span>
+              <span className="text-green-600 font-medium">✓ {runResults.sent ?? 0} sent</span>
+              <span className="text-red-500 font-medium">✗ {runResults.failed ?? 0} failed</span>
+              <span className="text-muted-foreground">— {runResults.skipped ?? 0} skipped</span>
             </div>
+            {(runResults?.results ?? []).length > 0 && (
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {runResults.results.map((r, i) => (
+              {(runResults.results ?? []).map((r, i) => (
                 <div key={i} className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded">
                   <span className="font-medium">{r.name}</span>
                   <div className="flex items-center gap-2">
@@ -1061,6 +1065,7 @@ function OutreachTab() {
                 </div>
               ))}
             </div>
+            )}
           </div>
         )}
       </Card>
@@ -1352,11 +1357,17 @@ type CrawlerStats = {
   recentCrawls: Array<{ townId: string; townName: string | null; formsFound: number; crawledAt: string | null }>;
 };
 
+type EnrichResult = {
+  trucksUpdated: number;
+  fieldCounts: Record<string, number>;
+};
+
 function CrawlerTab({ towns }: { towns: Town[] }) {
   const { toast } = useToast();
   const [selectedTownId, setSelectedTownId] = useState("");
   const [forceRecrawl, setForceRecrawl] = useState(false);
   const [crawlResult, setCrawlResult] = useState<{ message: string; ok: boolean } | null>(null);
+  const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
     queryKey: ["/api/admin/crawler/stats"],
@@ -1383,6 +1394,25 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
     onError: (err: any) => {
       setCrawlResult({ message: err.message, ok: false });
       toast({ title: "Crawl failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const enrichMutation = useMutation({
+    mutationFn: () =>
+      fetch("/api/admin/enrich-trucks", {
+        method: "POST",
+        credentials: "include",
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || "Enrichment failed");
+        return data as EnrichResult;
+      }),
+    onSuccess: (data) => {
+      setEnrichResult(data);
+      toast({ title: "Enrichment complete", description: `${data.trucksUpdated} trucks updated` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Enrichment failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1453,6 +1483,38 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         {crawlResult && (
           <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${crawlResult.ok ? "bg-green-500/10 text-green-600 border border-green-500/20" : "bg-red-500/10 text-red-600 border border-red-500/20"}`}>
             {crawlResult.ok ? "✓ " : "✗ "}{crawlResult.message}
+          </div>
+        )}
+      </Card>
+
+      {/* Truck Profile Enrichment */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-1 flex items-center gap-2">
+          <Globe2 className="w-4 h-4" /> Truck Profile Enrichment
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Crawl each truck's website to auto-fill empty profile fields (phone, email, social handles, description). Only fills fields that are currently blank.
+        </p>
+        <Button
+          onClick={() => { setEnrichResult(null); enrichMutation.mutate(); }}
+          disabled={enrichMutation.isPending}
+        >
+          {enrichMutation.isPending ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Enriching...</>
+          ) : (
+            "Enrich All Trucks"
+          )}
+        </Button>
+        {enrichResult && (
+          <div className="mt-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-green-600">
+            <p className="font-medium">Updated {enrichResult.trucksUpdated} trucks</p>
+            {Object.keys(enrichResult.fieldCounts).length > 0 && (
+              <p className="mt-1 text-xs">
+                {Object.entries(enrichResult.fieldCounts)
+                  .map(([field, count]) => `${field} (${count})`)
+                  .join(" · ")}
+              </p>
+            )}
           </div>
         )}
       </Card>

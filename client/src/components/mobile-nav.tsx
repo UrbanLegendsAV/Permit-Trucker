@@ -1,14 +1,14 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, FileText, Trophy, User, Sparkles, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, User, ShieldCheck, MapPin } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
 
 const baseNavItems = [
-  { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/permits", icon: FileText, label: "Permits" },
-  { path: "/spots", icon: Sparkles, label: "Spots" },
-  { path: "/badges", icon: Trophy, label: "Badges" },
-  { path: "/profile", icon: User, label: "Profile" },
+  { path: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/directory",  icon: MapPin,           label: "Directory" },
+  { path: "/permits",    icon: FileText,          label: "Permits" },
+  { path: "/badges",     icon: Trophy,            label: "Badges" },
+  { path: "/profile",    icon: User,              label: "Profile" },
 ];
 
 export function MobileNav() {

@@ -40,6 +40,7 @@ import { storePortalCredentials, createPortalAutomationJob, executePortalAutomat
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
 import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
+import { enrichAllTrucks, enrichTruckFromWebsite } from "./lib/truck-enrichment-service";
 import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
 import multer from "multer";
@@ -3976,6 +3977,32 @@ For text fields that require descriptive answers about food safety practices, se
         .slice(0, 20);
 
       res.json({ totalTowns, townsWithForms, townsWithoutForms: totalTowns - townsWithForms, totalFormsDiscovered, recentCrawls });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/admin/enrich-trucks — run enrichment on all trucks with websites
+  app.post("/api/admin/enrich-trucks", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const results = await enrichAllTrucks();
+      const fieldCounts: Record<string, number> = {};
+      for (const r of results) {
+        for (const f of r.fields) {
+          fieldCounts[f] = (fieldCounts[f] ?? 0) + 1;
+        }
+      }
+      res.json({ trucksUpdated: results.length, fieldCounts, results });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/admin/enrich-trucks/:slug — enrich a single truck
+  app.post("/api/admin/enrich-trucks/:slug", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const result = await enrichTruckFromWebsite(req.params.slug);
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
