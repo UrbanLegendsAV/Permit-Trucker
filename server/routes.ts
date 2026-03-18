@@ -44,8 +44,29 @@ import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
 import multer from "multer";
 import { z } from "zod";
+import fs from "fs";
+import path from "path";
+import { randomUUID } from "crypto";
 
 const multerMemory = multer({ storage: multer.memoryStorage() });
+
+// Disk storage for image uploads
+const uploadsDir = path.resolve("uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const multerDisk = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname) || ".jpg";
+      cb(null, `${randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) (cb as any)(null, true);
+    else (cb as any)(new Error("Only image files allowed"), false);
+  },
+});
 
 const pdfFillSchema = z.object({
   permitId: z.string().min(1, "Permit ID is required"),
@@ -365,6 +386,19 @@ export async function registerRoutes(
   app.use(generalApiLimiter);
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  // Serve uploaded images
+  app.get("/api/uploads/:filename", (req, res) => {
+    const filePath = path.join(uploadsDir, req.params.filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ message: "Not found" });
+    res.sendFile(filePath);
+  });
+
+  // POST /api/upload — upload an image, returns { url }
+  app.post("/api/upload", isAuthenticated, multerDisk.single("file"), (req: any, res) => {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    res.json({ url: `/api/uploads/${req.file.filename}` });
+  });
 
   app.get("/api/profiles", isAuthenticated, async (req: any, res) => {
     try {
@@ -3737,14 +3771,25 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
-  // PATCH /api/directory/:slug — admin: update any food_truck field
-  app.patch("/api/directory/:slug", isAuthenticated, isAdmin, async (req, res) => {
+  // PATCH /api/directory/:slug — owner or admin: update food_truck fields
+  app.patch("/api/directory/:slug", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { slug } = req.params;
-      const [existing] = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
+      const [existing] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
       if (!existing) return res.status(404).json({ message: "Truck not found" });
-      // Strip fields that must not be overwritten
-      const { id: _id, slug: _slug, createdAt: _ca, ...safeBody } = req.body as any;
+
+      // Check access: must be the truck's owner or a site admin
+      const userRole = await storage.getUserRole(userId);
+      const isAdminUser = userRole === "admin" || userRole === "owner";
+      const isTruckOwner = existing.claimedByUserId === userId;
+      if (!isAdminUser && !isTruckOwner) return res.status(403).json({ message: "Forbidden" });
+
+      // Strip immutable fields; admins can also set status
+      const { id: _id, slug: _slug, createdAt: _ca, claimedByUserId: _cu, claimedAt: _cat, ...safeBody } = req.body as any;
+      if (!isAdminUser) delete safeBody.status;
+
       const [updated] = await db.update(foodTrucks).set(safeBody).where(eq(foodTrucks.slug, slug)).returning();
       res.json(updated);
     } catch (err: any) {

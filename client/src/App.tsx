@@ -22,6 +22,7 @@ import AdminTestParsing from "@/pages/admin-test-parsing";
 import DirectoryPage from "@/pages/directory";
 import TruckProfilePage from "@/pages/truck-profile";
 import ClaimFlow from "@/pages/claim-flow";
+import EditListingPage from "@/pages/edit-listing";
 import NotFound from "@/pages/not-found";
 import "leaflet/dist/leaflet.css";
 
@@ -58,6 +59,7 @@ function AppRouter() {
       <Route path="/admin/test-parsing" component={AdminTestParsing} />
       <Route path="/directory" component={DirectoryPage} />
       <Route path="/directory/:slug" component={TruckProfilePage} />
+      <Route path="/directory/:slug/edit" component={EditListingPage} />
       <Route path="/claim/:slug" component={ClaimFlow} />
       <Route component={NotFound} />
     </Switch>

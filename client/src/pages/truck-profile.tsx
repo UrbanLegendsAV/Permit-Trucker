@@ -49,6 +49,7 @@ type FoodTruck = {
   cateringContactEmail: string | null;
   cateringContactPhone: string | null;
   cateringWebsite: string | null;
+  claimedByUserId: string | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ function MiniMap({ lat, lng, name }: { lat: string; lng: string; name: string })
 export default function TruckProfilePage() {
   const { slug } = useParams<{ slug: string }>();
   const [, navigate] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   const { data: truck, isLoading, error } = useQuery<FoodTruck>({
     queryKey: [`/api/directory/${slug}`],
@@ -166,10 +167,25 @@ export default function TruckProfilePage() {
 
   const isClaimed = truck.status === "claimed";
   const heroBg = heroBgForCuisine(truck.cuisine);
+  const isOwnListing = isAuthenticated && !!(user as any) && truck.claimedByUserId === (user as any).id;
 
   return (
     <div className="min-h-screen bg-[#0A0F1E] text-white">
       <TopHeader />
+
+      {/* Edit banner — shown to the owner */}
+      {isOwnListing && (
+        <div className="bg-[#1B4FD8]/10 border-b border-[#1B4FD8]/30 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <p className="text-sm text-[#1B4FD8]">This is your listing. Keep it up to date to get found.</p>
+            <Link href={`/directory/${slug}/edit`}>
+              <Button size="sm" className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold shrink-0">
+                Edit Listing
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Unclaimed amber banner */}
       {!isClaimed && (
