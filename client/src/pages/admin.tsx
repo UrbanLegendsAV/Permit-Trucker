@@ -1389,7 +1389,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [discoveryTown, setDiscoveryTown] = useState("");
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
   const [importText, setImportText] = useState("");
-  const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[] }> } | null>(null);
+  const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[]; error?: string }> } | null>(null);
   const [importRows, setImportRows] = useState<Array<{ name: string; website: string; town: string; cuisine: string }> | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
 
@@ -1698,6 +1698,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
                       <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
                       <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
                       <th className="text-left px-3 py-2 font-medium text-muted-foreground">Enriched</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Error</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1713,6 +1714,9 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {t.enriched.length > 0 ? t.enriched.join(", ") : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-red-500 text-xs">
+                          {t.error ?? ""}
                         </td>
                       </tr>
                     ))}

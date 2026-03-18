@@ -4143,11 +4143,11 @@ For text fields that require descriptive answers about food safety practices, se
       return res.status(400).json({ message: "Provide either text or rows" });
     }
 
-    const results: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; enriched: string[] }> = [];
+    const results: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; enriched: string[]; error?: string }> = [];
     let added = 0, duplicates = 0, errors = 0;
 
     for (const row of inputRows) {
-      let { name, website, town } = row;
+      let { name, website, town, cuisine } = row;
       if (!name || name.length < 2) continue;
 
       // If URL-only entry, fetch page <title> as name
@@ -4202,8 +4202,9 @@ For text fields that require descriptive answers about food safety practices, se
         results.push({ name, slug: finalSlug, status: "added", enriched: [] });
         added++;
       } catch (err: any) {
-        results.push({ name, slug: finalSlug, status: "error", enriched: [] });
+        console.error('[Import] Failed to insert truck:', row.name, err.message);
         errors++;
+        results.push({ name, slug: finalSlug, status: "error", enriched: [], error: err.message });
       }
     }
 
