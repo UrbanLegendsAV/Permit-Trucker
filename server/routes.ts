@@ -4095,82 +4095,90 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
-  // POST /api/admin/import-trucks — manual import from pasted name/URL list
-  // Each line: "Truck Name | https://website.com"  OR  "Truck Name"  OR  "https://website.com"
+  // POST /api/admin/import-trucks
+  // Accepts either:
+  //   { text: string }  — one entry per line: "Name | https://url.com | Town"
+  //   { rows: Array<{ name, website?, town? }> }  — pre-parsed rows (from CSV upload)
   app.post("/api/admin/import-trucks", isAuthenticated, isAdmin, async (req, res) => {
-    const { text } = req.body ?? {};
-    if (!text || typeof text !== "string") {
-      return res.status(400).json({ message: "text is required" });
+    const { text, rows: rawRows } = req.body ?? {};
+
+    // Normalise input into a unified row shape
+    type InputRow = { name: string; website: string | null; town: string | null };
+    let inputRows: InputRow[] = [];
+
+    if (Array.isArray(rawRows)) {
+      // Structured rows from CSV parse on the client
+      inputRows = rawRows.map((r: any) => ({
+        name: String(r.name ?? "").replace(/['"]/g, "").trim(),
+        website: r.website ? String(r.website).trim() : null,
+        town: r.town ? String(r.town).trim() : null,
+      }));
+    } else if (text && typeof text === "string") {
+      // Plain text — each line: "Name | https://url | Town"
+      for (const line of text.split("\n").map((l: string) => l.trim()).filter(Boolean)) {
+        const parts = line.split("|").map((s: string) => s.trim());
+        let name = "", website: string | null = null, town: string | null = null;
+
+        if (parts.length >= 3) {
+          // Name | URL | Town  OR  URL | Name | Town
+          if (parts[0].startsWith("http")) { website = parts[0]; name = parts[1]; town = parts[2]; }
+          else { name = parts[0]; website = parts[1] || null; town = parts[2]; }
+        } else if (parts.length === 2) {
+          if (parts[0].startsWith("http")) { website = parts[0]; name = parts[1]; }
+          else { name = parts[0]; website = parts[1] || null; }
+        } else if (line.startsWith("http")) {
+          website = line;
+          try {
+            const hostname = new URL(line).hostname.replace(/^www\./, "");
+            name = hostname.split(".")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          } catch { name = line; }
+        } else {
+          name = line;
+        }
+
+        inputRows.push({ name: name.replace(/['"]/g, "").trim(), website, town });
+      }
+    } else {
+      return res.status(400).json({ message: "Provide either text or rows" });
     }
 
-    const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean);
     const results: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; enriched: string[] }> = [];
     let added = 0, duplicates = 0, errors = 0;
 
-    for (const line of lines) {
-      let name = "";
-      let website: string | null = null;
-
-      if (line.includes("|")) {
-        const [left, right] = line.split("|").map((s: string) => s.trim());
-        // Figure out which side is the URL
-        if (left.startsWith("http")) { website = left; name = right; }
-        else { name = left; website = right || null; }
-      } else if (line.startsWith("http")) {
-        website = line;
-        // Try to derive a name from the domain
-        try {
-          const hostname = new URL(line).hostname.replace(/^www\./, "");
-          name = hostname.split(".")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-        } catch { name = line; }
-      } else {
-        name = line;
-      }
-
-      name = name.replace(/['"]/g, "").trim();
+    for (const row of inputRows) {
+      let { name, website, town } = row;
       if (!name || name.length < 2) continue;
 
-      // If only website given, fetch page title as name
-      if (website && (!name || name.length < 3)) {
+      // If URL-only entry, fetch page <title> as name
+      if (website && name.length < 3) {
         try {
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 8000);
           const r = await fetch(website, { signal: ctrl.signal, headers: { "User-Agent": "PermitPilot/1.0" } });
           clearTimeout(t);
           const html = await r.text();
-          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          if (titleMatch) name = titleMatch[1].replace(/\s*[-|–].*$/, "").trim().slice(0, 80);
-        } catch { /* keep domain-derived name */ }
+          const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          if (m) name = m[1].replace(/\s*[-|–].*$/, "").trim().slice(0, 80);
+        } catch { /* keep domain name */ }
       }
 
-      // Generate slug
-      let slug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
+      const slug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
 
-      // Dedup: slug exact match
-      const existing = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
-      if (existing.length > 0) {
-        results.push({ name, slug, status: "duplicate", enriched: [] });
-        duplicates++;
-        continue;
-      }
+      // Dedup by slug
+      const bySlug = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
+      if (bySlug.length > 0) { results.push({ name, slug, status: "duplicate", enriched: [] }); duplicates++; continue; }
 
-      // Dedup: name fuzzy
+      // Dedup by name fuzzy
       const byName = await db.select({ id: foodTrucks.id }).from(foodTrucks)
         .where(sql`LOWER(name) LIKE LOWER(${"%" + name + "%"})`).limit(1);
-      if (byName.length > 0) {
-        results.push({ name, slug, status: "duplicate", enriched: [] });
-        duplicates++;
-        continue;
-      }
+      if (byName.length > 0) { results.push({ name, slug, status: "duplicate", enriched: [] }); duplicates++; continue; }
 
-      // Ensure unique slug
-      let attempt = 1;
-      let finalSlug = slug;
+      // Unique slug
+      let finalSlug = slug, attempt = 1;
       while (true) {
         const check = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, finalSlug)).limit(1);
         if (check.length === 0) break;
-        attempt++;
-        finalSlug = `${slug}-${attempt}`;
+        finalSlug = `${slug}-${++attempt}`;
       }
 
       try {
@@ -4178,18 +4186,18 @@ For text fields that require descriptive answers about food safety practices, se
           slug: finalSlug,
           name,
           website: website || null,
+          towns: town ? [town] : null,
           status: "unclaimed",
           outreachSent: false,
           source: "manual_import",
         }).onConflictDoNothing();
 
-        // Run enrichment immediately to fill phone/email/social/description from website
         let enriched: string[] = [];
         if (website) {
           try {
             const enrichResult = await enrichTruckFromWebsite(finalSlug);
             enriched = enrichResult.fields ?? [];
-          } catch { /* enrichment is best-effort */ }
+          } catch { /* best-effort */ }
         }
 
         results.push({ name, slug: finalSlug, status: "added", enriched });
@@ -4199,8 +4207,7 @@ For text fields that require descriptive answers about food safety practices, se
         errors++;
       }
 
-      // Polite delay between imports
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 300));
     }
 
     res.json({ added, duplicates, errors, trucks: results });

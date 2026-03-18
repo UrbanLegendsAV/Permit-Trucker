@@ -1390,6 +1390,8 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
   const [importText, setImportText] = useState("");
   const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[] }> } | null>(null);
+  const [importRows, setImportRows] = useState<Array<{ name: string; website: string; town: string }> | null>(null);
+  const [csvFileName, setCsvFileName] = useState("");
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
     queryKey: ["/api/admin/crawler/stats"],
@@ -1471,7 +1473,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: importText }),
+        body: JSON.stringify(importRows ? { rows: importRows } : { text: importText }),
       }).then(async (r) => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.message || "Import failed");
@@ -1564,18 +1566,114 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
           <Globe2 className="w-4 h-4" /> Manual Truck Import
         </h3>
         <p className="text-sm text-muted-foreground mb-3">
-          Paste one truck per line. Format: <code className="text-xs bg-muted px-1 py-0.5 rounded">Truck Name | https://website.com</code>, or just a name, or just a URL. The system creates an unclaimed listing and auto-enriches it from the website.
+          Upload a CSV or paste one truck per line. Columns / format: <code className="text-xs bg-muted px-1 py-0.5 rounded">Name | Website | Town</code>. Website and Town are optional. The system auto-enriches each truck from its website.
         </p>
+
+        {/* CSV upload */}
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Upload CSV (name, website, town columns)</label>
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer">
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-input rounded-md bg-background hover:bg-muted transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                Choose CSV file
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setCsvFileName(file.name);
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const raw = ev.target?.result as string;
+                    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+                    // Detect header row
+                    const firstLower = lines[0].toLowerCase();
+                    const hasHeader = /name|website|truck|url|town/.test(firstLower);
+                    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+                    // Parse header indices if present
+                    let nameIdx = 0, websiteIdx = 1, townIdx = 2;
+                    if (hasHeader) {
+                      const headers = firstLower.split(",").map((h) => h.replace(/['"]/g, "").trim());
+                      nameIdx = headers.findIndex((h) => /name|truck/.test(h));
+                      websiteIdx = headers.findIndex((h) => /web|url|site/.test(h));
+                      townIdx = headers.findIndex((h) => /town|city|location/.test(h));
+                      if (nameIdx === -1) nameIdx = 0;
+                      if (websiteIdx === -1) websiteIdx = 1;
+                      if (townIdx === -1) townIdx = 2;
+                    }
+
+                    const rows = dataLines.map((line) => {
+                      // Handle quoted fields with commas inside
+                      const cols: string[] = [];
+                      let cur = "", inQuote = false;
+                      for (const ch of line) {
+                        if (ch === '"') { inQuote = !inQuote; }
+                        else if (ch === "," && !inQuote) { cols.push(cur.trim()); cur = ""; }
+                        else { cur += ch; }
+                      }
+                      cols.push(cur.trim());
+                      return {
+                        name: (cols[nameIdx] ?? "").replace(/^"|"$/g, "").trim(),
+                        website: (cols[websiteIdx] ?? "").replace(/^"|"$/g, "").trim(),
+                        town: (cols[townIdx] ?? "").replace(/^"|"$/g, "").trim(),
+                      };
+                    }).filter((r) => r.name.length > 1);
+
+                    setImportRows(rows);
+                    setImportText(""); // clear textarea when CSV is loaded
+                  };
+                  reader.readAsText(file);
+                }}
+              />
+            </label>
+            {csvFileName && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                {csvFileName}
+                <span className="text-green-600 font-medium">({importRows?.length} rows)</span>
+                <button className="text-destructive hover:underline ml-1" onClick={() => { setImportRows(null); setCsvFileName(""); }}>✕</button>
+              </span>
+            )}
+          </div>
+          {importRows && importRows.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-y-auto rounded border border-border text-xs">
+              <table className="w-full">
+                <thead><tr className="bg-muted/30 border-b border-border"><th className="text-left px-2 py-1 font-medium text-muted-foreground">Name</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Website</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Town</th></tr></thead>
+                <tbody>
+                  {importRows.slice(0, 8).map((r, i) => (
+                    <tr key={i} className="border-b border-border/50 last:border-0">
+                      <td className="px-2 py-1">{r.name}</td>
+                      <td className="px-2 py-1 text-muted-foreground truncate max-w-[140px]">{r.website || "—"}</td>
+                      <td className="px-2 py-1 text-muted-foreground">{r.town || "—"}</td>
+                    </tr>
+                  ))}
+                  {importRows.length > 8 && <tr><td colSpan={3} className="px-2 py-1 text-muted-foreground">…and {importRows.length - 8} more</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="relative my-3 flex items-center gap-2">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted-foreground">or paste text</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
         <textarea
           value={importText}
-          onChange={(e) => setImportText(e.target.value)}
-          placeholder={"Brazilian BBQ Boys | https://brazilianbbqboys.com\nDanbury Taco Truck\nhttps://somedanburytruck.com"}
-          rows={6}
+          onChange={(e) => { setImportText(e.target.value); if (e.target.value) { setImportRows(null); setCsvFileName(""); } }}
+          placeholder={"Brazilian BBQ Boys | https://brazilianbbqboys.com | Danbury\nDanbury Taco Truck\nhttps://somedanburytruck.com"}
+          rows={5}
           className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background font-mono resize-y mb-3"
         />
         <Button
           onClick={() => { setImportResult(null); importMutation.mutate(); }}
-          disabled={importMutation.isPending || !importText.trim()}
+          disabled={importMutation.isPending || (!importText.trim() && !importRows?.length)}
         >
           {importMutation.isPending ? (
             <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Importing...</>
