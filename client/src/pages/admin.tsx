@@ -1388,6 +1388,8 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [discoveryMax, setDiscoveryMax] = useState(50);
   const [discoveryTown, setDiscoveryTown] = useState("");
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[] }> } | null>(null);
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
     queryKey: ["/api/admin/crawler/stats"],
@@ -1463,6 +1465,28 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
     },
   });
 
+  const importMutation = useMutation({
+    mutationFn: () =>
+      fetch("/api/admin/import-trucks", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: importText }),
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || "Import failed");
+        return data;
+      }),
+    onSuccess: (data: any) => {
+      setImportResult(data);
+      refetchDiscovery();
+      toast({ title: "Import complete", description: `${data.added} trucks added` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   return (
     <div className="space-y-6">
       {/* Stats row */}
@@ -1530,6 +1554,71 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         {crawlResult && (
           <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${crawlResult.ok ? "bg-green-500/10 text-green-600 border border-green-500/20" : "bg-red-500/10 text-red-600 border border-red-500/20"}`}>
             {crawlResult.ok ? "✓ " : "✗ "}{crawlResult.message}
+          </div>
+        )}
+      </Card>
+
+      {/* Manual Import */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-1 flex items-center gap-2">
+          <Globe2 className="w-4 h-4" /> Manual Truck Import
+        </h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Paste one truck per line. Format: <code className="text-xs bg-muted px-1 py-0.5 rounded">Truck Name | https://website.com</code>, or just a name, or just a URL. The system creates an unclaimed listing and auto-enriches it from the website.
+        </p>
+        <textarea
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={"Brazilian BBQ Boys | https://brazilianbbqboys.com\nDanbury Taco Truck\nhttps://somedanburytruck.com"}
+          rows={6}
+          className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background font-mono resize-y mb-3"
+        />
+        <Button
+          onClick={() => { setImportResult(null); importMutation.mutate(); }}
+          disabled={importMutation.isPending || !importText.trim()}
+        >
+          {importMutation.isPending ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Importing...</>
+          ) : (
+            "Import Trucks"
+          )}
+        </Button>
+
+        {importResult && (
+          <div className="mt-4 space-y-3">
+            <div className={`p-3 rounded-lg text-sm font-medium ${importResult.added > 0 ? "bg-green-500/10 border border-green-500/20 text-green-600" : "bg-muted border border-border text-muted-foreground"}`}>
+              {importResult.added} added · {importResult.duplicates} duplicates skipped · {importResult.errors} errors
+            </div>
+            {importResult.trucks.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Enriched</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importResult.trucks.map((t, i) => (
+                      <tr key={i} className="border-b border-border/50 last:border-0">
+                        <td className="px-3 py-2 font-medium">{t.name}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                            t.status === "added" ? "bg-green-500/10 text-green-600"
+                              : t.status === "duplicate" ? "bg-muted text-muted-foreground"
+                              : "bg-red-500/10 text-red-600"
+                          }`}>{t.status}</span>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {t.enriched.length > 0 ? t.enriched.join(", ") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </Card>

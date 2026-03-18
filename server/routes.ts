@@ -4095,6 +4095,117 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  // POST /api/admin/import-trucks — manual import from pasted name/URL list
+  // Each line: "Truck Name | https://website.com"  OR  "Truck Name"  OR  "https://website.com"
+  app.post("/api/admin/import-trucks", isAuthenticated, isAdmin, async (req, res) => {
+    const { text } = req.body ?? {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ message: "text is required" });
+    }
+
+    const lines = text.split("\n").map((l: string) => l.trim()).filter(Boolean);
+    const results: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; enriched: string[] }> = [];
+    let added = 0, duplicates = 0, errors = 0;
+
+    for (const line of lines) {
+      let name = "";
+      let website: string | null = null;
+
+      if (line.includes("|")) {
+        const [left, right] = line.split("|").map((s: string) => s.trim());
+        // Figure out which side is the URL
+        if (left.startsWith("http")) { website = left; name = right; }
+        else { name = left; website = right || null; }
+      } else if (line.startsWith("http")) {
+        website = line;
+        // Try to derive a name from the domain
+        try {
+          const hostname = new URL(line).hostname.replace(/^www\./, "");
+          name = hostname.split(".")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        } catch { name = line; }
+      } else {
+        name = line;
+      }
+
+      name = name.replace(/['"]/g, "").trim();
+      if (!name || name.length < 2) continue;
+
+      // If only website given, fetch page title as name
+      if (website && (!name || name.length < 3)) {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 8000);
+          const r = await fetch(website, { signal: ctrl.signal, headers: { "User-Agent": "PermitPilot/1.0" } });
+          clearTimeout(t);
+          const html = await r.text();
+          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          if (titleMatch) name = titleMatch[1].replace(/\s*[-|–].*$/, "").trim().slice(0, 80);
+        } catch { /* keep domain-derived name */ }
+      }
+
+      // Generate slug
+      let slug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
+
+      // Dedup: slug exact match
+      const existing = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
+      if (existing.length > 0) {
+        results.push({ name, slug, status: "duplicate", enriched: [] });
+        duplicates++;
+        continue;
+      }
+
+      // Dedup: name fuzzy
+      const byName = await db.select({ id: foodTrucks.id }).from(foodTrucks)
+        .where(sql`LOWER(name) LIKE LOWER(${"%" + name + "%"})`).limit(1);
+      if (byName.length > 0) {
+        results.push({ name, slug, status: "duplicate", enriched: [] });
+        duplicates++;
+        continue;
+      }
+
+      // Ensure unique slug
+      let attempt = 1;
+      let finalSlug = slug;
+      while (true) {
+        const check = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, finalSlug)).limit(1);
+        if (check.length === 0) break;
+        attempt++;
+        finalSlug = `${slug}-${attempt}`;
+      }
+
+      try {
+        await db.insert(foodTrucks).values({
+          slug: finalSlug,
+          name,
+          website: website || null,
+          status: "unclaimed",
+          outreachSent: false,
+          source: "manual_import",
+        }).onConflictDoNothing();
+
+        // Run enrichment immediately to fill phone/email/social/description from website
+        let enriched: string[] = [];
+        if (website) {
+          try {
+            const enrichResult = await enrichTruckFromWebsite(finalSlug);
+            enriched = enrichResult.fields ?? [];
+          } catch { /* enrichment is best-effort */ }
+        }
+
+        results.push({ name, slug: finalSlug, status: "added", enriched });
+        added++;
+      } catch (err: any) {
+        results.push({ name, slug: finalSlug, status: "error", enriched: [] });
+        errors++;
+      }
+
+      // Polite delay between imports
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    res.json({ added, duplicates, errors, trucks: results });
+  });
+
   /*
     SENDGRID INBOUND PARSE SETUP:
     1. Go to SendGrid → Settings → Inbound Parse
