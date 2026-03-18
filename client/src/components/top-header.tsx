@@ -39,8 +39,13 @@ export function TopHeader({ title }: TopHeaderProps) {
         {/* Right side */}
         <div className="flex items-center gap-2">
           {isAuthenticated ? (
-            /* Authenticated — theme toggle + notifications */
+            /* Authenticated — directory link + theme toggle + notifications */
             <>
+              <nav className="hidden sm:flex items-center gap-1 mr-2">
+                <Link href="/directory">
+                  <Button variant="ghost" size="sm" className="text-sm">Directory</Button>
+                </Link>
+              </nav>
               <Button
                 variant="ghost"
                 size="icon"
@@ -58,7 +63,7 @@ export function TopHeader({ title }: TopHeaderProps) {
             <>
               <nav className="hidden sm:flex items-center gap-1 mr-2">
                 <Link href="/directory">
-                  <Button variant="ghost" size="sm" className="text-sm">Find Trucks</Button>
+                  <Button variant="ghost" size="sm" className="text-sm">Directory</Button>
                 </Link>
                 <Link href="/#how-it-works">
                   <Button variant="ghost" size="sm" className="text-sm">For Food Trucks</Button>
