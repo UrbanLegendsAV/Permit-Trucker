@@ -1362,12 +1362,31 @@ type EnrichResult = {
   fieldCounts: Record<string, number>;
 };
 
+type DiscoveryPreview = {
+  totalTrucks: number;
+  unclaimed: number;
+  autoDiscovered: number;
+  manual: number;
+  lastDiscoveryRun: string | null;
+};
+
+type DiscoveryResult = {
+  discovered: number;
+  added: number;
+  duplicates: number;
+  errors: number;
+  trucks: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; source: string }>;
+};
+
 function CrawlerTab({ towns }: { towns: Town[] }) {
   const { toast } = useToast();
   const [selectedTownId, setSelectedTownId] = useState("");
   const [forceRecrawl, setForceRecrawl] = useState(false);
   const [crawlResult, setCrawlResult] = useState<{ message: string; ok: boolean } | null>(null);
   const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
+  const [discoverySource, setDiscoverySource] = useState<"all" | "google" | "instagram" | "directories">("all");
+  const [discoveryMax, setDiscoveryMax] = useState(50);
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
     queryKey: ["/api/admin/crawler/stats"],
@@ -1413,6 +1432,33 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
     },
     onError: (err: any) => {
       toast({ title: "Enrichment failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const { data: discoveryPreview, refetch: refetchDiscovery } = useQuery<DiscoveryPreview>({
+    queryKey: ["/api/admin/discover-trucks/preview"],
+    queryFn: () => fetch("/api/admin/discover-trucks/preview", { credentials: "include" }).then((r) => r.json()),
+  });
+
+  const discoveryMutation = useMutation({
+    mutationFn: () =>
+      fetch("/api/admin/discover-trucks/run-sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxNew: discoveryMax, source: discoverySource }),
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || "Discovery failed");
+        return data as DiscoveryResult;
+      }),
+    onSuccess: (data) => {
+      setDiscoveryResult(data);
+      refetchDiscovery();
+      toast({ title: "Discovery complete", description: `${data.added} new trucks added` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Discovery failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1483,6 +1529,122 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         {crawlResult && (
           <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${crawlResult.ok ? "bg-green-500/10 text-green-600 border border-green-500/20" : "bg-red-500/10 text-red-600 border border-red-500/20"}`}>
             {crawlResult.ok ? "✓ " : "✗ "}{crawlResult.message}
+          </div>
+        )}
+      </Card>
+
+      {/* Food Truck Discovery */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-1 flex items-center gap-2">
+          <Globe2 className="w-4 h-4" /> Food Truck Discovery
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Proactively scan Google, Instagram, and CT directories to find new Connecticut food trucks and seed them as unclaimed listings.
+        </p>
+
+        {/* Preview stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div className="bg-muted/50 rounded-lg p-3 text-center">
+            <p className="text-xl font-bold">{discoveryPreview?.totalTrucks ?? "—"}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Total Trucks</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-3 text-center">
+            <p className="text-xl font-bold text-amber-500">{discoveryPreview?.unclaimed ?? "—"}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Unclaimed</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-3 text-center">
+            <p className="text-xl font-bold text-primary">{discoveryPreview?.autoDiscovered ?? "—"}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Auto-Discovered</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-3 text-center">
+            <p className="text-xs text-muted-foreground mt-1">Last Run</p>
+            <p className="text-xs font-medium mt-0.5 truncate">
+              {discoveryPreview?.lastDiscoveryRun
+                ? new Date(discoveryPreview.lastDiscoveryRun).toLocaleDateString()
+                : "Never"}
+            </p>
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-3">
+          <select
+            value={discoverySource}
+            onChange={(e) => setDiscoverySource(e.target.value as typeof discoverySource)}
+            className="border border-input rounded-md px-3 py-2 text-sm bg-background"
+          >
+            <option value="all">All Sources</option>
+            <option value="google">Google Search</option>
+            <option value="instagram">Instagram Hashtags</option>
+            <option value="directories">CT Directories</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground whitespace-nowrap">Max results:</label>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={discoveryMax}
+              onChange={(e) => setDiscoveryMax(Math.min(200, Math.max(1, Number(e.target.value))))}
+              className="border border-input rounded-md px-3 py-2 text-sm bg-background w-24"
+            />
+          </div>
+          <Button
+            onClick={() => { setDiscoveryResult(null); discoveryMutation.mutate(); }}
+            disabled={discoveryMutation.isPending}
+            className="sm:ml-auto"
+          >
+            {discoveryMutation.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Scanning Connecticut...</>
+            ) : (
+              "Discover New Trucks"
+            )}
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground mb-3">
+          New trucks are added as 'Unclaimed'. Run <strong>Outreach</strong> after discovery to contact them.
+        </p>
+
+        {/* Results */}
+        {discoveryResult && (
+          <div className="mt-2 space-y-3">
+            <div className={`p-3 rounded-lg text-sm font-medium ${discoveryResult.added > 0 ? "bg-green-500/10 border border-green-500/20 text-green-600" : "bg-muted border border-border text-muted-foreground"}`}>
+              Found {discoveryResult.discovered} trucks — {discoveryResult.added} added, {discoveryResult.duplicates} duplicates skipped
+              {discoveryResult.errors > 0 && `, ${discoveryResult.errors} errors`}
+            </div>
+            {discoveryResult.trucks.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Source</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {discoveryResult.trucks.map((t, i) => (
+                      <tr key={i} className="border-b border-border/50 last:border-0">
+                        <td className="px-3 py-2 font-medium">{t.name}</td>
+                        <td className="px-3 py-2 text-muted-foreground capitalize">{t.source}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                            t.status === "added"
+                              ? "bg-green-500/10 text-green-600"
+                              : t.status === "duplicate"
+                              ? "bg-muted text-muted-foreground"
+                              : "bg-red-500/10 text-red-600"
+                          }`}>
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </Card>

@@ -14,7 +14,7 @@ import {
   insertTownRequestSchema,
 } from "@shared/schema";
 import { db } from "./db";
-import { foodTrucks, towns, townForms, publicProfiles, portalCredentials } from "@shared/schema";
+import { foodTrucks, towns, townForms, publicProfiles, portalCredentials, configs } from "@shared/schema";
 import { eq, desc, count as sqlCount, and, isNotNull } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import {
@@ -41,6 +41,7 @@ import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib
 import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
 import { enrichAllTrucks, enrichTruckFromWebsite } from "./lib/truck-enrichment-service";
+import { discoverNewTrucks, discoverFromSource, getLastRunTime } from "./lib/truck-discovery-service";
 import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
 import multer from "multer";
@@ -3977,6 +3978,92 @@ For text fields that require descriptive answers about food safety practices, se
         .slice(0, 20);
 
       res.json({ totalTowns, townsWithForms, townsWithoutForms: totalTowns - townsWithForms, totalFormsDiscovered, recentCrawls });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/admin/discover-trucks — run autonomous CT food truck discovery
+  app.post("/api/admin/discover-trucks", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { maxNew = 50, source = "all" } = req.body ?? {};
+
+      // 1-hour cooldown (only enforced for "all" source to allow per-source reruns)
+      if (source === "all") {
+        const lastRun = await getLastRunTime();
+        if (lastRun) {
+          const elapsedMs = Date.now() - lastRun.getTime();
+          if (elapsedMs < 60 * 60 * 1000) {
+            const waitMinutes = Math.ceil((60 * 60 * 1000 - elapsedMs) / 60000);
+            return res.status(429).json({
+              message: `Discovery cooldown active. Next run available in ${waitMinutes} minute(s).`,
+            });
+          }
+        }
+      }
+
+      // Run async so the request returns quickly — client polls /preview for updates
+      res.json({ message: "Discovery started", status: "running" });
+
+      const capMax = Math.min(Number(maxNew) || 50, 200);
+      if (source === "all") {
+        discoverNewTrucks(capMax).catch((err) =>
+          console.error("[Discovery] Background run error:", err),
+        );
+      } else {
+        discoverFromSource(source as "google" | "instagram" | "directories", capMax).catch(
+          (err) => console.error("[Discovery] Background run error:", err),
+        );
+      }
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/admin/discover-trucks/run-sync — same but waits for result (for UI that wants results)
+  app.post("/api/admin/discover-trucks/run-sync", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { maxNew = 50, source = "all" } = req.body ?? {};
+      const capMax = Math.min(Number(maxNew) || 50, 200);
+
+      const summary =
+        source === "all"
+          ? await discoverNewTrucks(capMax)
+          : await discoverFromSource(source as "google" | "instagram" | "directories", capMax);
+
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/discover-trucks/preview — stats for the discovery panel
+  app.get("/api/admin/discover-trucks/preview", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const [{ count: totalRaw }] = await db
+        .select({ count: sqlCount() })
+        .from(foodTrucks);
+      const total = Number(totalRaw);
+
+      const [{ count: unclaimedRaw }] = await db
+        .select({ count: sqlCount() })
+        .from(foodTrucks)
+        .where(eq(foodTrucks.status, "unclaimed"));
+
+      const [{ count: autoRaw }] = await db
+        .select({ count: sqlCount() })
+        .from(foodTrucks)
+        .where(eq(foodTrucks.source, "auto_discovered"));
+
+      const lastRun = await getLastRunTime();
+
+      res.json({
+        totalTrucks: total,
+        unclaimed: Number(unclaimedRaw),
+        autoDiscovered: Number(autoRaw),
+        manual: total - Number(autoRaw),
+        lastDiscoveryRun: lastRun ? lastRun.toISOString() : null,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
