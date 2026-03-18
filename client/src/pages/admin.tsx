@@ -1365,7 +1365,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
 
   const crawlMutation = useMutation({
     mutationFn: () =>
-      fetch(`/api/towns/${selectedTownId}/discover`, {
+      fetch(`/api/towns/${selectedTownId}/discover-forms`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

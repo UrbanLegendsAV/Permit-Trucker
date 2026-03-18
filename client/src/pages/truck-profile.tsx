@@ -99,12 +99,42 @@ function MiniMap({ lat, lng, name }: { lat: string; lng: string; name: string })
   );
 }
 
+// ── Badge Pip (sidebar mini badge) ────────────────────────────────────────────
+
+const BADGE_META: Record<string, { label: string; color: string }> = {
+  pioneer:           { label: "Town Pioneer",       color: "#F5A623" },
+  explorer:          { label: "Explorer",            color: "#94A3B8" },
+  first_permit:      { label: "First Steps",         color: "#CD7F32" },
+  multi_town:        { label: "Multi-Town",          color: "#1B4FD8" },
+  health_inspection: { label: "Clean Bill",          color: "#00C896" },
+  verified_operator: { label: "Verified Operator",   color: "#1B4FD8" },
+};
+
+function BadgePip({ type }: { type: string }) {
+  const meta = BADGE_META[type] ?? { label: type, color: "#8897B2" };
+  return (
+    <div
+      title={meta.label}
+      className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-[10px] font-bold"
+      style={{ background: `${meta.color}22`, color: meta.color, borderColor: `${meta.color}44` }}
+    >
+      {meta.label.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TruckProfilePage() {
   const { slug } = useParams<{ slug: string }>();
   const [, navigate] = useLocation();
   const { isAuthenticated, user } = useAuth();
+
+  const { data: publicBadges = [] } = useQuery<string[]>({
+    queryKey: [`/api/directory/${slug}/badges`],
+    queryFn: () => fetch(`/api/directory/${slug}/badges`).then(r => r.json()),
+    enabled: !!slug,
+  });
 
   const { data: truck, isLoading, error } = useQuery<FoodTruck>({
     queryKey: [`/api/directory/${slug}`],
@@ -404,6 +434,18 @@ export default function TruckProfilePage() {
             {/* Mini map — home base location */}
             {truck.homeLat && truck.homeLng && (
               <MiniMap lat={truck.homeLat} lng={truck.homeLng} name={truck.name} />
+            )}
+
+            {/* Earned badges (if claimed) */}
+            {isClaimed && publicBadges.length > 0 && (
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-3">Badges</h3>
+                <div className="flex gap-2 flex-wrap">
+                  {publicBadges.map(b => (
+                    <BadgePip key={b} type={b} />
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Share */}

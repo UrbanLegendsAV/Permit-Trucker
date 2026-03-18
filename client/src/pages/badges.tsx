@@ -10,11 +10,15 @@ import { Trophy, Medal, Crown, Star } from "lucide-react";
 import type { Badge as BadgeType, Town } from "@shared/schema";
 
 const allBadgeTypes = [
-  { type: "first_permit", tier: "bronze" },
-  { type: "pioneer", tier: "gold" },
-  { type: "multi_town", tier: "silver" },
-  { type: "speed_demon", tier: "bronze" },
-  { type: "helper", tier: "bronze" },
+  { type: "first_permit",      tier: "bronze", unlock: "File your first permit" },
+  { type: "pioneer",           tier: "gold",   unlock: "First to file in a new CT town" },
+  { type: "explorer",          tier: "silver", unlock: "File in a town with verified forms" },
+  { type: "multi_town",        tier: "silver", unlock: "File permits in 3+ towns" },
+  { type: "speed_demon",       tier: "bronze", unlock: "File within 10 min of signing up" },
+  { type: "food_type",         tier: "bronze", unlock: "File for your cuisine type" },
+  { type: "helper",            tier: "bronze", unlock: "Contribute permit data for others" },
+  { type: "health_inspection", tier: "gold",   unlock: "Upload a verified health inspection report" },
+  { type: "verified_operator", tier: "gold",   unlock: "Complete your data vault to 85%+" },
 ];
 
 interface LeaderboardEntry {
@@ -131,6 +135,7 @@ export default function BadgesPage() {
                           badgeType={b.type}
                           tier={b.tier}
                           isLocked
+                          unlockHint={b.unlock}
                         />
                       ))}
                   </div>

@@ -147,6 +147,11 @@ export default function ProfilePage() {
     enabled: isAuthenticated,
   });
 
+  const { data: badges = [] } = useQuery<any[]>({
+    queryKey: ["/api/badges"],
+    enabled: isAuthenticated,
+  });
+
   const { data: vaultData } = useQuery<Record<string, any> | null>({
     queryKey: ["/api/vault"],
     enabled: isAuthenticated,
@@ -239,6 +244,12 @@ export default function ProfilePage() {
                 <Mail className="w-3.5 h-3.5" />
                 {user?.email || "No email"}
               </p>
+              {badges.length > 0 && (
+                <div className="flex items-center gap-1 mt-1">
+                  <span className="text-xs text-[#F5A623]">★</span>
+                  <span className="text-xs text-muted-foreground">{badges.length} badge{badges.length !== 1 ? "s" : ""} earned</span>
+                </div>
+              )}
             </div>
           </div>
         </Card>

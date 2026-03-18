@@ -969,6 +969,30 @@ ${prompt}`;
       const vault = await syncParsedDataToVault(id);
       const vaultCompleteness = vault?.id ? await getVaultCompleteness(vault.id) : null;
 
+      // Badge awards post-parse
+      const userId = getUserId(req);
+      if (userId && vault?.id) {
+        const badgesForUser = await storage.getBadges(userId);
+
+        // Health Inspection badge: doc folder is "health-permit" or "health_permit"
+        const docFolder = (doc as any).folder || "";
+        const isHealthDoc = docFolder === "health-permit" || docFolder === "health_permit" || docFolder === "health_inspection";
+        if (isHealthDoc && fieldsExtracted >= 3) {
+          const hasHealthBadge = badgesForUser.some(b => b.badgeType === "health_inspection");
+          if (!hasHealthBadge) {
+            await storage.createBadge({ userId, badgeType: "health_inspection", tier: "gold" });
+          }
+        }
+
+        // Verified Operator badge: vault completeness >= 85%
+        if (vaultCompleteness && vaultCompleteness.percentage >= 85) {
+          const hasVerified = badgesForUser.some(b => b.badgeType === "verified_operator");
+          if (!hasVerified) {
+            await storage.createBadge({ userId, badgeType: "verified_operator", tier: "gold" });
+          }
+        }
+      }
+
       res.json({
         success: true,
         fieldsExtracted,
@@ -1274,7 +1298,31 @@ ${prompt}`;
           }
         }
       }
-      
+
+      // Multi-Town badge: 3+ distinct towns across all user permits
+      const allPermits = await storage.getPermits(userId);
+      const distinctTowns = new Set(allPermits.map((p: any) => p.townId).filter(Boolean));
+      if (distinctTowns.size >= 3) {
+        const hasMultiTown = existingBadges.some(b => b.badgeType === "multi_town");
+        if (!hasMultiTown) {
+          await storage.createBadge({ userId, badgeType: "multi_town", tier: "silver" });
+        }
+      }
+
+      // Speed Demon badge: permit filed within 10 min of profile creation
+      if (permit.profileId) {
+        const profileForSpeed = await storage.getProfile(permit.profileId);
+        if (profileForSpeed?.createdAt) {
+          const minutesDiff = (Date.now() - new Date(profileForSpeed.createdAt).getTime()) / 60000;
+          if (minutesDiff <= 10) {
+            const hasSpeedDemon = existingBadges.some(b => b.badgeType === "speed_demon");
+            if (!hasSpeedDemon) {
+              await storage.createBadge({ userId, badgeType: "speed_demon", tier: "bronze" });
+            }
+          }
+        }
+      }
+
       res.status(201).json(permit);
     } catch (error) {
       console.error("Error creating permit:", error);
@@ -3744,6 +3792,20 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error claiming truck:", error);
       res.status(500).json({ message: "Failed to claim listing" });
+    }
+  });
+
+  // GET /api/directory/:slug/badges — public: return earned badge types for a claimed truck
+  app.get("/api/directory/:slug/badges", async (req, res) => {
+    try {
+      const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, req.params.slug));
+      if (!truck || !truck.claimedByUserId) return res.json([]);
+      const badges = await storage.getBadges(truck.claimedByUserId);
+      const publicTypes = ["pioneer", "health_inspection", "verified_operator", "multi_town", "first_permit", "explorer"];
+      res.json(badges.filter(b => publicTypes.includes(b.badgeType)).map(b => b.badgeType));
+    } catch (err) {
+      console.error("Error fetching public badges:", err);
+      res.json([]);
     }
   });
 

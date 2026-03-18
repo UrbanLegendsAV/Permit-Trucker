@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Plus, ChevronRight, Trophy, FileText, Truck, ArrowRight } from "lucide-react";
+import { Plus, ChevronRight, Trophy, FileText, ArrowRight } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -114,7 +114,18 @@ export default function Dashboard() {
             </Button>
           </div>
           <div className="absolute right-4 bottom-4 opacity-10">
-            <Truck className="w-32 h-32" />
+            <svg viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-24 h-16">
+              <rect x="10" y="25" width="75" height="35" rx="4" fill="currentColor"/>
+              <rect x="75" y="30" width="30" height="30" rx="4" fill="currentColor" opacity="0.7"/>
+              <rect x="80" y="34" width="18" height="14" rx="2" fill="white" opacity="0.3"/>
+              <rect x="25" y="28" width="35" height="18" rx="2" fill="white" opacity="0.15"/>
+              <path d="M22 28 L62 28 L62 24 L22 24 Z" fill="currentColor" opacity="0.5"/>
+              <circle cx="30" cy="60" r="8" fill="white" opacity="0.2"/>
+              <circle cx="30" cy="60" r="4" fill="currentColor" opacity="0.4"/>
+              <circle cx="85" cy="60" r="8" fill="white" opacity="0.2"/>
+              <circle cx="85" cy="60" r="4" fill="currentColor" opacity="0.4"/>
+              <rect x="103" y="22" width="4" height="12" rx="2" fill="currentColor" opacity="0.3"/>
+            </svg>
           </div>
         </section>
 

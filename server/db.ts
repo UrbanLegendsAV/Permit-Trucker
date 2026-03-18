@@ -138,6 +138,11 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS tiktok_handle TEXT;
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS facebook_handle TEXT;
     `);
+    // New badge types
+    await client.query(`
+      ALTER TYPE badge_type ADD VALUE IF NOT EXISTS 'health_inspection';
+      ALTER TYPE badge_type ADD VALUE IF NOT EXISTS 'verified_operator';
+    `);
     console.log('[DB] Migrations applied successfully');
 
     // Grant owner role to admin emails from environment
