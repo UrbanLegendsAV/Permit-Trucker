@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0A0F1E"/>
+
+  <!-- Subtle grid pattern -->
+  <defs>
+    <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#1B4FD8" stroke-width="0.3" opacity="0.2"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <!-- Blue glow top-left -->
+  <radialGradient id="glow1" cx="20%" cy="30%" r="40%">
+    <stop offset="0%" stop-color="#1B4FD8" stop-opacity="0.25"/>
+    <stop offset="100%" stop-color="#1B4FD8" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1200" height="630" fill="url(#glow1)"/>
+
+  <!-- Green glow bottom-right -->
+  <radialGradient id="glow2" cx="80%" cy="70%" r="35%">
+    <stop offset="0%" stop-color="#00C896" stop-opacity="0.15"/>
+    <stop offset="100%" stop-color="#00C896" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1200" height="630" fill="url(#glow2)"/>
+
+  <!-- Logo icon — centered, scaled up -->
+  <g transform="translate(600, 220) scale(3.2)">
+    <circle cx="0" cy="0" r="26" fill="none" stroke="#1B4FD8" stroke-width="2.5"/>
+    <line x1="-38" y1="0" x2="-18" y2="0" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="0" x2="38" y2="0" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="0" y1="-38" x2="0" y2="-18" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="0" y1="18" x2="0" y2="38" stroke="#1B4FD8" stroke-width="2.5" stroke-linecap="round"/>
+    <polygon points="0,-10 7,0 0,10 -7,0" fill="#00C896"/>
+  </g>
+
+  <!-- "Permit" + "Pilot" wordmark -->
+  <text x="600" y="390" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800" font-size="72" fill="#FFFFFF">Permit<tspan fill="#1B4FD8">Pilot</tspan></text>
+
+  <!-- Tagline -->
+  <text x="600" y="460" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="400" font-size="28" fill="#94A3B8">Your permit copilot for CT food truck operators</text>
+
+  <!-- Bottom accent line -->
+  <rect x="540" y="510" width="120" height="3" rx="2" fill="#00C896"/>
+</svg>
