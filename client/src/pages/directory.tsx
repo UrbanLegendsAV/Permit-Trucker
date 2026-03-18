@@ -241,16 +241,24 @@ function TruckCard({ truck, onClaim, isClaiming }: {
   onClaim: () => void;
   isClaiming: boolean;
 }) {
+  const [, setLocation] = useLocation();
   const isClaimed = truck.status === "claimed";
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col gap-3 hover:bg-white/[0.08] hover:-translate-y-1 transition-all duration-200">
+    <div
+      className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col gap-3 cursor-pointer hover:bg-white/[0.08] hover:border-[#1B4FD8]/40 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] active:transition-none transition-all duration-200"
+      onClick={() => setLocation(`/directory/${truck.slug}`)}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && setLocation(`/directory/${truck.slug}`)}
+    >
       <div className="flex items-start justify-between gap-2">
-        <Link href={`/directory/${truck.slug}`}>
-          <h3 className="font-display font-semibold text-white hover:text-[#1B4FD8] transition-colors cursor-pointer">
-            {truck.name}
-          </h3>
-        </Link>
+        <h3
+          className="font-display font-semibold text-white hover:text-[#1B4FD8] transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {truck.name}
+        </h3>
         {isClaimed ? (
           <Badge className="bg-[#00C896]/15 text-[#00C896] border-[#00C896]/30 shrink-0 text-xs gap-1">
             <CheckCircle2 className="h-3 w-3" /> Claimed
@@ -285,6 +293,7 @@ function TruckCard({ truck, onClaim, isClaiming }: {
       <div className="mt-auto pt-2 flex items-center gap-3 border-t border-white/10">
         {truck.website && (
           <a href={truck.website} target="_blank" rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="text-xs text-[#1B4FD8] hover:underline flex items-center gap-1">
             <ExternalLink className="h-3 w-3" /> Website
           </a>
@@ -292,13 +301,17 @@ function TruckCard({ truck, onClaim, isClaiming }: {
         {truck.instagramHandle && (
           <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`}
             target="_blank" rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="text-xs text-[#8897B2] hover:text-white flex items-center gap-1">
             <Instagram className="h-3 w-3" /> {truck.instagramHandle}
           </a>
         )}
         {!isClaimed && (
-          <button onClick={onClaim} disabled={isClaiming}
-            className="ml-auto text-xs text-[#F5A623] hover:underline disabled:opacity-50">
+          <button
+            onClick={(e) => { e.stopPropagation(); onClaim(); }}
+            disabled={isClaiming}
+            className="ml-auto text-xs text-[#F5A623] hover:underline disabled:opacity-50"
+          >
             {isClaiming ? "Claiming..." : "Claim listing"}
           </button>
         )}
