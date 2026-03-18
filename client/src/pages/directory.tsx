@@ -17,6 +17,21 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { PublicProfile } from "@shared/schema";
 
+interface MapPin {
+  id: string;
+  name: string;
+  lat: string;
+  lng: string;
+  locationType: "live" | "home_base";
+  cuisine: string | null;
+  website: string | null;
+  instagramHandle: string | null;
+  tiktokHandle: string | null;
+  slug: string | null;
+  description: string | null;
+  isVerified: boolean;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type FoodTruck = {
@@ -273,19 +288,19 @@ function TruckCard({ truck, onClaim, isClaiming }: {
   );
 }
 
-// ── DirectoryMap (embedded Leaflet from public_profiles) ─────────────────────
+// ── DirectoryMap (embedded Leaflet from /api/map-pins) ───────────────────────
 
 function DirectoryMap() {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const markersRef = useRef<L.CircleMarker[]>([]);
+  const markersRef = useRef<L.Layer[]>([]);
 
-  const { data: profiles = [] } = useQuery<PublicProfile[]>({
-    queryKey: ["/api/public-profiles"],
-    queryFn: () => fetch("/api/public-profiles").then((r) => r.json()),
+  const { data: pins = [] } = useQuery<MapPin[]>({
+    queryKey: ["/api/map-pins"],
+    queryFn: () => fetch("/api/map-pins").then((r) => r.json()),
   });
 
-  const withLocation = profiles.filter((p) => p.locationLat && p.locationLng && p.isPublic);
+  const withLocation = pins.filter((p) => p.lat && p.lng);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -303,16 +318,28 @@ function DirectoryMap() {
 
   useEffect(() => {
     if (!mapRef.current) return;
-    markersRef.current.forEach((m) => m.remove());
+    markersRef.current.forEach((m) => (m as any).remove());
     markersRef.current = [];
-    withLocation.forEach((p) => {
-      if (!mapRef.current || !p.locationLat || !p.locationLng) return;
-      const color = (p as any).isVerified ? COLOR_VERIFIED : COLOR_UNVERIFIED;
-      const marker = L.circleMarker(
-        [parseFloat(p.locationLat), parseFloat(p.locationLng)],
-        { radius: 9, fillColor: color, color: "#fff", weight: 2, opacity: 1, fillOpacity: 0.9 }
-      ).addTo(mapRef.current);
-      marker.bindTooltip(p.businessName || "Food Truck", { permanent: false, direction: "top", className: "font-medium text-xs" });
+    withLocation.forEach((pin) => {
+      if (!mapRef.current) return;
+      const latLng: [number, number] = [parseFloat(pin.lat), parseFloat(pin.lng)];
+      let marker: L.Layer;
+      if (pin.locationType === "home_base") {
+        const icon = L.divIcon({
+          html: '<div style="background:#6b7280;width:24px;height:24px;border-radius:50%;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:24px;text-align:center;">🏠</div>',
+          className: "",
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+        marker = L.marker(latLng, { icon }).addTo(mapRef.current);
+      } else {
+        const color = pin.isVerified ? COLOR_VERIFIED : COLOR_UNVERIFIED;
+        marker = L.circleMarker(latLng, { radius: 9, fillColor: color, color: "#fff", weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(mapRef.current);
+      }
+      (marker as any).bindTooltip(pin.name, { permanent: false, direction: "top", className: "font-medium text-xs" });
+      if (pin.slug) {
+        (marker as any).on("click", () => { window.location.href = `/directory/${pin.slug}`; });
+      }
       markersRef.current.push(marker);
     });
   }, [withLocation]);
@@ -328,6 +355,10 @@ function DirectoryMap() {
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-white" style={{ background: COLOR_UNVERIFIED }} />
           Directory listing
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-full border-2 border-white bg-gray-500" />
+          🏠 Home base
         </span>
       </div>
     </Card>

@@ -14,8 +14,8 @@ import {
   insertTownRequestSchema,
 } from "@shared/schema";
 import { db } from "./db";
-import { foodTrucks } from "@shared/schema";
-import { eq, desc, count as sqlCount } from "drizzle-orm";
+import { foodTrucks, towns, townForms, publicProfiles } from "@shared/schema";
+import { eq, desc, count as sqlCount, and, isNotNull } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import {
   fillPdfForm,
@@ -3734,6 +3734,124 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error claiming truck (authenticated):", error);
       res.status(500).json({ message: "Failed to claim listing" });
+    }
+  });
+
+  // PATCH /api/directory/:slug — admin: update any food_truck field
+  app.patch("/api/directory/:slug", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const [existing] = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Truck not found" });
+      // Strip fields that must not be overwritten
+      const { id: _id, slug: _slug, createdAt: _ca, ...safeBody } = req.body as any;
+      const [updated] = await db.update(foodTrucks).set(safeBody).where(eq(foodTrucks.slug, slug)).returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/map-pins — public: merged live + home-base pins
+  app.get("/api/map-pins", async (_req, res) => {
+    try {
+      const livePins = await db
+        .select()
+        .from(publicProfiles)
+        .where(and(eq(publicProfiles.isPublic, true), isNotNull(publicProfiles.locationLat), isNotNull(publicProfiles.locationLng)));
+
+      const homeTrucks = await db
+        .select()
+        .from(foodTrucks)
+        .where(and(isNotNull(foodTrucks.homeLat), isNotNull(foodTrucks.homeLng)));
+
+      const liveUserIds = new Set(livePins.map((p) => p.userId).filter(Boolean));
+      const liveNames = new Set(livePins.map((p) => (p.businessName || "").toLowerCase()).filter(Boolean));
+
+      const pins: any[] = livePins.map((p) => ({
+        id: p.id,
+        name: p.businessName || "Food Truck",
+        lat: p.locationLat,
+        lng: p.locationLng,
+        locationType: "live",
+        cuisine: (p as any).cuisineType ?? null,
+        website: p.website ?? null,
+        phone: p.phoneNumber ?? null,
+        instagramHandle: (p as any).instagramHandle ?? null,
+        tiktokHandle: null,
+        slug: null,
+        description: p.description ?? null,
+        isVerified: (p as any).isVerified ?? false,
+      }));
+
+      for (const truck of homeTrucks) {
+        const alreadyLive =
+          (truck.claimedByUserId && liveUserIds.has(truck.claimedByUserId)) ||
+          liveNames.has(truck.name.toLowerCase());
+        if (!alreadyLive) {
+          pins.push({
+            id: `truck-${truck.id}`,
+            name: truck.name,
+            lat: truck.homeLat,
+            lng: truck.homeLng,
+            locationType: "home_base",
+            cuisine: truck.cuisine ?? null,
+            website: truck.website ?? null,
+            phone: truck.phone ?? null,
+            instagramHandle: truck.instagramHandle ?? null,
+            tiktokHandle: (truck as any).tiktokHandle ?? null,
+            slug: truck.slug,
+            description: truck.description ?? null,
+            isVerified: false,
+          });
+        }
+      }
+
+      res.json(pins);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // GET /api/admin/crawler/stats — admin: crawler coverage stats
+  app.get("/api/admin/crawler/stats", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const [{ count: totalTownsRaw }] = await db.select({ count: sqlCount() }).from(towns);
+      const totalTowns = Number(totalTownsRaw);
+
+      const allForms = await db
+        .select({ townId: townForms.townId, createdAt: townForms.createdAt })
+        .from(townForms);
+
+      const townIdsWithForms = new Set(allForms.map((f) => f.townId));
+      const townsWithForms = townIdsWithForms.size;
+
+      const [{ count: totalFormsRaw }] = await db.select({ count: sqlCount() }).from(townForms);
+      const totalFormsDiscovered = Number(totalFormsRaw);
+
+      // Recent crawls with town names — fetch last 200, then group by town
+      const recentRows = await db
+        .select({ townId: townForms.townId, townName: towns.townName, createdAt: townForms.createdAt })
+        .from(townForms)
+        .leftJoin(towns, eq(townForms.townId, towns.id))
+        .orderBy(desc(townForms.createdAt))
+        .limit(200);
+
+      const grouped: Record<string, { townId: string; townName: string | null; formsFound: number; crawledAt: Date | null }> = {};
+      for (const row of recentRows) {
+        if (!grouped[row.townId]) {
+          grouped[row.townId] = { townId: row.townId, townName: row.townName, formsFound: 0, crawledAt: row.createdAt };
+        }
+        grouped[row.townId].formsFound++;
+      }
+
+      const recentCrawls = Object.values(grouped)
+        .sort((a, b) => (b.crawledAt?.getTime() ?? 0) - (a.crawledAt?.getTime() ?? 0))
+        .slice(0, 20);
+
+      res.json({ totalTowns, townsWithForms, townsWithoutForms: totalTowns - townsWithForms, totalFormsDiscovered, recentCrawls });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

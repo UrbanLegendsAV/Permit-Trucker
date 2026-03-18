@@ -1,16 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   ArrowLeft, ExternalLink, Instagram, CheckCircle2, MapPin, Tag,
-  Phone, Mail, Globe, Share2, Utensils, Users,
+  Phone, Mail, Globe, Share2, Utensils, Users, UtensilsCrossed,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TopHeader } from "@/components/top-header";
 
 // ── Type ──────────────────────────────────────────────────────────────────────
+
+type MenuItem = { name: string; description: string; imageUrl: string };
 
 type FoodTruck = {
   id: number;
@@ -22,9 +26,14 @@ type FoodTruck = {
   email: string | null;
   phone: string | null;
   instagramHandle: string | null;
+  tiktokHandle: string | null;
+  facebookHandle: string | null;
   description: string | null;
   status: string | null;
   imageUrl: string | null;
+  homeLat: string | null;
+  homeLng: string | null;
+  menuItems: MenuItem[] | null;
   offersPrivateCatering: boolean | null;
   cateringMinGuests: number | null;
   cateringMaxGuests: number | null;
@@ -38,24 +47,50 @@ type FoodTruck = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function heroBgForCuisine(cuisine: string | null) {
+function heroBgForCuisine(cuisine: string | null): string {
   if (!cuisine) return "#0A0F1E";
   const c = cuisine.toLowerCase();
-  if (c.includes("bbq") || c.includes("grill")) return "#1a0a00";
-  if (c.includes("taco") || c.includes("mexican")) return "#0a1a00";
+  if (c.includes("latin") || c.includes("puerto rican") || c.includes("mexican") || c.includes("taco")) return "#7f1d1d"; // red-900
+  if (c.includes("bbq") || c.includes("churrasco") || c.includes("grill") || c.includes("brazilian")) return "#7c2d12"; // orange-900
+  if (c.includes("wing")) return "#92400e"; // amber-800
+  if (c.includes("pizza")) return "#7f1d1d"; // red-900
   if (c.includes("ice cream") || c.includes("dessert")) return "#0a0a1a";
-  if (c.includes("wing")) return "#1a0800";
   return "#0A0F1E";
 }
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
-  weddings:      "bg-pink-500/20 text-pink-300 border-pink-500/30",
-  birthdays:     "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  corporate:     "bg-blue-500/20 text-blue-300 border-blue-500/30",
-  festivals:     "bg-orange-500/20 text-orange-300 border-orange-500/30",
-  graduations:   "bg-teal-500/20 text-teal-300 border-teal-500/30",
+  weddings:        "bg-pink-500/20 text-pink-300 border-pink-500/30",
+  birthdays:       "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  corporate:       "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  festivals:       "bg-orange-500/20 text-orange-300 border-orange-500/30",
+  graduations:     "bg-teal-500/20 text-teal-300 border-teal-500/30",
   "block parties": "bg-green-500/20 text-green-300 border-green-500/30",
 };
+
+// ── Mini Map Component ────────────────────────────────────────────────────────
+
+function MiniMap({ lat, lng, name }: { lat: string; lng: string; name: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+    const map = L.map(containerRef.current, { zoomControl: false, scrollWheelZoom: false, dragging: false }).setView([parseFloat(lat), parseFloat(lng)], 14);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    }).addTo(map);
+    L.marker([parseFloat(lat), parseFloat(lng)]).addTo(map).bindPopup(name);
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; };
+  }, [lat, lng, name]);
+
+  return (
+    <div>
+      <div ref={containerRef} className="h-[180px] w-full rounded-lg overflow-hidden" style={{ zIndex: 0 }} />
+      <p className="text-xs text-[#8897B2] mt-1">📍 Home base · Follow on social for live schedule</p>
+    </div>
+  );
+}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -66,11 +101,10 @@ export default function TruckProfilePage() {
 
   const { data: truck, isLoading, error } = useQuery<FoodTruck>({
     queryKey: [`/api/directory/${slug}`],
-    queryFn: () =>
-      fetch(`/api/directory/${slug}`).then((r) => {
-        if (!r.ok) throw new Error("Truck not found");
-        return r.json();
-      }),
+    queryFn: () => fetch(`/api/directory/${slug}`).then((r) => {
+      if (!r.ok) throw new Error("Truck not found");
+      return r.json();
+    }),
     enabled: !!slug,
   });
 
@@ -79,11 +113,7 @@ export default function TruckProfilePage() {
     if (truck) {
       document.title = `${truck.name} — CT Food Truck | PermitPilot`;
       let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-      if (!meta) {
-        meta = document.createElement("meta");
-        meta.name = "description";
-        document.head.appendChild(meta);
-      }
+      if (!meta) { meta = document.createElement("meta"); meta.name = "description"; document.head.appendChild(meta); }
       meta.content = truck.description
         ? `${truck.description.slice(0, 155)}…`
         : `${truck.name} is a Connecticut food truck${truck.cuisine ? ` specializing in ${truck.cuisine}` : ""}. View their listing on PermitPilot.`;
@@ -91,7 +121,7 @@ export default function TruckProfilePage() {
     return () => { document.title = "PermitPilot — Your permit copilot."; };
   }, [truck]);
 
-  // JSON-LD structured data
+  // JSON-LD
   useEffect(() => {
     if (!truck) return;
     const script = document.createElement("script");
@@ -111,28 +141,19 @@ export default function TruckProfilePage() {
   }, [truck]);
 
   const handleClaim = () => {
-    if (isAuthenticated) {
-      navigate(`/claim/${slug}`);
-    } else {
-      navigate(`/auth?next=/claim/${slug}`);
-    }
+    if (isAuthenticated) navigate(`/claim/${slug}`);
+    else navigate(`/auth?next=/claim/${slug}`);
   };
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#0A0F1E] flex items-center justify-center text-[#8897B2]">
-        Loading...
-      </div>
-    );
+    return <div className="min-h-screen bg-[#0A0F1E] flex items-center justify-center text-[#8897B2]">Loading...</div>;
   }
 
   if (error || !truck) {
     return (
       <div className="min-h-screen bg-[#0A0F1E] flex flex-col items-center justify-center gap-4 text-white">
         <p className="text-[#8897B2]">Truck not found.</p>
-        <Link href="/directory">
-          <Button variant="outline">Back to Directory</Button>
-        </Link>
+        <Link href="/directory"><Button variant="outline">Back to Directory</Button></Link>
       </div>
     );
   }
@@ -148,47 +169,72 @@ export default function TruckProfilePage() {
       {!isClaimed && (
         <div className="bg-[#F5A623]/10 border-b border-[#F5A623]/30 px-4 py-3">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-            <p className="text-sm text-[#F5A623]">
-              Is this your truck? Claim it free and connect to permit filing.
-            </p>
-            <Button
-              size="sm"
-              onClick={handleClaim}
-              className="bg-[#F5A623] hover:bg-[#F5A623]/90 text-black font-semibold shrink-0"
-            >
+            <p className="text-sm text-[#F5A623]">Is this your truck? Claim it free and connect to permit filing.</p>
+            <Button size="sm" onClick={handleClaim} className="bg-[#F5A623] hover:bg-[#F5A623]/90 text-black font-semibold shrink-0">
               Claim Listing
             </Button>
           </div>
         </div>
       )}
 
-      {/* Hero band */}
-      <div style={{ backgroundColor: heroBg, minHeight: "180px" }}
-        className="flex flex-col items-start justify-end px-6 pb-6 pt-10 max-w-full">
-        <div className="max-w-4xl mx-auto w-full">
+      {/* ── Hero ── */}
+      <div
+        className="relative w-full h-48 md:h-64 overflow-hidden"
+        style={truck.imageUrl ? {} : { backgroundColor: heroBg }}
+      >
+        {truck.imageUrl && (
+          <img src={truck.imageUrl} alt={truck.name} className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+
+        {/* Back link */}
+        <div className="absolute top-4 left-4 max-w-4xl">
           <Link href="/directory">
-            <button className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white mb-4 transition-colors">
+            <button className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors">
               <ArrowLeft className="h-4 w-4" /> Back to Directory
             </button>
           </Link>
-          <h1 className="font-display text-4xl font-bold text-white mb-3">{truck.name}</h1>
-          <div className="flex flex-wrap items-center gap-2">
+        </div>
+
+        {/* Bottom-left: name + badges + social */}
+        <div className="absolute bottom-0 left-0 right-0 px-6 pb-5 max-w-4xl mx-auto">
+          <h1 className="font-display text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{truck.name}</h1>
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             {truck.cuisine && (
-              <Badge className="bg-[#1B4FD8]/30 text-white border-[#1B4FD8]/50 gap-1">
-                <Tag className="h-3 w-3" /> {truck.cuisine}
+              <Badge className="bg-white/10 backdrop-blur-sm text-white border-white/20 text-xs">
+                <Tag className="h-3 w-3 mr-1" />{truck.cuisine}
               </Badge>
             )}
             {isClaimed ? (
-              <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1">
+              <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1 text-xs">
                 <CheckCircle2 className="h-3 w-3" /> Claimed
               </Badge>
             ) : (
-              <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30">Unclaimed</Badge>
+              <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30 text-xs">Unclaimed</Badge>
             )}
             {truck.offersPrivateCatering && (
-              <Badge className="bg-white/10 text-white border-white/20 gap-1">
+              <Badge className="bg-white/10 text-white border-white/20 gap-1 text-xs">
                 <Utensils className="h-3 w-3" /> Available for catering
               </Badge>
+            )}
+          </div>
+          {/* Social icons */}
+          <div className="flex items-center gap-3">
+            {truck.instagramHandle && (
+              <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Instagram">
+                <Instagram className="w-5 h-5" />
+              </a>
+            )}
+            {truck.tiktokHandle && (
+              <a href={`https://tiktok.com/@${truck.tiktokHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="TikTok">
+                <ExternalLink className="w-5 h-5" />
+              </a>
+            )}
+            {truck.website && (
+              <a href={truck.website} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Website">
+                <Globe className="w-5 h-5" />
+              </a>
             )}
           </div>
         </div>
@@ -213,6 +259,26 @@ export default function TruckProfilePage() {
               )}
             </section>
 
+            {/* Menu */}
+            {truck.menuItems && truck.menuItems.length > 0 && (
+              <section>
+                <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+                  <UtensilsCrossed className="h-5 w-5 text-[#8897B2]" /> Menu
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {truck.menuItems.map((item, i) => (
+                    <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                      {item.imageUrl && (
+                        <img src={item.imageUrl} alt={item.name} className="w-full h-24 object-cover rounded-md mb-2" loading="lazy" />
+                      )}
+                      <p className="font-medium text-sm text-white">{item.name}</p>
+                      <p className="text-xs text-[#8897B2] line-clamp-2 mt-1">{item.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Where We Operate */}
             {truck.towns && truck.towns.length > 0 && (
               <section>
@@ -221,10 +287,7 @@ export default function TruckProfilePage() {
                 </h2>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {truck.towns.map((town) => (
-                    <span key={town}
-                      className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white">
-                      {town}
-                    </span>
+                    <span key={town} className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white">{town}</span>
                   ))}
                 </div>
                 <p className="text-xs text-[#8897B2]">Available for private events in these CT towns.</p>
@@ -237,40 +300,29 @@ export default function TruckProfilePage() {
                 <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
                   <Utensils className="h-5 w-5 text-[#00C896]" /> Catering &amp; Private Events
                 </h2>
-
-                {/* Event type tags */}
                 {truck.cateringEventTypes && truck.cateringEventTypes.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-4">
                     {truck.cateringEventTypes.map((type) => (
-                      <span key={type}
-                        className={`text-xs font-medium px-3 py-1 rounded-full border capitalize ${EVENT_TYPE_COLORS[type] || "bg-white/10 text-white border-white/20"}`}>
+                      <span key={type} className={`text-xs font-medium px-3 py-1 rounded-full border capitalize ${EVENT_TYPE_COLORS[type] || "bg-white/10 text-white border-white/20"}`}>
                         {type}
                       </span>
                     ))}
                   </div>
                 )}
-
-                {/* Guest range */}
                 {(truck.cateringMinGuests || truck.cateringMaxGuests) && (
                   <div className="flex items-center gap-2 text-sm text-[#8897B2] mb-3">
                     <Users className="h-4 w-4 shrink-0" />
                     Serves {truck.cateringMinGuests ?? "?"} – {truck.cateringMaxGuests ?? "?"} guests
                   </div>
                 )}
-
-                {/* Price */}
                 {truck.cateringPricePerPerson && (
                   <p className="text-sm text-[#8897B2] mb-3">
                     <span className="text-white font-medium">{truck.cateringPricePerPerson}</span>
                   </p>
                 )}
-
-                {/* Catering description */}
                 {truck.cateringDescription && (
                   <p className="text-[#8897B2] text-sm leading-relaxed mb-4">{truck.cateringDescription}</p>
                 )}
-
-                {/* CTA */}
                 <a
                   href={`mailto:${truck.cateringContactEmail || truck.email || ""}?subject=Catering Inquiry — ${truck.name}`}
                   className="inline-flex items-center gap-2 bg-[#00C896] hover:bg-[#00C896]/90 text-[#0A0F1E] font-semibold px-5 py-2.5 rounded-lg text-sm transition-colors"
@@ -283,12 +335,7 @@ export default function TruckProfilePage() {
               <section className="border border-white/10 rounded-xl p-5">
                 <p className="text-sm text-[#8897B2]">
                   Does this truck offer catering?{" "}
-                  <button
-                    onClick={handleClaim}
-                    className="text-[#F5A623] hover:underline"
-                  >
-                    Claim your listing
-                  </button>{" "}
+                  <button onClick={handleClaim} className="text-[#F5A623] hover:underline">Claim your listing</button>{" "}
                   to add catering info and get found by event planners.
                 </p>
               </section>
@@ -302,44 +349,45 @@ export default function TruckProfilePage() {
             <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
               <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">Links &amp; Contact</h3>
               {truck.website && (
-                <a href={truck.website} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm">
+                <a href={truck.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm">
                   <Globe className="h-4 w-4 shrink-0" />
                   <span className="truncate">{truck.website.replace(/^https?:\/\/(www\.)?/, "")}</span>
                 </a>
               )}
               {truck.instagramHandle && (
-                <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
                   <Instagram className="h-4 w-4 shrink-0" /> {truck.instagramHandle}
                 </a>
               )}
+              {truck.tiktokHandle && (
+                <a href={`https://tiktok.com/@${truck.tiktokHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                  <ExternalLink className="h-4 w-4 shrink-0" /> @{truck.tiktokHandle.replace("@", "")} (TikTok)
+                </a>
+              )}
               {truck.phone && (
-                <a href={`tel:${truck.phone}`}
-                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                <a href={`tel:${truck.phone}`} className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
                   <Phone className="h-4 w-4 shrink-0" /> {truck.phone}
                 </a>
               )}
               {truck.email && (
-                <a href={`mailto:${truck.email}`}
-                  className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
+                <a href={`mailto:${truck.email}`} className="flex items-center gap-2 text-[#8897B2] hover:text-white text-sm">
                   <Mail className="h-4 w-4 shrink-0" /> {truck.email}
                 </a>
               )}
               {!truck.website && !truck.instagramHandle && !truck.phone && !truck.email && (
-                <p className="text-[#8897B2] text-sm">
-                  No contact info yet.{!isClaimed && " Claim this listing to add yours."}
-                </p>
+                <p className="text-[#8897B2] text-sm">No contact info yet.{!isClaimed && " Claim this listing to add yours."}</p>
               )}
             </div>
+
+            {/* Mini map — home base location */}
+            {truck.homeLat && truck.homeLng && (
+              <MiniMap lat={truck.homeLat} lng={truck.homeLng} name={truck.name} />
+            )}
 
             {/* Share */}
             <div className="bg-white/5 border border-white/10 rounded-xl p-4">
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                }}
+                onClick={() => { navigator.clipboard.writeText(window.location.href); }}
                 className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white transition-colors w-full"
               >
                 <Share2 className="h-4 w-4" /> Copy link to share
@@ -353,9 +401,7 @@ export default function TruckProfilePage() {
                 <p className="text-sm text-[#8897B2]">Connect your account to show active permits.</p>
               ) : (
                 <p className="text-sm text-[#8897B2]">
-                  <button onClick={handleClaim} className="text-[#F5A623] hover:underline">
-                    Claim this listing
-                  </button>{" "}
+                  <button onClick={handleClaim} className="text-[#F5A623] hover:underline">Claim this listing</button>{" "}
                   to show permit status.
                 </p>
               )}
@@ -363,8 +409,7 @@ export default function TruckProfilePage() {
 
             {/* Report */}
             <p className="text-xs text-[#8897B2] text-center">
-              <a href={`mailto:hello@permitpilot.cloud?subject=Incorrect info — ${truck.name}`}
-                className="hover:underline">
+              <a href={`mailto:hello@permitpilot.cloud?subject=Incorrect info — ${truck.name}`} className="hover:underline">
                 Report incorrect info
               </a>
             </p>

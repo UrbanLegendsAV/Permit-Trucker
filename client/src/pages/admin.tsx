@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send, Bot, Inbox, Activity, ChevronLeft, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send, Bot, Inbox, Activity, ChevronLeft, ChevronRight as ChevronRightIcon, Globe2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +96,7 @@ export default function Admin() {
 
       <main className="p-4 max-w-4xl mx-auto pb-20">
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="pricing" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 mr-2" />
               Pricing
@@ -124,6 +124,10 @@ export default function Admin() {
             <TabsTrigger value="orchestrator" data-testid="tab-orchestrator">
               <Bot className="w-4 h-4 mr-2" />
               Orchestrator
+            </TabsTrigger>
+            <TabsTrigger value="crawler" data-testid="tab-crawler">
+              <Globe2 className="w-4 h-4 mr-2" />
+              Crawler
             </TabsTrigger>
           </TabsList>
 
@@ -153,6 +157,10 @@ export default function Admin() {
 
           <TabsContent value="orchestrator">
             <OrchestratorTab />
+          </TabsContent>
+
+          <TabsContent value="crawler">
+            <CrawlerTab towns={towns} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1327,6 +1335,167 @@ function OrchestratorTab() {
               <span className="text-xs font-medium text-muted-foreground uppercase">Sub-agent</span>
               <p className="text-sm text-foreground mt-0.5">{classifyResult.subAgent}</p>
             </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ── CrawlerTab ────────────────────────────────────────────────────────────────
+
+type CrawlerStats = {
+  totalTowns: number;
+  townsWithForms: number;
+  townsWithoutForms: number;
+  totalFormsDiscovered: number;
+  recentCrawls: Array<{ townId: string; townName: string | null; formsFound: number; crawledAt: string | null }>;
+};
+
+function CrawlerTab({ towns }: { towns: Town[] }) {
+  const { toast } = useToast();
+  const [selectedTownId, setSelectedTownId] = useState("");
+  const [forceRecrawl, setForceRecrawl] = useState(false);
+  const [crawlResult, setCrawlResult] = useState<{ message: string; ok: boolean } | null>(null);
+
+  const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
+    queryKey: ["/api/admin/crawler/stats"],
+    queryFn: () => fetch("/api/admin/crawler/stats", { credentials: "include" }).then((r) => r.json()),
+  });
+
+  const crawlMutation = useMutation({
+    mutationFn: () =>
+      fetch(`/api/towns/${selectedTownId}/discover`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: forceRecrawl }),
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || "Crawl failed");
+        return data;
+      }),
+    onSuccess: (data: any) => {
+      setCrawlResult({ message: `Found ${data.formsFound ?? 0} forms, downloaded ${data.downloaded ?? 0}`, ok: true });
+      refetchStats();
+      toast({ title: "Crawl complete", description: `${data.formsFound ?? 0} forms found` });
+    },
+    onError: (err: any) => {
+      setCrawlResult({ message: err.message, ok: false });
+      toast({ title: "Crawl failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Stats row */}
+      <Card className="p-6">
+        <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+          <Globe2 className="w-5 h-5 text-primary" />
+          Form Crawler Coverage
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold">{stats?.totalTowns ?? 169}</p>
+            <p className="text-xs text-muted-foreground mt-1">Total CT Towns</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-green-500">{stats?.townsWithForms ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Towns with Forms</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-amber-500">{stats?.townsWithoutForms ?? 169}</p>
+            <p className="text-xs text-muted-foreground mt-1">Towns without Forms</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-primary">{stats?.totalFormsDiscovered ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Forms Discovered</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Single town crawler */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <Globe2 className="w-4 h-4" /> Crawl a Specific Town
+        </h3>
+        <div className="flex flex-col sm:flex-row gap-3 mb-3">
+          <Select value={selectedTownId} onValueChange={setSelectedTownId}>
+            <SelectTrigger className="flex-1">
+              <SelectValue placeholder="Select a town..." />
+            </SelectTrigger>
+            <SelectContent>
+              {towns.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.townName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            disabled={!selectedTownId || crawlMutation.isPending}
+            onClick={() => { setCrawlResult(null); crawlMutation.mutate(); }}
+          >
+            {crawlMutation.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Crawling...</>
+            ) : (
+              "Run Crawler"
+            )}
+          </Button>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+          <input
+            type="checkbox"
+            checked={forceRecrawl}
+            onChange={(e) => setForceRecrawl(e.target.checked)}
+            className="rounded"
+          />
+          Bypass 24hr cooldown (force re-crawl)
+        </label>
+        {crawlResult && (
+          <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${crawlResult.ok ? "bg-green-500/10 text-green-600 border border-green-500/20" : "bg-red-500/10 text-red-600 border border-red-500/20"}`}>
+            {crawlResult.ok ? "✓ " : "✗ "}{crawlResult.message}
+          </div>
+        )}
+      </Card>
+
+      {/* Recent crawl history */}
+      <Card className="p-6">
+        <h3 className="font-semibold mb-4">Recent Crawl History</h3>
+        {!stats?.recentCrawls?.length ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No crawls yet. Run a crawler above to discover forms.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="pb-2 font-medium text-muted-foreground">Town</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Forms Found</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Crawled</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.recentCrawls.map((row) => (
+                  <tr key={row.townId} className="border-b border-border/50 last:border-0">
+                    <td className="py-2.5 font-medium">{row.townName ?? row.townId}</td>
+                    <td className="py-2.5">
+                      <Badge variant="secondary">{row.formsFound}</Badge>
+                    </td>
+                    <td className="py-2.5 text-muted-foreground text-xs">
+                      {row.crawledAt ? new Date(row.crawledAt).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="py-2.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => document.getElementById("tab-forms")?.click()}
+                      >
+                        View Forms
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>

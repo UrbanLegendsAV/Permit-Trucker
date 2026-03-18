@@ -130,6 +130,14 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_by_user_id TEXT;
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP;
     `);
+    // Location, social, and menu fields on food_trucks
+    await client.query(`
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS menu_items JSONB;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS home_lat TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS home_lng TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS tiktok_handle TEXT;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS facebook_handle TEXT;
+    `);
     console.log('[DB] Migrations applied successfully');
 
     // Grant owner role to admin emails from environment

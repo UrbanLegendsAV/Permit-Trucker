@@ -801,6 +801,28 @@ export async function seedTowns() {
 
     // Seed food_trucks table (CT Food Truck Directory)
     console.log("Seeding food_trucks directory...");
+    const chefosMenu = [
+      { name: "Wings", description: "Order of wings with your choice of flavor and quantity.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/WZX66FIKCAJM222QDTPFR4OI.jpeg" },
+      { name: "Empanadas", description: "Your choice of chicken, beef or cheese.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/RTYWUVIPJ343DPUOZVH3MHJN.jpeg" },
+      { name: "Rice Bowl", description: "Your choice of rice, beans, protein, lettuce, pico & cheese. Additional toppings available.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/RTYWUVIPJ343DPUOZVH3MHJN.jpeg" },
+      { name: "Quesadilla", description: "Toasted tortilla with cheese and your choice of protein. Add chips & salsa, onion rings or fries.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/OZFK66AG5PH6L2KQN246EGRK.jpeg" },
+      { name: "Taco Meal", description: "3 flour shells with your choice of protein, shredded lettuce, pico, cheese, sour cream.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/OZFK66AG5PH6L2KQN246EGRK.jpeg" },
+      { name: "Hibachi Burrito", description: "Burrito with fried rice sautéed with your choice of protein, peppers, onions and eggs.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/6GAMFOXCKWB74NIK6MQQJWBB.jpeg" },
+      { name: "Chimichanga", description: "Fried burrito filled with rice, beans, topped with melted cheese and enchilada sauce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/C5FOD2KAT7O2QGKW6PNBX2FV.jpeg" },
+      { name: "Burrito", description: "Toasted tortilla with rice, beans, protein, pico, lettuce, mix cheese and your choice of sauce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/YM2GQRA3OZDLUUJOD2BTX2XR.jpeg" },
+      { name: "Loaded Nachos", description: "Nachos with lettuce, pico, nacho cheese, beans, guacamole, shredded cheese, sour cream and protein.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/KNJNUKIK3OJRWAXH47UUCS76.jpeg" },
+      { name: "Loaded Tostones", description: "Fried plantain with lettuce, pico, cheese, beans, guacamole, sour cream and your choice of protein.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/XGRTWSIKR4OROQYLRZX7ZK5G.jpeg" },
+      { name: "Loaded Fries", description: "Fries with your choice of protein, nacho cheese, bacon and pico de gallo.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/NRETILXKHNC7A27TOLCEBRU6.jpeg" },
+      { name: "Streatery Fried Rice", description: "Fried rice with eggs, fajitas, choice of protein, sour cream and lettuce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/4BTFYJ2MXYJC2RHB5M64EPE7.jpeg" },
+      { name: "Chopped Cheese Crunch Wrap", description: "Ground beef, nacho cheese, mozzarella, sour cream, lettuce and pico de gallo in a toasted tortilla.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/GS7OBDYP6VF2K7LACGDKM37O.jpeg" },
+      { name: "Taco Salad", description: "Lettuce, pico, shredded mix cheese, your choice of protein, beans, sauce, guacamole, served with tortilla chips.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/GS7OBDYP6VF2K7LACGDKM37O.jpeg" },
+      { name: "Esquites / Street Corn", description: "Street corn off the cob with lime mayo, cheese and chef sauce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/GS7OBDYP6VF2K7LACGDKM37O.jpeg" },
+      { name: "Churros", description: "Fried churros with optional dulce de leche dipping sauce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/GS7OBDYP6VF2K7LACGDKM37O.jpeg" },
+      { name: "Chicken Teriyaki Fried Dumplings", description: "8 chicken teriyaki fried dumplings with a side of teriyaki sauce.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/DI75QUOJTG33UMEN3FHMULC7.jpeg" },
+      { name: "Fries", description: "Regular or cajun. Additional toppings and protein available.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/JVNJHUYGUXPYITY32HYBRSUC.jpeg" },
+      { name: "Sides", description: "8oz container.", imageUrl: "https://141699077.cdn6.editmysite.com/uploads/1/4/1/6/141699077/OQ4QY3ML3RRAWJTGUGKWZSD7.jpeg" },
+    ];
+
     const ctFoodTrucks = [
       {
         slug: "brazilian-bbq-boys",
@@ -813,6 +835,8 @@ export async function seedTowns() {
         description: "Authentic Brazilian churrasco on wheels. Picanha, linguiça, and slow-roasted meats with our signature sauces. Family-run, live-fire, serving CT.",
         status: "claimed",
         source: "founder",
+        homeLat: "41.5582",
+        homeLng: "-72.6507",
         offersPrivateCatering: true,
         cateringMinGuests: 50,
         cateringMaxGuests: 500,
@@ -829,6 +853,8 @@ export async function seedTowns() {
         description: "Street-style tacos made fresh to order. Carnitas, al pastor, and fish tacos with housemade salsa.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.7637",
+        homeLng: "-72.6851",
         offersPrivateCatering: true,
         cateringMinGuests: 30,
         cateringMaxGuests: 200,
@@ -843,6 +869,8 @@ export async function seedTowns() {
         description: "Buffalo wings, tenders, and loaded fries. Sauces from mild to ghost pepper.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.3083",
+        homeLng: "-72.9279",
       },
       {
         slug: "jesses-ice-cream-truck",
@@ -852,6 +880,8 @@ export async function seedTowns() {
         description: "Soft serve, sundaes, and novelty ice cream. CT's favorite summer tradition.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.5582",
+        homeLng: "-72.6507",
       },
       {
         slug: "nicky-zooks",
@@ -861,6 +891,8 @@ export async function seedTowns() {
         description: "Loaded burgers, cheese steaks, and comfort food classics done the CT way.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.5582",
+        homeLng: "-72.6507",
       },
       {
         slug: "fullmoon-taco-truck",
@@ -870,6 +902,8 @@ export async function seedTowns() {
         description: "Late-night tacos, burritos, and elotes. Open until the crowd goes home.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.7637",
+        homeLng: "-72.6851",
       },
       {
         slug: "the-blind-rhino-food-truck",
@@ -880,6 +914,8 @@ export async function seedTowns() {
         description: "Extension of the Blind Rhino bar & grill. Craft wings, smash burgers, and street fries.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.5623",
+        homeLng: "-72.6509",
         offersPrivateCatering: true,
         cateringMinGuests: 50,
         cateringMaxGuests: 300,
@@ -891,13 +927,17 @@ export async function seedTowns() {
         name: "Chefo's Eatery",
         cuisine: "Latin Fusion",
         towns: ["Hartford", "Bristol", "New Britain"],
-        description: "Latin-inspired street food. Pernil tacos, tostones, arroz con pollo wraps, and fresh aguas frescas.",
+        description: "Latin-inspired street food. Wings, empanadas, rice bowls, burritos, loaded fries, and more. Follow @chefostreatery on TikTok for our live schedule.",
         status: "unclaimed",
         source: "research",
+        homeLat: "41.6617",
+        homeLng: "-72.7795",
+        tiktokHandle: "chefostreatery",
+        menuItems: chefosMenu,
       },
     ];
     for (const truck of ctFoodTrucks) {
-      await db.insert(foodTrucks).values(truck).onConflictDoUpdate({
+      await db.insert(foodTrucks).values(truck as any).onConflictDoUpdate({
         target: foodTrucks.slug,
         set: {
           name: truck.name,
@@ -907,6 +947,10 @@ export async function seedTowns() {
           email: (truck as any).email ?? null,
           instagramHandle: (truck as any).instagramHandle ?? null,
           description: truck.description,
+          homeLat: (truck as any).homeLat ?? null,
+          homeLng: (truck as any).homeLng ?? null,
+          tiktokHandle: (truck as any).tiktokHandle ?? null,
+          menuItems: (truck as any).menuItems ?? null,
           offersPrivateCatering: (truck as any).offersPrivateCatering ?? false,
           cateringMinGuests: (truck as any).cateringMinGuests ?? null,
           cateringMaxGuests: (truck as any).cateringMaxGuests ?? null,

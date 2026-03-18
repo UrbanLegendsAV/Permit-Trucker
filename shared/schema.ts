@@ -688,6 +688,12 @@ export const foodTrucks = pgTable("food_trucks", {
   // Claim tracking
   claimedByUserId: text("claimed_by_user_id"),
   claimedAt: timestamp("claimed_at"),
+  // Location & social
+  menuItems: jsonb("menu_items").$type<Array<{ name: string; description: string; imageUrl: string }>>(),
+  homeLat: text("home_lat"),
+  homeLng: text("home_lng"),
+  tiktokHandle: text("tiktok_handle"),
+  facebookHandle: text("facebook_handle"),
 });
 
 export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: true, createdAt: true });
