@@ -4194,22 +4194,17 @@ For text fields that require descriptive answers about food safety practices, se
           source: "manual_import",
         }).onConflictDoNothing();
 
-        let enriched: string[] = [];
+        // Fire enrichment in background — don't block the response
         if (website) {
-          try {
-            const enrichResult = await enrichTruckFromWebsite(finalSlug);
-            enriched = enrichResult.fields ?? [];
-          } catch { /* best-effort */ }
+          enrichTruckFromWebsite(finalSlug).catch(() => { /* best-effort */ });
         }
 
-        results.push({ name, slug: finalSlug, status: "added", enriched });
+        results.push({ name, slug: finalSlug, status: "added", enriched: [] });
         added++;
       } catch (err: any) {
         results.push({ name, slug: finalSlug, status: "error", enriched: [] });
         errors++;
       }
-
-      await new Promise((r) => setTimeout(r, 300));
     }
 
     res.json({ added, duplicates, errors, trucks: results });
