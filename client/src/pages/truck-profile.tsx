@@ -445,7 +445,7 @@ export default function TruckProfilePage() {
           Operating in CT? PermitPilot handles your permits — town by town, forms pre-filled.
         </p>
         <Link href="/new-permit">
-          <Button className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold">
+          <Button className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold h-11 px-6">
             Start Filing Permits →
           </Button>
         </Link>

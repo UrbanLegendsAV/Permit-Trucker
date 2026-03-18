@@ -77,7 +77,7 @@ export default function PermitsPage() {
               {permits.length} total permit{permits.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <Button onClick={() => setLocation("/new-permit")} data-testid="button-new-permit">
+          <Button onClick={() => setLocation("/new-permit")} className="h-11" data-testid="button-new-permit">
             <Plus className="w-4 h-4 mr-2" />
             New Permit
           </Button>

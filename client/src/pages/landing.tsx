@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Shield, Award, Zap, MapPin, ArrowRight, CheckCircle, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,6 +35,14 @@ const steps = [
 ];
 
 export default function LandingPage() {
+  useEffect(() => {
+    document.title = "PermitPilot — Connecticut Food Truck Permit Copilot";
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!meta) { meta = document.createElement("meta"); meta.name = "description"; document.head.appendChild(meta); }
+    meta.content = "File Connecticut food truck permits automatically, town by town. Upload your docs once — PermitPilot handles the rest. Free to start.";
+    return () => { document.title = "PermitPilot — Your permit copilot."; };
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       <section className="relative overflow-hidden">

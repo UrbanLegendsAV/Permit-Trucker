@@ -38,8 +38,8 @@ export function MobileNav() {
           return (
             <Link key={path} href={path}>
               <button
-                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] py-2 px-2 rounded-lg transition-colors ${
-                  isActive ? "text-primary" : "text-muted-foreground"
+                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] py-2 px-2 rounded-xl transition-all ${
+                  isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 }`}
                 data-testid={`nav-${label.toLowerCase()}`}
               >

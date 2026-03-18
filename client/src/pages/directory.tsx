@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   Search, ExternalLink, Instagram, CheckCircle2, AlertCircle,
-  Map as MapIcon, LayoutGrid, Loader2,
+  Map as MapIcon, LayoutGrid,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +85,9 @@ export default function DirectoryPage() {
 
   useEffect(() => {
     document.title = "CT Food Truck Directory | PermitPilot";
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!meta) { meta = document.createElement("meta"); meta.name = "description"; document.head.appendChild(meta); }
+    meta.content = "Connecticut food truck directory — every CT food truck, their cuisine, and permit status. Find and list your truck free on PermitPilot.";
   }, []);
 
   const { toast } = useToast();
@@ -189,8 +192,24 @@ export default function DirectoryPage() {
       {/* Content */}
       <div className="max-w-5xl mx-auto px-4 py-8">
         {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-[#8897B2]" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-5 animate-pulse space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="h-5 bg-white/10 rounded w-3/4" />
+                  <div className="h-5 bg-white/10 rounded w-16" />
+                </div>
+                <div className="h-3 bg-white/10 rounded w-1/4" />
+                <div className="space-y-2">
+                  <div className="h-3 bg-white/10 rounded w-full" />
+                  <div className="h-3 bg-white/10 rounded w-2/3" />
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-white/5">
+                  <div className="h-4 bg-white/10 rounded w-16" />
+                  <div className="h-4 bg-white/10 rounded w-20" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : view === "grid" ? (
           filtered.length === 0 ? (
@@ -225,7 +244,7 @@ function TruckCard({ truck, onClaim, isClaiming }: {
   const isClaimed = truck.status === "claimed";
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col gap-3 hover:bg-white/[0.08] transition-colors">
+    <div className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col gap-3 hover:bg-white/[0.08] hover:-translate-y-1 transition-all duration-200">
       <div className="flex items-start justify-between gap-2">
         <Link href={`/directory/${truck.slug}`}>
           <h3 className="font-display font-semibold text-white hover:text-[#1B4FD8] transition-colors cursor-pointer">

@@ -9,7 +9,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useAppStore } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
-import { ProgressStepper } from "@/components/progress-stepper";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -271,8 +270,16 @@ export default function Onboarding() {
         </div>
       </header>
 
-      <div className="p-4 max-w-lg mx-auto w-full">
-        <ProgressStepper steps={steps} currentStep={currentStep} className="mb-8" />
+      {/* Thin progress bar */}
+      <div className="w-full h-0.5 bg-muted">
+        <div
+          className="h-0.5 bg-primary transition-all duration-500 ease-out"
+          style={{ width: `${Math.round((currentStep / (steps.length - 1)) * 100)}%` }}
+        />
+      </div>
+      <div className="px-4 pt-3 pb-1 max-w-lg mx-auto w-full flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">{steps[currentStep]}</p>
+        <p className="text-xs text-muted-foreground">{currentStep + 1} / {steps.length}</p>
       </div>
 
       <main className="flex-1 px-4 pb-32 max-w-lg mx-auto w-full">
