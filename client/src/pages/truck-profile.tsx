@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -99,31 +99,17 @@ function MiniMap({ lat, lng, name }: { lat: string; lng: string; name: string })
   );
 }
 
-// ── Menu Item Card (expandable description) ───────────────────────────────────
+// ── Menu Item Card ─────────────────────────────────────────────────────────────
 
 function MenuItemCard({ item }: { item: { name: string; description: string; imageUrl: string } }) {
-  const [expanded, setExpanded] = useState(false);
-  const isLong = item.description && item.description.length > 80;
   return (
-    <div
-      className="bg-white/5 border border-white/10 rounded-xl p-3 cursor-pointer"
-      onClick={() => isLong && setExpanded((v) => !v)}
-    >
+    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
       {item.imageUrl && (
-        <img src={item.imageUrl} alt={item.name} className="w-full h-24 object-cover rounded-md mb-2" loading="lazy" />
+        <img src={item.imageUrl} alt={item.name} className="w-full h-28 object-cover rounded-md mb-2" loading="lazy" />
       )}
       <p className="font-medium text-sm text-white">{item.name}</p>
       {item.description && (
-        <div className="min-h-[60px]">
-          <p className={`text-xs text-[#8897B2] mt-1 leading-relaxed ${expanded ? "" : "line-clamp-3"}`}>
-            {item.description}
-          </p>
-          {isLong && (
-            <button className="text-[10px] text-[#1B4FD8] mt-1 hover:underline">
-              {expanded ? "Show less" : "Show more"}
-            </button>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
       )}
     </div>
   );
