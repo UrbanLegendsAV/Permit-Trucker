@@ -93,6 +93,21 @@ export default function PermitDetailPage() {
   const [fetchingFormId, setFetchingFormId] = useState<string | null>(null);
   const [generatedPacketUrl, setGeneratedPacketUrl] = useState<string | null>(null);
   const [generatedPacketFilename, setGeneratedPacketFilename] = useState<string>("");
+  // ViewPoint credential dialog
+  const [showCredDialog, setShowCredDialog] = useState(false);
+  const [viewPointFormId, setViewPointFormId] = useState<string | null>(null);
+  const [vpUsername, setVpUsername] = useState("");
+  const [vpPassword, setVpPassword] = useState("");
+  const [savingCreds, setSavingCreds] = useState(false);
+  // Portal automation result
+  const [runningPortalAuto, setRunningPortalAuto] = useState(false);
+  const [portalAutoResult, setPortalAutoResult] = useState<{
+    screenshotBase64: string | null;
+    filledCount: number;
+    error: string | null;
+    portalUrl: string;
+  } | null>(null);
+  const [showPortalResult, setShowPortalResult] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -227,11 +242,96 @@ export default function PermitDetailPage() {
     return "Portal";
   };
 
-  // Handle portal submission
+  // Handle portal submission (copy-paste assist)
   const handlePortalAssist = (formId: string) => {
     setPortalAssistFormId(formId);
     setShowPortalAssist(true);
     setCopiedField(null);
+  };
+
+  // Check if a form uses ViewPoint specifically
+  const isViewPointForm = (form: TownForm): boolean => {
+    const url = form.externalUrl || form.sourceUrl || "";
+    return url.includes("viewpoint");
+  };
+
+  // ViewPoint: check credentials then run automation or show dialog
+  const handleViewPointFormClick = async (formId: string) => {
+    if (!permit?.townId) return;
+    setViewPointFormId(formId);
+    try {
+      const res = await fetch(`/api/portal-credentials?townId=${permit.townId}`, { credentials: "include" });
+      const data = await res.json();
+      if (data.exists && data.credentialId) {
+        await runViewPointAutomation(formId, data.credentialId);
+      } else {
+        setVpUsername("");
+        setVpPassword("");
+        setShowCredDialog(true);
+      }
+    } catch {
+      toast({ title: "Error", description: "Could not check portal credentials.", variant: "destructive" });
+    }
+  };
+
+  const runViewPointAutomation = async (formId: string, credentialId?: string) => {
+    if (!permit?.townId || !permit?.profileId) {
+      toast({ title: "Missing data", description: "Profile and town required for portal automation.", variant: "destructive" });
+      return;
+    }
+    setRunningPortalAuto(true);
+    setShowCredDialog(false);
+    try {
+      const res = await fetch(`/api/towns/${permit.townId}/forms/${formId}/portal-submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          profileId: permit.profileId,
+          permitId: permit.id,
+          eventData: getEventData(),
+          userAnswers: {},
+          submitForm: false,
+          ...(credentialId ? { credentialId } : {}),
+        }),
+      });
+      const data = await res.json();
+      const form = townForms.find((f) => f.id === formId);
+      const url = (data.portalUrl) || form?.externalUrl || form?.sourceUrl || town?.portalUrl || "";
+      if (res.ok && data.success) {
+        setPortalAutoResult({ screenshotBase64: data.screenshotBase64 || null, filledCount: data.filledFields?.length || 0, error: null, portalUrl: url });
+      } else {
+        setPortalAutoResult({ screenshotBase64: null, filledCount: 0, error: data.message || "Portal automation failed", portalUrl: url });
+      }
+      setShowPortalResult(true);
+    } catch (err: any) {
+      const form = townForms.find((f) => f.id === formId);
+      const url = form?.externalUrl || form?.sourceUrl || town?.portalUrl || "";
+      setPortalAutoResult({ screenshotBase64: null, filledCount: 0, error: err.message || "Connection error", portalUrl: url });
+      setShowPortalResult(true);
+    } finally {
+      setRunningPortalAuto(false);
+    }
+  };
+
+  const handleSaveAndRunCreds = async () => {
+    if (!vpUsername || !vpPassword || !permit?.townId || !viewPointFormId) return;
+    setSavingCreds(true);
+    try {
+      const res = await fetch("/api/portal-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ townId: permit.townId, username: vpUsername, password: vpPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to save credentials");
+      await runViewPointAutomation(viewPointFormId, data.id);
+    } catch (err: any) {
+      toast({ title: "Error saving credentials", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingCreds(false);
+    }
   };
 
   const copyToClipboard = async (value: string, fieldKey: string) => {
@@ -870,7 +970,22 @@ export default function PermitDetailPage() {
                               </Button>
                             </div>
                           )}
-                          {isPortalForm(form) && (
+                          {isPortalForm(form) && isViewPointForm(form) && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleViewPointFormClick(form.id)}
+                              disabled={runningPortalAuto}
+                              className="bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1"
+                            >
+                              {runningPortalAuto && viewPointFormId === form.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Globe className="w-3 h-3" />
+                              )}
+                              Auto-fill Portal
+                            </Button>
+                          )}
+                          {isPortalForm(form) && !isViewPointForm(form) && (
                             <Badge variant="outline" className="text-xs">
                               <Globe className="w-3 h-3 mr-1" />
                               {getPortalProvider(form)}
@@ -962,7 +1077,7 @@ export default function PermitDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Copy your information and paste it into the town's online portal. We'll show you all your data ready to copy.
+                    For ViewPoint portals we auto-fill the form for you. For others, copy your data and paste it into the town's portal.
                   </p>
                   {!profile?.parsedDataLog ? (
                     <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
@@ -981,24 +1096,50 @@ export default function PermitDetailPage() {
                     <div className="space-y-3">
                       {townForms
                         .filter((form) => isPortalForm(form))
-                        .map((form) => (
-                          <Button
-                            key={form.id}
-                            onClick={() => handlePortalAssist(form.id)}
-                            variant="outline"
-                            className="justify-start h-auto py-3"
-                            data-testid={`button-portal-assist-${form.id}`}
-                          >
-                            <ClipboardCheck className="w-4 h-4 mr-3" />
-                            <div className="text-left flex-1">
-                              <div className="font-medium">{form.name}</div>
-                              <div className="text-xs text-muted-foreground">
-                                Copy-paste your data into {getPortalProvider(form)} portal
+                        .map((form) =>
+                          isViewPointForm(form) ? (
+                            <Button
+                              key={form.id}
+                              onClick={() => handleViewPointFormClick(form.id)}
+                              disabled={runningPortalAuto}
+                              variant="outline"
+                              className="justify-start h-auto py-3 w-full"
+                              data-testid={`button-portal-auto-${form.id}`}
+                            >
+                              {runningPortalAuto && viewPointFormId === form.id ? (
+                                <Loader2 className="w-4 h-4 mr-3 animate-spin" />
+                              ) : (
+                                <Globe className="w-4 h-4 mr-3 text-blue-500" />
+                              )}
+                              <div className="text-left flex-1">
+                                <div className="font-medium">{form.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {runningPortalAuto && viewPointFormId === form.id
+                                    ? "Running portal automation..."
+                                    : "Auto-fill ViewPoint portal with your data"}
+                                </div>
                               </div>
-                            </div>
-                            <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
-                          </Button>
-                        ))}
+                              <Badge variant="outline" className="ml-2 text-xs shrink-0">Auto-fill</Badge>
+                            </Button>
+                          ) : (
+                            <Button
+                              key={form.id}
+                              onClick={() => handlePortalAssist(form.id)}
+                              variant="outline"
+                              className="justify-start h-auto py-3 w-full"
+                              data-testid={`button-portal-assist-${form.id}`}
+                            >
+                              <ClipboardCheck className="w-4 h-4 mr-3" />
+                              <div className="text-left flex-1">
+                                <div className="font-medium">{form.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  Copy-paste your data into {getPortalProvider(form)} portal
+                                </div>
+                              </div>
+                              <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
+                            </Button>
+                          )
+                        )}
                       {town?.portalUrl && townForms.filter((f) => isPortalForm(f)).length === 0 && (
                         <Button
                           onClick={() => {
@@ -1178,7 +1319,110 @@ export default function PermitDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Portal Result Modal */}
+      {/* ViewPoint Credential Dialog */}
+      <Dialog open={showCredDialog} onOpenChange={setShowCredDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Portal Login Required</DialogTitle>
+            <DialogDescription>
+              Enter your ViewPoint portal account credentials. These are stored encrypted and never shared.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="vp-username">Username / Email</Label>
+              <Input
+                id="vp-username"
+                value={vpUsername}
+                onChange={(e) => setVpUsername(e.target.value)}
+                placeholder="your@email.com"
+                autoComplete="username"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vp-password">Password</Label>
+              <Input
+                id="vp-password"
+                type="password"
+                value={vpPassword}
+                onChange={(e) => setVpPassword(e.target.value)}
+                placeholder="Your portal password"
+                autoComplete="current-password"
+                onKeyDown={(e) => { if (e.key === "Enter" && vpUsername && vpPassword) handleSaveAndRunCreds(); }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These credentials are AES-256 encrypted and only used to auto-fill this form on your behalf.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCredDialog(false)}>Cancel</Button>
+            <Button
+              onClick={handleSaveAndRunCreds}
+              disabled={!vpUsername || !vpPassword || savingCreds}
+            >
+              {savingCreds && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save &amp; Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Portal Automation Result Dialog */}
+      <Dialog open={showPortalResult} onOpenChange={setShowPortalResult}>
+        <DialogContent className="max-w-xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {portalAutoResult?.error
+                ? <AlertCircle className="w-5 h-5 text-destructive" />
+                : <CheckCircle className="w-5 h-5 text-green-500" />}
+              {portalAutoResult?.error ? "Automation Failed" : "Form Pre-filled"}
+            </DialogTitle>
+            <DialogDescription>
+              {portalAutoResult?.error
+                ? portalAutoResult.error
+                : `Review the pre-filled form — we filled ${portalAutoResult?.filledCount ?? 0} fields`}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[50vh]">
+            {portalAutoResult?.screenshotBase64 && (
+              <img
+                src={`data:image/png;base64,${portalAutoResult.screenshotBase64}`}
+                alt="Pre-filled portal form screenshot"
+                className="w-full rounded-lg border mb-4"
+              />
+            )}
+            {portalAutoResult?.error && (
+              <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
+                <p className="text-sm text-destructive">{portalAutoResult.error}</p>
+              </div>
+            )}
+          </ScrollArea>
+          <DialogFooter className="gap-2 flex-wrap">
+            <Button variant="outline" onClick={() => setShowPortalResult(false)}>Close</Button>
+            {portalAutoResult?.error ? (
+              <Button
+                onClick={() => {
+                  setShowPortalResult(false);
+                  if (viewPointFormId) handlePortalAssist(viewPointFormId);
+                }}
+              >
+                <ClipboardCheck className="w-4 h-4 mr-2" />
+                Use Copy-Paste Instead
+              </Button>
+            ) : (
+              portalAutoResult?.portalUrl && (
+                <Button onClick={() => window.open(portalAutoResult.portalUrl, "_blank")}>
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open Portal to Submit
+                </Button>
+              )
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Portal Assist Copy-Paste Modal */}
       <Dialog open={showPortalAssist} onOpenChange={setShowPortalAssist}>
         <DialogContent className="max-w-lg max-h-[85vh]">
           <DialogHeader>

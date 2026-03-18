@@ -14,7 +14,7 @@ import {
   insertTownRequestSchema,
 } from "@shared/schema";
 import { db } from "./db";
-import { foodTrucks, towns, townForms, publicProfiles } from "@shared/schema";
+import { foodTrucks, towns, townForms, publicProfiles, portalCredentials } from "@shared/schema";
 import { eq, desc, count as sqlCount, and, isNotNull } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import {
@@ -3466,6 +3466,25 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error approving submission:", error);
       res.status(500).json({ message: "Failed to approve submission" });
+    }
+  });
+
+  // GET /api/portal-credentials?townId= — check if credentials exist for this user+town
+  app.get("/api/portal-credentials", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { townId } = req.query as { townId?: string };
+      if (!townId) return res.status(400).json({ message: "townId is required" });
+      const [cred] = await db
+        .select({ id: portalCredentials.id })
+        .from(portalCredentials)
+        .where(and(eq(portalCredentials.userId, userId), eq(portalCredentials.townId, townId)))
+        .limit(1);
+      res.json({ exists: !!cred, credentialId: cred?.id || null });
+    } catch (error) {
+      console.error("Error checking portal credentials:", error);
+      res.status(500).json({ message: "Failed to check credentials" });
     }
   });
 
