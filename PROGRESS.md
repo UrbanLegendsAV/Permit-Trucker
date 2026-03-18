@@ -4,7 +4,7 @@
 > **Domain:** permitpilot.cloud
 > **Repo:** github.com/UrbanLegendsAV/Permit-Trucker
 > **Hosting:** Replit
-> **Last updated:** March 17, 2026 (Sessions 1–3 complete)
+> **Last updated:** March 17, 2026 (Sessions 1–4 complete)
 
 ---
 
@@ -505,6 +505,68 @@
 
 ---
 
+## Phase 12: Directory Enhancements + Edit Listing + ViewPoint UI (COMPLETE)
+
+### Schema & Seed Additions (food_trucks table)
+- [x] 5 new columns: `menu_items` JSONB, `home_lat` TEXT, `home_lng` TEXT, `tiktok_handle` TEXT, `facebook_handle` TEXT
+- [x] Migration added to `runMigrations()` in `server/db.ts`
+- [x] All 8 seed trucks updated with `homeLat`/`homeLng` coordinates
+- [x] Chefo's Eatery fully seeded: cuisine → "Puerto Rican-Mexican", phone, email, instagramHandle, tiktokHandle, 19-item `menuItems` array with CDN photo URLs
+
+### Unified Map Pins (`GET /api/map-pins`)
+- [x] Public endpoint merges live pins (from `public_profiles`) + home-base pins (from `food_trucks` with homeLat/homeLng)
+- [x] Deduplicates by `claimedByUserId` or name — no double markers
+- [x] Returns `locationType: "live" | "home_base"` on each pin
+- [x] `directory.tsx` DirectoryMap + `discover.tsx` both consume this endpoint
+- [x] `home_base` pins: gray `L.divIcon` with 🏠; `live` pins: existing `L.circleMarker`
+- [x] Leaflet marker type changed to `L.Layer[]` to support both types
+
+### Truck Profile UI Rebuild (`/directory/:slug`)
+- [x] New hero: `h-48 md:h-64` with `background-image` (imageUrl) or cuisine-based color fallback
+- [x] Cuisine → hero color mapping: Puerto Rican/Mexican/Latin → `#7f1d1d`, BBQ/Grill → `#7c2d12`, Wings → `#92400e`, etc.
+- [x] Gradient overlay + back link + name/badges/social icons in hero bottom-left
+- [x] Social icons in hero: Instagram, TikTok (ExternalLink icon), Globe
+- [x] Links & Contact sidebar: website, Instagram, TikTok, phone, email — all wired
+- [x] Menu section: `UtensilsCrossed` icon, `grid grid-cols-2 md:grid-cols-3`, photo cards with name + description
+- [x] `MiniMap` component: isolated Leaflet map (non-interactive, h-180px, cleanup on unmount) in right sidebar when `homeLat`/`homeLng` present
+- [x] Leaflet default marker icon fix (Vite-compatible): import PNGs + `delete _getIconUrl` + `mergeOptions`
+- [x] `claimedByUserId` field added to FoodTruck type
+- [x] Blue "Edit Listing" banner shown to the truck's owner
+- [x] `PATCH /api/directory/:slug` reopened to owner OR admin (previously admin-only)
+
+### Self-Serve Edit Listing (`/directory/:slug/edit`)
+- [x] New page: `client/src/pages/edit-listing.tsx`
+- [x] Route `/directory/:slug/edit` added to `App.tsx`
+- [x] 4 tabs: **Profile** (hero image, cuisine picker, description, home base coords) | **Menu** (add/remove items with photo upload per item) | **Contact** (website, phone, email, Instagram, TikTok, Facebook, town tags) | **Catering** (toggle + full catering form)
+- [x] `ImageUploader` component: file upload (`POST /api/upload`) OR URL paste + live preview + clear button
+- [x] `TownTagInput` component: tag-style add/remove for CT service towns
+- [x] `POST /api/upload`: multer disk storage → `./uploads/` dir, 5MB limit, images only; served at `GET /api/uploads/:filename`
+- [x] Access control: unauthenticated → redirect to auth, not-owner → toast + redirect back
+- [x] Sticky "Save Changes" bar + bottom save button
+- [x] Saves via `PATCH /api/directory/:slug`, invalidates TanStack Query cache, redirects to public profile
+
+### Admin Crawler Tab
+- [x] 8th tab "Crawler" added to admin.tsx (Globe2 icon, `grid-cols-8`)
+- [x] `GET /api/admin/crawler/stats`: total towns, towns with/without forms, forms discovered, recent crawls
+- [x] Single-town crawler: town Select + force-recrawl checkbox + "Run Crawler" button (calls existing `POST /api/towns/:townId/discover`)
+- [x] Inline result card (green/red), crawl history table
+
+### Navigation
+- [x] "Find Trucks" renamed to "Directory" in public nav
+- [x] "Directory" link added to authenticated nav (top-header.tsx)
+
+### ViewPoint Credential Dialog + Automation Result (permit-detail.tsx)
+- [x] `GET /api/portal-credentials?townId=` — returns `{ exists, credentialId }` for current user
+- [x] `isViewPointForm()` helper added to permit-detail.tsx
+- [x] ViewPoint forms now show "Auto-fill Portal" button (blue) instead of a badge — in both the required forms list and Portal Assist section
+- [x] Click → checks for saved credentials → shows credential dialog if none, runs automation directly if exists
+- [x] Credential dialog: username/email + password → `POST /api/portal-credentials` (AES-256 encrypted) → fires automation
+- [x] `runViewPointAutomation()` calls `POST /api/towns/:townId/forms/:formId/portal-submit` with `submitForm: false`
+- [x] Result dialog: screenshot + "We filled X fields" + "Open Portal to Submit" on success; error message + "Use Copy-Paste Instead" fallback on failure
+- [x] Non-ViewPoint portal forms (SeamlessDocs, OpenGov) unchanged — copy-paste assist
+
+---
+
 ## Technical Architecture
 
 ### Frontend Stack
@@ -546,6 +608,8 @@
 | `client/src/pages/profile.tsx` | User profile page |
 | `client/src/pages/onboarding.tsx` | Docs-first 5-step onboarding flow |
 | `client/src/pages/claim-flow.tsx` | 4-step truck claim flow (/claim/:slug) |
+| `client/src/pages/edit-listing.tsx` | Self-serve edit listing page (/directory/:slug/edit) |
+| `client/src/pages/permit-detail.tsx` | Permit detail + ViewPoint credential dialog + result view |
 | `client/public/sw.js` | Service worker for PWA |
 | `BRAND_BIBLE.md` | Brand identity source of truth |
 
@@ -566,12 +630,18 @@
 - `GET /api/directory` — List all food trucks (?cuisine= ?town= filters)
 - `GET /api/directory/:slug` — Single truck by slug
 - `GET /api/public-profiles` — List public food trucks (map)
+- `GET /api/map-pins` — Merged live + home-base map pins
 - `GET /api/reviews/:publicProfileId` — Reviews for a truck
 - `POST /api/reviews` — Submit anonymous review
 
 ### Authenticated
 - `POST /api/directory/claim` — Claim a truck listing (legacy)
 - `POST /api/directory/:slug/claim-authenticated` — Full claim: sets status, creates profile, syncs vault
+- `PATCH /api/directory/:slug` — Update truck listing (owner or admin)
+- `GET /api/portal-credentials?townId=` — Check if encrypted portal creds exist for user+town
+- `POST /api/portal-credentials` — Store AES-256 encrypted portal credentials
+- `POST /api/upload` — Upload image, returns `/api/uploads/:filename` URL
+- `POST /api/towns/:townId/forms/:formId/portal-submit` — Run ViewPoint portal automation
 - `GET /api/profiles` — User's vehicle profiles
 - `POST /api/profiles` — Create vehicle profile
 - `GET /api/permits` — User's permits

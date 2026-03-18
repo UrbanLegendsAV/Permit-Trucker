@@ -67,11 +67,14 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 - **ViewPoint Cloud**: Login with stored credentials → catalog search → multi-step wizard field filling
 - **SeamlessDocs / OpenGov**: Direct form filling via CSS selectors and label matching
 - **Label-based fill (Pass 1)** + **selector fallback (Pass 2)** for all portal types
-- **Portal Assist V1**: Copy-paste helper UI for any town with a portal URL
+- **Portal Assist V1**: Copy-paste helper UI for non-ViewPoint portals
+- **ViewPoint Auto-fill UI**: Credential dialog → automation → result dialog with screenshot + field count + "Open Portal to Submit" / "Use Copy-Paste Instead" fallback
 - Portal credentials encrypted with AES-256-GCM, stored per-user per-town
+- Endpoint: `GET /api/portal-credentials?townId=` (check if creds exist)
 - Endpoint: `POST /api/portal-credentials` (store credentials)
 - Endpoint: `POST /api/submissions/portal-automation` (create job)
 - Endpoint: `POST /api/submissions/:jobId/execute` (run automation)
+- Endpoint: `POST /api/towns/:townId/forms/:formId/portal-submit` (direct form-level automation)
 
 #### Data Vault
 - **Profile** = Vehicle record + uploaded documents + raw AI extraction (`parsedDataLog`)
@@ -140,7 +143,7 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 
 ---
 
-## Progress Report (Last Updated: March 17, 2026)
+## Progress Report (Last Updated: March 17, 2026 — Session 4)
 
 ### ✅ FULLY WORKING (Tested & Live)
 
@@ -171,7 +174,7 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 
 | Feature | What's Done | What's Missing |
 |---------|-------------|----------------|
-| Portal Credentials | AES-256-GCM encryption, per-user per-town storage, credential dialog UI | Credential management/deletion UI |
+| Portal Credentials | AES-256-GCM encryption, per-user per-town storage, credential dialog UI, check-exists endpoint, ViewPoint auto-fill result view | Credential management/deletion UI (view/delete saved logins) |
 | Data Vault | Auto-syncs, profile-aware, used in form filling | Multi-document conflict resolution |
 
 ### ❌ NOT STARTED
@@ -188,23 +191,21 @@ PermitPilot uses a monorepo architecture for its client, server, and shared code
 
 **Last Session:** March 6, 2026 — GitHub Integration + Bug Fixes
 
-**What Was Done:**
-1. **Integrated 3 GitHub-pulled updates**:
-   - `portal-automation-service.ts` — ViewPoint Cloud portal automation
-   - `pdf-service.ts` — `generateFieldMappingsFromNonFillablePDF()` + cross-section dedup fix
-   - `form-discovery-service.ts` — Complete rewrite using Playwright + Google/DuckDuckGo search
-2. **Fixed TypeScript compilation errors** — `aiFieldMappings` type mismatch in schema, `vinPlate` missing from OCR types
-3. **Fixed portal automation "400: Expected string, received null"** — `permitId` was hardcoded null, `vaultId` could be undefined
-4. **Made vault profile-aware** — `/api/vault?profileId=xxx` now fetches the vault for the specific vehicle, not just any vault for the user
-5. **Wired up new API endpoint** — `POST /api/towns/:townId/forms/:formId/generate-mappings` for Gemini Vision field mapping
-6. **Removed duplicate route** — unauthenticated `GET /api/towns/:townId/forms` was dead code
-7. **Verified form discovery works** — West Hartford has 7 forms crawled and stored
+**Session 4 — March 17, 2026:**
+1. **Schema**: 5 new `food_trucks` columns (`menu_items`, `home_lat`, `home_lng`, `tiktok_handle`, `facebook_handle`) + migrations
+2. **Seed data**: All 8 trucks with coordinates; Chefo's Eatery: cuisine, phone, email, Instagram, 19-item menu with CDN photos
+3. **`/api/map-pins`**: Public endpoint merging live + home-base pins; discover.tsx + directory.tsx both use it
+4. **Truck profile rebuild**: Hero image/color, gradient, social icons, menu photo grid, MiniMap sidebar component, Leaflet icon fix
+5. **Edit listing page**: `/directory/:slug/edit` — 4-tab editor (Profile/Menu/Contact/Catering), ImageUploader with file upload, TownTagInput; `POST /api/upload` with disk storage
+6. **PATCH /api/directory/:slug**: Reopened to truck owner (was admin-only); strips immutable fields
+7. **Admin Crawler tab**: 8th tab in admin.tsx, `GET /api/admin/crawler/stats`, single-town run UI
+8. **ViewPoint credential dialog**: `GET /api/portal-credentials?townId=` endpoint; ViewPoint forms get "Auto-fill Portal" button in permit-detail; credential dialog → automation → result dialog with screenshot
 
 **Immediate Next Steps:**
-1. Test PDF auto-fill end-to-end with Datalab on a real form
-2. Test portal automation on a real ViewPoint portal
-3. Add frontend polling for discovery-in-progress state
-4. Build credential management UI (view/delete saved portal logins)
+1. Test ViewPoint end-to-end on Danbury portal with Chef O's credentials
+2. Test PDF auto-fill end-to-end with Datalab on a real form
+3. Add credential management UI (view/delete saved portal logins)
+4. Test edit listing page with an actual truck owner account
 
 ### 📁 Key Files
 | Purpose | File |
