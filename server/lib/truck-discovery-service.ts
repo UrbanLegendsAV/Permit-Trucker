@@ -111,6 +111,38 @@ async function politeGet(url: string, extraHeaders: Record<string, string> = {})
   }
 }
 
+// DuckDuckGo HTML endpoint requires a POST with form-encoded body
+async function politePost(url: string, body: string, extraHeaders: Record<string, string> = {}): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": BOT_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://duckduckgo.com",
+        "Referer": "https://duckduckgo.com/",
+        ...extraHeaders,
+      },
+      body,
+      redirect: "follow",
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      console.log(`[Discovery] POST HTTP ${res.status} for ${url}`);
+      return null;
+    }
+    return await res.text();
+  } catch (err: any) {
+    console.log(`[Discovery] POST failed for ${url}: ${err.message}`);
+    return null;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -119,18 +151,17 @@ function townSlug(town: string): string {
   return town.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
-// ── SOURCE 1: DuckDuckGo HTML search ─────────────────────────────────────────
-// DuckDuckGo's HTML endpoint (html.duckduckgo.com/html) doesn't block bots
-// and returns real HTML with stable selectors: .result__title, .result__snippet
+// ── SOURCE 1: DuckDuckGo HTML + Bing search ───────────────────────────────────
+// DDG HTML endpoint requires a POST request (not GET) to get real results.
+// Bing is used as a fallback — generally bot-tolerant.
 
-function buildDDGQueries(targetTown?: string): string[] {
+function buildSearchQueries(targetTown?: string): string[] {
   if (targetTown) {
     return [
-      `"food truck" "${targetTown}" Connecticut`,
-      `"${targetTown} CT" food truck catering`,
-      `food truck "${targetTown} CT" menu`,
-      `"${targetTown}" CT food truck site:instagram.com OR site:facebook.com`,
-      `"${targetTown}" Connecticut food truck catering events`,
+      `${targetTown} CT food truck`,
+      `${targetTown} Connecticut food truck catering`,
+      `food truck ${targetTown} CT menu`,
+      `${targetTown} CT food truck catering events`,
     ];
   }
   return [
@@ -150,64 +181,124 @@ function buildDDGQueries(targetTown?: string): string[] {
   ];
 }
 
-async function scrapeDuckDuckGo(targetTown?: string): Promise<RawCandidate[]> {
+function parseSearchHtml(html: string, query: string, sourceLabel: string, targetTown?: string): RawCandidate[] {
+  const $ = cheerio.load(html);
   const candidates: RawCandidate[] = [];
-  const queries = buildDDGQueries(targetTown);
+
+  // Debug: log page size and a snippet to understand what we got
+  console.log(`[Discovery] ${sourceLabel} response: ${html.length} chars`);
+  if (html.length < 500) {
+    console.log(`[Discovery] ${sourceLabel} short response snippet: ${html.slice(0, 300)}`);
+  }
+
+  // ── DDG HTML selectors ──
+  $(".result, .web-result").each((_, el) => {
+    const titleEl = $(el).find(".result__title, .result__a, h2 a").first();
+    const snippetEl = $(el).find(".result__snippet, .result__extras").first();
+    const urlEl = $(el).find(".result__url, .result__extras__url").first();
+
+    const rawName = titleEl.text().trim();
+    const rawDescription = snippetEl.text().trim();
+    const rawWebsite = urlEl.text().trim().replace(/\s+/g, "");
+
+    if (rawName.length < 3) return;
+    const combined = `${rawName} ${rawDescription}`.toLowerCase();
+    const isFoodTruck = /food.?truck|catering|foodtruck/i.test(combined);
+    const isCT = targetTown ? true : /connecticut|\bct\b|hartford|new haven|bridgeport|stamford/i.test(combined);
+    if (isFoodTruck && isCT) {
+      candidates.push({ rawName, rawDescription, rawWebsite: rawWebsite ? `https://${rawWebsite.replace(/^https?:\/\//,"")}` : undefined, sourceLabel, townHint: targetTown });
+    }
+  });
+
+  // ── Bing selectors ──
+  if (candidates.length === 0) {
+    $("#b_results .b_algo, .b_algo").each((_, el) => {
+      const titleEl = $(el).find("h2 a, h3 a").first();
+      const snippetEl = $(el).find(".b_caption p, p").first();
+      const rawName = titleEl.text().trim();
+      const rawDescription = snippetEl.text().trim();
+      const rawWebsite = titleEl.attr("href") ?? "";
+      if (rawName.length < 3) return;
+      const combined = `${rawName} ${rawDescription}`.toLowerCase();
+      const isFoodTruck = /food.?truck|catering|foodtruck/i.test(combined);
+      const isCT = targetTown ? true : /connecticut|\bct\b|hartford|new haven|bridgeport|stamford/i.test(combined);
+      if (isFoodTruck && isCT) {
+        candidates.push({ rawName, rawDescription, rawWebsite: rawWebsite.startsWith("http") ? rawWebsite : undefined, sourceLabel: "bing", townHint: targetTown });
+      }
+    });
+  }
+
+  // ── Generic fallback — any h3 near food truck text ──
+  if (candidates.length === 0) {
+    $("h3, h2").each((_, el) => {
+      const rawName = $(el).text().trim();
+      const parent = $(el).parent();
+      const rawDescription = parent.find("p, span").first().text().trim();
+      const combined = `${rawName} ${rawDescription}`.toLowerCase();
+      if (rawName.length < 3 || rawName.length > 100) return;
+      const isFoodTruck = /food.?truck|catering|foodtruck/i.test(combined);
+      const isCT = targetTown ? true : /connecticut|\bct\b/i.test(combined);
+      if (isFoodTruck && isCT) {
+        candidates.push({ rawName, rawDescription, sourceLabel, townHint: targetTown });
+      }
+    });
+  }
+
+  return candidates;
+}
+
+async function scrapeDuckDuckGo(targetTown?: string): Promise<RawCandidate[]> {
+  const allCandidates: RawCandidate[] = [];
+  const queries = buildSearchQueries(targetTown);
 
   for (const query of queries) {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    console.log(`[Discovery] DDG query: ${query}`);
+    console.log(`[Discovery] DDG POST query: ${query}`);
 
-    const html = await politeGet(url, {
-      "Referer": "https://duckduckgo.com/",
-    });
+    // DDG HTML requires POST with form-encoded body
+    const html = await politePost(
+      "https://html.duckduckgo.com/html/",
+      `q=${encodeURIComponent(query)}&kl=us-en&kp=-2`,
+    );
 
     if (!html) {
+      // DDG blocked — try Bing for this query
+      console.log(`[Discovery] DDG failed, trying Bing for: ${query}`);
+      const bingHtml = await politeGet(
+        `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=20&mkt=en-US`,
+        { "Referer": "https://www.bing.com/" },
+      );
+      if (bingHtml) {
+        const found = parseSearchHtml(bingHtml, query, "bing", targetTown);
+        console.log(`[Discovery] Bing "${query}" → ${found.length} candidates`);
+        allCandidates.push(...found);
+      }
       await sleep(DELAY_MS);
       continue;
     }
 
-    const $ = cheerio.load(html);
-    let found = 0;
+    const found = parseSearchHtml(html, query, "duckduckgo", targetTown);
 
-    // DDG HTML result structure: .result .result__title a, .result__snippet, .result__url
-    $(".result").each((_, el) => {
-      const titleEl = $(el).find(".result__title a, .result__a").first();
-      const snippetEl = $(el).find(".result__snippet").first();
-      const urlEl = $(el).find(".result__url").first();
-
-      const rawName = titleEl.text().trim();
-      const rawDescription = snippetEl.text().trim();
-      const rawWebsite = urlEl.text().trim().replace(/\s+/g, "");
-
-      if (rawName.length < 3) return;
-
-      const combined = `${rawName} ${rawDescription}`.toLowerCase();
-
-      // Must look like a food truck (broader match when town is specified)
-      const isFoodTruck = /food.?truck|catering|foodtruck/i.test(combined);
-      // Must be CT-related (relax if we already targeted a CT town)
-      const isCT = targetTown
-        ? true
-        : /connecticut|\bct\b|hartford|new haven|bridgeport|stamford/i.test(combined);
-
-      if (isFoodTruck && isCT) {
-        candidates.push({
-          rawName,
-          rawDescription,
-          rawWebsite: rawWebsite.startsWith("http") ? rawWebsite : rawWebsite ? `https://${rawWebsite}` : undefined,
-          sourceLabel: "duckduckgo",
-          townHint: targetTown,
-        });
-        found++;
+    // If DDG returned HTML but 0 results, also try Bing
+    if (found.length === 0) {
+      console.log(`[Discovery] DDG returned 0 for "${query}", trying Bing`);
+      const bingHtml = await politeGet(
+        `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=20&mkt=en-US`,
+        { "Referer": "https://www.bing.com/" },
+      );
+      if (bingHtml) {
+        const bingFound = parseSearchHtml(bingHtml, query, "bing", targetTown);
+        console.log(`[Discovery] Bing "${query}" → ${bingFound.length} candidates`);
+        allCandidates.push(...bingFound);
       }
-    });
+    } else {
+      console.log(`[Discovery] DDG "${query}" → ${found.length} candidates`);
+      allCandidates.push(...found);
+    }
 
-    console.log(`[Discovery] DDG "${query}" → ${found} candidates`);
     await sleep(DELAY_MS);
   }
 
-  return candidates;
+  return allCandidates;
 }
 
 // ── SOURCE 2: Yelp search ─────────────────────────────────────────────────────
@@ -430,36 +521,50 @@ Confidence rules:
 
 Return ONLY valid JSON array, no explanation text.`;
 
-    try {
-      const response = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 2048,
-        messages: [{ role: "user", content: prompt }],
-      });
+    // Retry up to 3 times on 529 overloaded
+    let lastErr: any;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        });
 
-      const text =
-        response.content[0].type === "text" ? response.content[0].text : "";
+        const text =
+          response.content[0].type === "text" ? response.content[0].text : "";
 
-      // Strip any markdown code fences
-      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        console.log(`[Discovery] Claude returned no JSON array for batch ${i}`);
-        continue;
-      }
+        // Strip any markdown code fences
+        const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) {
+          console.log(`[Discovery] Claude returned no JSON array for batch ${i}`);
+          break;
+        }
 
-      const parsed: ExtractedTruck[] = JSON.parse(jsonMatch[0]);
-      for (const t of parsed) {
-        if (t.confidence >= 0.65 && t.name && t.name.length > 2) {
-          // Auto-generate slug if missing
-          if (!t.slug) {
-            t.slug = t.name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+        const parsed: ExtractedTruck[] = JSON.parse(jsonMatch[0]);
+        for (const t of parsed) {
+          if (t.confidence >= 0.65 && t.name && t.name.length > 2) {
+            if (!t.slug) {
+              t.slug = t.name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+            }
+            results.push(t);
           }
-          results.push(t);
+        }
+        lastErr = null;
+        break; // success
+      } catch (err: any) {
+        lastErr = err;
+        if (err?.status === 529 && attempt < 2) {
+          console.log(`[Discovery] Claude overloaded (529), retrying in ${(attempt + 1) * 5}s...`);
+          await sleep((attempt + 1) * 5000);
+        } else {
+          break;
         }
       }
-    } catch (err) {
-      console.error("[Discovery] Claude extraction error:", err);
+    }
+    if (lastErr) {
+      console.error("[Discovery] Claude extraction failed after retries:", lastErr.message);
     }
 
     await sleep(500);
