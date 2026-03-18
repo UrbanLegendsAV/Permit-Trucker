@@ -3983,13 +3983,12 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
-  // POST /api/admin/discover-trucks — run autonomous CT food truck discovery
+  // POST /api/admin/discover-trucks — async background run
   app.post("/api/admin/discover-trucks", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      const { maxNew = 50, source = "all" } = req.body ?? {};
+      const { maxNew = 50, source = "all", targetTown } = req.body ?? {};
 
-      // 1-hour cooldown (only enforced for "all" source to allow per-source reruns)
-      if (source === "all") {
+      if (source === "all" && !targetTown) {
         const lastRun = await getLastRunTime();
         if (lastRun) {
           const elapsedMs = Date.now() - lastRun.getTime();
@@ -4002,16 +4001,16 @@ For text fields that require descriptive answers about food safety practices, se
         }
       }
 
-      // Run async so the request returns quickly — client polls /preview for updates
       res.json({ message: "Discovery started", status: "running" });
 
       const capMax = Math.min(Number(maxNew) || 50, 200);
+      const town = targetTown || undefined;
       if (source === "all") {
-        discoverNewTrucks(capMax).catch((err) =>
+        discoverNewTrucks(capMax, town).catch((err) =>
           console.error("[Discovery] Background run error:", err),
         );
       } else {
-        discoverFromSource(source as "google" | "instagram" | "directories", capMax).catch(
+        discoverFromSource(source as "duckduckgo" | "yelp" | "directories", capMax, town).catch(
           (err) => console.error("[Discovery] Background run error:", err),
         );
       }
@@ -4020,16 +4019,17 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
-  // POST /api/admin/discover-trucks/run-sync — same but waits for result (for UI that wants results)
+  // POST /api/admin/discover-trucks/run-sync — waits for result (used by admin UI)
   app.post("/api/admin/discover-trucks/run-sync", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      const { maxNew = 50, source = "all" } = req.body ?? {};
+      const { maxNew = 50, source = "all", targetTown } = req.body ?? {};
       const capMax = Math.min(Number(maxNew) || 50, 200);
+      const town = targetTown || undefined;
 
       const summary =
         source === "all"
-          ? await discoverNewTrucks(capMax)
-          : await discoverFromSource(source as "google" | "instagram" | "directories", capMax);
+          ? await discoverNewTrucks(capMax, town)
+          : await discoverFromSource(source as "duckduckgo" | "yelp" | "directories", capMax, town);
 
       res.json(summary);
     } catch (err: any) {

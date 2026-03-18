@@ -4,7 +4,7 @@
  * AUTONOMOUS PIPELINE:
  * ┌─────────────────────────────────────────────────────────────────────────────┐
  * │ 1. Admin clicks "Discover New Trucks"                                       │
- * │    → discoverNewTrucks() scrapes Google, Instagram hashtags, CT directories │
+ * │    → discoverNewTrucks() scrapes DuckDuckGo, Yelp, CT directories          │
  * │    → Claude Haiku extracts structured data (name, slug, cuisine, etc.)      │
  * │    → Deduplicates by slug / name / website domain                           │
  * │    → Inserts unclaimed listings into food_trucks                            │
@@ -29,10 +29,11 @@ import { eq, ilike, or, sql } from "drizzle-orm";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// DuckDuckGo HTML is bot-friendly — use a realistic browser UA for best results
 const BOT_UA =
-  "Mozilla/5.0 (compatible; PermitPilot-bot/1.0; +https://permitpilot.cloud)";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-const DELAY_MS = 1500; // polite crawl delay between requests
+const DELAY_MS = 2000; // polite crawl delay between requests
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ interface RawCandidate {
   rawWebsite?: string;
   rawInstagram?: string;
   sourceLabel: string;
+  townHint?: string;
 }
 
 interface ExtractedTruck {
@@ -71,19 +73,7 @@ interface ExtractedTruck {
   confidence: number;
 }
 
-// ── Slug helper ───────────────────────────────────────────────────────────────
-
-function toSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 80);
-}
-
-// ── Domain extractor ──────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function extractDomain(url: string): string | null {
   try {
@@ -95,20 +85,28 @@ function extractDomain(url: string): string | null {
   }
 }
 
-// ── Polite fetch with timeout ─────────────────────────────────────────────────
-
-async function politeGet(url: string): Promise<string | null> {
+async function politeGet(url: string, extraHeaders: Record<string, string> = {}): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12_000);
+    const timer = setTimeout(() => controller.abort(), 15_000);
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": BOT_UA },
+      headers: {
+        "User-Agent": BOT_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        ...extraHeaders,
+      },
+      redirect: "follow",
     });
     clearTimeout(timer);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.log(`[Discovery] HTTP ${res.status} for ${url}`);
+      return null;
+    }
     return await res.text();
-  } catch {
+  } catch (err: any) {
+    console.log(`[Discovery] Fetch failed for ${url}: ${err.message}`);
     return null;
   }
 }
@@ -117,29 +115,115 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── SOURCE 1: Google Search scraping ─────────────────────────────────────────
+function townSlug(town: string): string {
+  return town.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
 
-const GOOGLE_QUERIES = [
-  "Connecticut food truck catering",
-  "CT food truck catering site:facebook.com",
-  "food truck Connecticut menu",
-  "Hartford CT food truck",
-  "Bridgeport CT food truck",
-  "New Haven CT food truck",
-  "Stamford CT food truck",
-  "Waterbury CT food truck",
-  "Norwalk CT food truck",
-  "Danbury CT food truck",
-  "New Britain CT food truck",
-  "West Hartford CT food truck",
-  "Greenwich CT food truck",
-];
+// ── SOURCE 1: DuckDuckGo HTML search ─────────────────────────────────────────
+// DuckDuckGo's HTML endpoint (html.duckduckgo.com/html) doesn't block bots
+// and returns real HTML with stable selectors: .result__title, .result__snippet
 
-async function scrapeGoogle(): Promise<RawCandidate[]> {
+function buildDDGQueries(targetTown?: string): string[] {
+  if (targetTown) {
+    return [
+      `"food truck" "${targetTown}" Connecticut`,
+      `"${targetTown} CT" food truck catering`,
+      `food truck "${targetTown} CT" menu`,
+      `"${targetTown}" CT food truck site:instagram.com OR site:facebook.com`,
+      `"${targetTown}" Connecticut food truck catering events`,
+    ];
+  }
+  return [
+    "Connecticut food truck catering",
+    "Hartford CT food truck",
+    "New Haven CT food truck",
+    "Bridgeport CT food truck",
+    "Stamford CT food truck",
+    "Waterbury CT food truck",
+    "Danbury CT food truck",
+    "Norwalk CT food truck",
+    "New Britain CT food truck",
+    "West Hartford CT food truck",
+    "Greenwich CT food truck",
+    "Meriden CT food truck",
+    "Bristol CT food truck",
+  ];
+}
+
+async function scrapeDuckDuckGo(targetTown?: string): Promise<RawCandidate[]> {
+  const candidates: RawCandidate[] = [];
+  const queries = buildDDGQueries(targetTown);
+
+  for (const query of queries) {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    console.log(`[Discovery] DDG query: ${query}`);
+
+    const html = await politeGet(url, {
+      "Referer": "https://duckduckgo.com/",
+    });
+
+    if (!html) {
+      await sleep(DELAY_MS);
+      continue;
+    }
+
+    const $ = cheerio.load(html);
+    let found = 0;
+
+    // DDG HTML result structure: .result .result__title a, .result__snippet, .result__url
+    $(".result").each((_, el) => {
+      const titleEl = $(el).find(".result__title a, .result__a").first();
+      const snippetEl = $(el).find(".result__snippet").first();
+      const urlEl = $(el).find(".result__url").first();
+
+      const rawName = titleEl.text().trim();
+      const rawDescription = snippetEl.text().trim();
+      const rawWebsite = urlEl.text().trim().replace(/\s+/g, "");
+
+      if (rawName.length < 3) return;
+
+      const combined = `${rawName} ${rawDescription}`.toLowerCase();
+
+      // Must look like a food truck (broader match when town is specified)
+      const isFoodTruck = /food.?truck|catering|foodtruck/i.test(combined);
+      // Must be CT-related (relax if we already targeted a CT town)
+      const isCT = targetTown
+        ? true
+        : /connecticut|\bct\b|hartford|new haven|bridgeport|stamford/i.test(combined);
+
+      if (isFoodTruck && isCT) {
+        candidates.push({
+          rawName,
+          rawDescription,
+          rawWebsite: rawWebsite.startsWith("http") ? rawWebsite : rawWebsite ? `https://${rawWebsite}` : undefined,
+          sourceLabel: "duckduckgo",
+          townHint: targetTown,
+        });
+        found++;
+      }
+    });
+
+    console.log(`[Discovery] DDG "${query}" → ${found} candidates`);
+    await sleep(DELAY_MS);
+  }
+
+  return candidates;
+}
+
+// ── SOURCE 2: Yelp search ─────────────────────────────────────────────────────
+// Yelp's search pages are indexable and return real business names/descriptions
+
+async function scrapeYelp(targetTown?: string): Promise<RawCandidate[]> {
   const candidates: RawCandidate[] = [];
 
-  for (const query of GOOGLE_QUERIES) {
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=20`;
+  const locations = targetTown
+    ? [`${targetTown}, CT`]
+    : ["Hartford, CT", "New Haven, CT", "Bridgeport, CT", "Stamford, CT", "Waterbury, CT", "Danbury, CT"];
+
+  for (const location of locations) {
+    const url = `https://www.yelp.com/search?find_desc=food+truck&find_loc=${encodeURIComponent(location)}&sortby=rating`;
+    console.log(`[Discovery] Yelp: ${location}`);
+
     const html = await politeGet(url);
     if (!html) {
       await sleep(DELAY_MS);
@@ -147,85 +231,48 @@ async function scrapeGoogle(): Promise<RawCandidate[]> {
     }
 
     const $ = cheerio.load(html);
+    let found = 0;
 
-    // Google result blocks — various selectors depending on layout
-    $("div.g, div[data-hveid]").each((_, el) => {
-      const titleEl = $(el).find("h3").first();
-      const snippetEl = $(el).find(".VwiC3b, .IsZvec, span").first();
-      const linkEl = $(el).find("a[href]").first();
+    // Yelp result cards — business names are in h3/h4 tags or data attributes
+    $("h3, h4").each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 2 && text.length < 100) {
+        const parent = $(el).closest("li, div[class*='container'], div[class*='businessResult']");
+        const snippet = parent.find("p, span[class*='snippet'], span[class*='category']").first().text().trim();
 
-      const rawName = titleEl.text().trim();
-      const rawDescription = snippetEl.text().trim();
-      const href = linkEl.attr("href") ?? "";
-      const rawWebsite =
-        href.startsWith("http") && !href.includes("google.com")
-          ? href.split("&")[0]
-          : undefined;
-
-      if (
-        rawName.length > 3 &&
-        rawDescription.length > 10 &&
-        /food.?truck|catering/i.test(rawName + rawDescription) &&
-        /connecticut|CT\b/i.test(rawName + rawDescription)
-      ) {
         candidates.push({
-          rawName,
-          rawDescription,
-          rawWebsite,
-          sourceLabel: "google",
+          rawName: text,
+          rawDescription: snippet || `Food truck business found on Yelp in ${location}`,
+          sourceLabel: "yelp",
+          townHint: targetTown || location.split(",")[0],
         });
+        found++;
       }
     });
 
-    await sleep(DELAY_MS);
-  }
-
-  return candidates;
-}
-
-// ── SOURCE 2: Instagram hashtag pages ────────────────────────────────────────
-
-const IG_HASHTAGS = [
-  "https://www.instagram.com/explore/tags/ctfoodtruck/",
-  "https://www.instagram.com/explore/tags/connecticutfoodtruck/",
-  "https://www.instagram.com/explore/tags/hartfordfoodtruck/",
-];
-
-async function scrapeInstagram(): Promise<RawCandidate[]> {
-  const candidates: RawCandidate[] = [];
-
-  for (const url of IG_HASHTAGS) {
-    const html = await politeGet(url);
-    if (!html) {
-      await sleep(DELAY_MS);
-      continue;
-    }
-
-    // Extract from og:description — Instagram embeds post descriptions here
-    const ogDesc =
-      html.match(/<meta property="og:description" content="([^"]+)"/)?.[1] ??
-      "";
-
-    // Extract @handles from full page text near food/CT context
-    const handles = (html.match(/@([a-zA-Z0-9_.]{3,30})/g) ?? []).map((h) =>
-      h.replace("@", ""),
-    );
-
-    for (const handle of handles) {
-      // Filter to handles likely to be CT food trucks based on page context
-      if (
-        ogDesc.toLowerCase().includes(handle.toLowerCase()) ||
-        /truck|bbq|taco|grill|eats|food|ct/i.test(handle)
-      ) {
-        candidates.push({
-          rawName: handle,
-          rawDescription: `Instagram food truck account @${handle} found on CT food truck hashtag page`,
-          rawInstagram: handle,
-          sourceLabel: "instagram",
-        });
+    // Also extract from JSON-LD structured data which Yelp includes
+    $('script[type="application/ld+json"]').each((_, el) => {
+      try {
+        const json = JSON.parse($(el).html() ?? "{}");
+        const items = Array.isArray(json) ? json : json["@graph"] ?? [json];
+        for (const item of items) {
+          if (item.name && (item["@type"] === "FoodEstablishment" || item["@type"] === "LocalBusiness")) {
+            candidates.push({
+              rawName: item.name,
+              rawDescription: item.description || item.servesCuisine || `Food business in ${location}`,
+              rawWebsite: item.url || undefined,
+              sourceLabel: "yelp",
+              townHint: targetTown || location.split(",")[0],
+            });
+            found++;
+          }
+        }
+      } catch {
+        // ignore parse errors
       }
-    }
+    });
 
+    console.log(`[Discovery] Yelp "${location}" → ${found} candidates`);
     await sleep(DELAY_MS);
   }
 
@@ -234,15 +281,25 @@ async function scrapeInstagram(): Promise<RawCandidate[]> {
 
 // ── SOURCE 3: CT-specific food truck directories ──────────────────────────────
 
-const DIRECTORY_URLS = [
-  "https://www.roaminghunger.com/food-trucks/ct/",
-  "https://www.foodtrucksin.com/connecticut/",
-];
-
-async function scrapeDirectories(): Promise<RawCandidate[]> {
+async function scrapeDirectories(targetTown?: string): Promise<RawCandidate[]> {
   const candidates: RawCandidate[] = [];
 
-  for (const url of DIRECTORY_URLS) {
+  // Roaming Hunger has town-specific URLs when a town is selected
+  const rhUrls = targetTown
+    ? [
+        `https://www.roaminghunger.com/food-trucks/ct/${townSlug(targetTown)}/`,
+        `https://www.roaminghunger.com/food-trucks/ct/`,
+      ]
+    : [
+        "https://www.roaminghunger.com/food-trucks/ct/",
+        "https://www.roaminghunger.com/food-trucks/ct/hartford/",
+        "https://www.roaminghunger.com/food-trucks/ct/new-haven/",
+        "https://www.roaminghunger.com/food-trucks/ct/bridgeport/",
+        "https://www.roaminghunger.com/food-trucks/ct/stamford/",
+      ];
+
+  for (const url of rhUrls) {
+    console.log(`[Discovery] Directory: ${url}`);
     const html = await politeGet(url);
     if (!html) {
       await sleep(DELAY_MS);
@@ -250,37 +307,80 @@ async function scrapeDirectories(): Promise<RawCandidate[]> {
     }
 
     const $ = cheerio.load(html);
+    let found = 0;
 
-    // Roaming Hunger listing cards
-    $(
-      ".truck-card, .listing-card, article, .truck, [class*='truck'], [class*='listing']",
-    ).each((_, el) => {
-      const nameEl = $(el).find("h2, h3, h4, .name, .title").first();
-      const descEl = $(el)
-        .find("p, .description, .bio, .snippet")
-        .first();
-      const linkEl = $(el).find("a[href]").first();
+    // Try multiple selector strategies since sites vary their HTML
+    const selectors = [
+      ".truck-card",
+      ".listing-card",
+      ".truck-listing",
+      "[class*='TruckCard']",
+      "[class*='truck-card']",
+      "[class*='listing']",
+      "article",
+    ];
 
-      const rawName = nameEl.text().trim();
-      const rawDescription = descEl.text().trim();
-      const href = linkEl.attr("href") ?? "";
-      const rawWebsite =
-        href.startsWith("http") && !href.includes(new URL(url).hostname)
-          ? href
-          : undefined;
+    for (const sel of selectors) {
+      $(sel).each((_, el) => {
+        const nameEl = $(el).find("h2, h3, h4, [class*='name'], [class*='title']").first();
+        const descEl = $(el).find("p, [class*='description'], [class*='cuisine']").first();
+        const linkEl = $(el).find("a[href]").first();
+        const href = linkEl.attr("href") ?? "";
 
-      if (rawName.length > 3) {
+        const rawName = nameEl.text().trim();
+        if (rawName.length < 3) return;
+
         candidates.push({
           rawName,
-          rawDescription: rawDescription || `Food truck listing from ${url}`,
-          rawWebsite,
-          sourceLabel: url.includes("roaminghunger")
-            ? "roaminghunger"
-            : "foodtrucksin",
+          rawDescription: descEl.text().trim() || `Food truck listing from Roaming Hunger`,
+          rawWebsite: href.startsWith("http") && !href.includes("roaminghunger.com") ? href : undefined,
+          sourceLabel: "roaminghunger",
+          townHint: targetTown,
         });
-      }
-    });
+        found++;
+      });
+      if (found > 0) break; // stop trying selectors once one works
+    }
 
+    // Fallback: extract from JSON-LD structured data
+    if (found === 0) {
+      $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+          const json = JSON.parse($(el).html() ?? "{}");
+          const items = Array.isArray(json) ? json : [json];
+          for (const item of items) {
+            if (item.name) {
+              candidates.push({
+                rawName: item.name,
+                rawDescription: item.description || "Food truck",
+                rawWebsite: item.url || undefined,
+                sourceLabel: "roaminghunger",
+                townHint: targetTown,
+              });
+              found++;
+            }
+          }
+        } catch { /* ignore */ }
+      });
+    }
+
+    // Last resort: grab all h3 text that looks like a business name
+    if (found === 0) {
+      $("h3").each((_, el) => {
+        const text = $(el).text().trim();
+        if (text.length > 3 && text.length < 80) {
+          candidates.push({
+            rawName: text,
+            rawDescription: "Food truck from CT directory",
+            sourceLabel: "roaminghunger",
+            townHint: targetTown,
+          });
+          found++;
+        }
+      });
+    }
+
+    console.log(`[Discovery] ${url} → ${found} candidates`);
     await sleep(DELAY_MS);
   }
 
@@ -291,39 +391,44 @@ async function scrapeDirectories(): Promise<RawCandidate[]> {
 
 async function extractWithClaude(
   candidates: RawCandidate[],
+  targetTown?: string,
 ): Promise<ExtractedTruck[]> {
   if (candidates.length === 0) return [];
 
-  // Batch candidates to reduce API calls (up to 10 per request)
   const results: ExtractedTruck[] = [];
   const batchSize = 10;
+  const townContext = targetTown ? `Focus: ${targetTown}, Connecticut` : "Focus: Connecticut statewide";
 
   for (let i = 0; i < candidates.length; i += batchSize) {
     const batch = candidates.slice(i, i + batchSize);
 
-    const prompt = `You are extracting Connecticut food truck data. For each candidate below, extract structured info.
+    const prompt = `You are extracting Connecticut food truck data for the PermitPilot directory.
+${townContext}
 
 Candidates (JSON array):
 ${JSON.stringify(batch, null, 2)}
 
-For each candidate, return a JSON array of objects with this exact shape:
+For each candidate, return a JSON array with this exact shape per item:
 {
-  "name": "Official truck name (clean, no hashtags)",
+  "name": "Official business name (clean, title case, no hashtags)",
   "slug": "url-friendly-slug-from-name",
-  "cuisine": "cuisine type (e.g. American, Mexican, BBQ, Asian Fusion)",
-  "description": "1-2 sentence description of the truck",
-  "website": "https://... or null",
-  "instagramHandle": "handle without @ or null",
-  "towns": ["Hartford", "New Britain"],
+  "cuisine": "cuisine type (e.g. American, Mexican, BBQ, Latin, Asian Fusion, etc.)",
+  "description": "1-2 sentence description of the truck and food",
+  "website": "full URL starting with https:// or null",
+  "instagramHandle": "instagram handle without @ or null",
+  "towns": ["${targetTown ?? "Hartford"}"],
   "confidence": 0.0-1.0
 }
 
-Rules:
-- confidence >= 0.7 only if this is clearly a real Connecticut food truck
-- confidence < 0.5 if it could be a restaurant, not a truck, or not from CT
-- Skip Instagram bot/spam accounts (confidence 0.0)
-- towns should be a list of CT towns the truck serves (extract from text if possible, else [])
-- Return ONLY the JSON array, no other text`;
+Confidence rules:
+- 0.8+ = clearly a real CT food truck with a specific name
+- 0.65-0.79 = likely a CT food truck but less certain
+- below 0.65 = skip (restaurants, bars, generic entries, no clear truck identity)
+- If rawName is just a URL, website domain, or generic phrase → confidence 0.0
+- If the candidate is from a food truck directory listing → boost confidence by 0.1
+- townHint field = the CT town this was found for, use it to populate towns array
+
+Return ONLY valid JSON array, no explanation text.`;
 
     try {
       const response = await anthropic.messages.create({
@@ -334,12 +439,22 @@ Rules:
 
       const text =
         response.content[0].type === "text" ? response.content[0].text : "";
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) continue;
+
+      // Strip any markdown code fences
+      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        console.log(`[Discovery] Claude returned no JSON array for batch ${i}`);
+        continue;
+      }
 
       const parsed: ExtractedTruck[] = JSON.parse(jsonMatch[0]);
       for (const t of parsed) {
-        if (t.confidence >= 0.7 && t.name && t.slug) {
+        if (t.confidence >= 0.65 && t.name && t.name.length > 2) {
+          // Auto-generate slug if missing
+          if (!t.slug) {
+            t.slug = t.name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+          }
           results.push(t);
         }
       }
@@ -355,9 +470,7 @@ Rules:
 
 // ── Deduplication check ───────────────────────────────────────────────────────
 
-async function isDuplicate(
-  truck: ExtractedTruck,
-): Promise<boolean> {
+async function isDuplicate(truck: ExtractedTruck): Promise<boolean> {
   // 1. Exact slug match
   const bySlug = await db
     .select({ id: foodTrucks.id })
@@ -402,13 +515,12 @@ async function isDuplicate(
 
 async function insertTruck(
   truck: ExtractedTruck,
-  sourceLabel: string,
 ): Promise<"added" | "duplicate" | "error"> {
   try {
     const dup = await isDuplicate(truck);
     if (dup) return "duplicate";
 
-    // Ensure unique slug by appending -2, -3 etc. if needed
+    // Ensure unique slug
     let slug = truck.slug;
     let attempt = 1;
     while (true) {
@@ -445,7 +557,7 @@ async function insertTruck(
   }
 }
 
-// ── Config helpers for rate limiting ─────────────────────────────────────────
+// ── Config helpers ────────────────────────────────────────────────────────────
 
 async function getLastRunTime(): Promise<Date | null> {
   try {
@@ -476,12 +588,13 @@ async function logRun(
   summary: DiscoverySummary,
   durationMs: number,
   sourceLabel: string,
+  targetTown?: string,
 ): Promise<void> {
   try {
     await db.insert(agentLogs).values({
       agentName: "truck_discovery",
       action: "discovery_run",
-      input: JSON.stringify({ source: sourceLabel }),
+      input: JSON.stringify({ source: sourceLabel, targetTown }),
       output: JSON.stringify({
         discovered: summary.discovered,
         added: summary.added,
@@ -496,14 +609,17 @@ async function logRun(
   }
 }
 
-// ── Core discovery runner ─────────────────────────────────────────────────────
+// ── Core runner ───────────────────────────────────────────────────────────────
 
 async function runDiscovery(
   candidates: RawCandidate[],
   sourceLabel: string,
   maxNew: number,
+  targetTown?: string,
 ): Promise<DiscoverySummary> {
-  const trucks = await extractWithClaude(candidates);
+  console.log(`[Discovery] Extracting from ${candidates.length} raw candidates...`);
+  const trucks = await extractWithClaude(candidates, targetTown);
+  console.log(`[Discovery] Claude extracted ${trucks.length} confident trucks`);
 
   let added = 0;
   let duplicates = 0;
@@ -513,7 +629,7 @@ async function runDiscovery(
   for (const truck of trucks) {
     if (added >= maxNew) break;
 
-    const result = await insertTruck(truck, sourceLabel);
+    const result = await insertTruck(truck);
     if (result === "added") added++;
     else if (result === "duplicate") duplicates++;
     else errors++;
@@ -526,65 +642,70 @@ async function runDiscovery(
     });
   }
 
-  return {
-    discovered: trucks.length,
-    added,
-    duplicates,
-    errors,
-    trucks: entries,
-  };
+  return { discovered: trucks.length, added, duplicates, errors, trucks: entries };
 }
 
 // ── Public exports ────────────────────────────────────────────────────────────
 
 export async function discoverFromSource(
-  source: "google" | "instagram" | "directories",
+  source: "duckduckgo" | "yelp" | "directories",
   maxNew: number = 50,
+  targetTown?: string,
 ): Promise<DiscoverySummary> {
   const start = Date.now();
-  console.log(`[Discovery] Starting source: ${source}`);
+  const label = targetTown ? `${source}:${targetTown}` : source;
+  console.log(`[Discovery] Starting source: ${label}`);
 
   let candidates: RawCandidate[] = [];
 
-  if (source === "google") candidates = await scrapeGoogle();
-  else if (source === "instagram") candidates = await scrapeInstagram();
-  else if (source === "directories") candidates = await scrapeDirectories();
+  if (source === "duckduckgo") candidates = await scrapeDuckDuckGo(targetTown);
+  else if (source === "yelp") candidates = await scrapeYelp(targetTown);
+  else if (source === "directories") candidates = await scrapeDirectories(targetTown);
 
-  console.log(`[Discovery] ${source}: found ${candidates.length} raw candidates`);
+  console.log(`[Discovery] ${label}: ${candidates.length} raw candidates`);
 
-  const summary = await runDiscovery(candidates, source, maxNew);
-  await logRun(summary, Date.now() - start, source);
+  const summary = await runDiscovery(candidates, source, maxNew, targetTown);
+  await logRun(summary, Date.now() - start, source, targetTown);
 
   console.log(
-    `[Discovery] ${source} done — discovered: ${summary.discovered}, added: ${summary.added}, dupes: ${summary.duplicates}`,
+    `[Discovery] ${label} done — discovered: ${summary.discovered}, added: ${summary.added}, dupes: ${summary.duplicates}`,
   );
   return summary;
 }
 
 export async function discoverNewTrucks(
   maxNew: number = 50,
+  targetTown?: string,
 ): Promise<DiscoverySummary> {
   const start = Date.now();
-  console.log("[Discovery] Starting full discovery run (all sources)");
+  const label = targetTown ? `all:${targetTown}` : "all sources";
+  console.log(`[Discovery] Starting full run — ${label}`);
 
-  const [googleCandidates, igCandidates, dirCandidates] = await Promise.all([
-    scrapeGoogle(),
-    scrapeInstagram(),
-    scrapeDirectories(),
-  ]);
+  // Run sources sequentially when town-targeted (less noise, more focused)
+  // Run in parallel for statewide (faster)
+  let all: RawCandidate[];
 
-  // Merge and label
-  const all: RawCandidate[] = [
-    ...googleCandidates,
-    ...igCandidates,
-    ...dirCandidates,
-  ];
+  if (targetTown) {
+    const ddg = await scrapeDuckDuckGo(targetTown);
+    await sleep(DELAY_MS);
+    const yelp = await scrapeYelp(targetTown);
+    await sleep(DELAY_MS);
+    const dirs = await scrapeDirectories(targetTown);
+    all = [...ddg, ...yelp, ...dirs];
+  } else {
+    const [ddg, yelp, dirs] = await Promise.all([
+      scrapeDuckDuckGo(),
+      scrapeYelp(),
+      scrapeDirectories(),
+    ]);
+    all = [...ddg, ...yelp, ...dirs];
+  }
 
   console.log(`[Discovery] Total raw candidates: ${all.length}`);
 
-  const summary = await runDiscovery(all, "all", maxNew);
+  const summary = await runDiscovery(all, "all", maxNew, targetTown);
   await setLastRunTime();
-  await logRun(summary, Date.now() - start, "all");
+  await logRun(summary, Date.now() - start, "all", targetTown);
 
   console.log(
     `[Discovery] Full run done — discovered: ${summary.discovered}, added: ${summary.added}, dupes: ${summary.duplicates}`,

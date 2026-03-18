@@ -1384,8 +1384,9 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [forceRecrawl, setForceRecrawl] = useState(false);
   const [crawlResult, setCrawlResult] = useState<{ message: string; ok: boolean } | null>(null);
   const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
-  const [discoverySource, setDiscoverySource] = useState<"all" | "google" | "instagram" | "directories">("all");
+  const [discoverySource, setDiscoverySource] = useState<"all" | "duckduckgo" | "yelp" | "directories">("all");
   const [discoveryMax, setDiscoveryMax] = useState(50);
+  const [discoveryTown, setDiscoveryTown] = useState("");
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
@@ -1446,7 +1447,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxNew: discoveryMax, source: discoverySource }),
+        body: JSON.stringify({ maxNew: discoveryMax, source: discoverySource, targetTown: discoveryTown || undefined }),
       }).then(async (r) => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.message || "Discovery failed");
@@ -1567,43 +1568,61 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-3">
+        <div className="flex flex-col sm:flex-row gap-3 mb-3 flex-wrap">
+          {/* Town selector */}
+          <select
+            value={discoveryTown}
+            onChange={(e) => setDiscoveryTown(e.target.value)}
+            className="border border-input rounded-md px-3 py-2 text-sm bg-background min-w-[160px]"
+          >
+            <option value="">All of Connecticut</option>
+            {towns.map((t) => (
+              <option key={t.id} value={t.townName}>{t.townName}</option>
+            ))}
+          </select>
+
+          {/* Source selector */}
           <select
             value={discoverySource}
             onChange={(e) => setDiscoverySource(e.target.value as typeof discoverySource)}
             className="border border-input rounded-md px-3 py-2 text-sm bg-background"
           >
             <option value="all">All Sources</option>
-            <option value="google">Google Search</option>
-            <option value="instagram">Instagram Hashtags</option>
+            <option value="duckduckgo">DuckDuckGo Search</option>
+            <option value="yelp">Yelp Search</option>
             <option value="directories">CT Directories</option>
           </select>
+
+          {/* Max results */}
           <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground whitespace-nowrap">Max results:</label>
+            <label className="text-sm text-muted-foreground whitespace-nowrap">Max:</label>
             <input
               type="number"
               min={1}
               max={200}
               value={discoveryMax}
               onChange={(e) => setDiscoveryMax(Math.min(200, Math.max(1, Number(e.target.value))))}
-              className="border border-input rounded-md px-3 py-2 text-sm bg-background w-24"
+              className="border border-input rounded-md px-3 py-2 text-sm bg-background w-20"
             />
           </div>
+
           <Button
             onClick={() => { setDiscoveryResult(null); discoveryMutation.mutate(); }}
             disabled={discoveryMutation.isPending}
             className="sm:ml-auto"
           >
             {discoveryMutation.isPending ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Scanning Connecticut...</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {discoveryTown ? `Scanning ${discoveryTown}...` : "Scanning Connecticut..."}
+              </>
             ) : (
-              "Discover New Trucks"
+              discoveryTown ? `Discover Trucks in ${discoveryTown}` : "Discover New Trucks"
             )}
           </Button>
         </div>
 
         <p className="text-xs text-muted-foreground mb-3">
-          New trucks are added as 'Unclaimed'. Run <strong>Outreach</strong> after discovery to contact them.
+          Select a town for targeted results, or leave blank to search all of CT. New trucks are added as 'Unclaimed' — run <strong>Outreach</strong> to contact them.
         </p>
 
         {/* Results */}
