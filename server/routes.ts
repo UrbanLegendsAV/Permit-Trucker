@@ -15,7 +15,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { foodTrucks, towns, townForms, publicProfiles, portalCredentials, configs } from "@shared/schema";
-import { eq, desc, count as sqlCount, and, isNotNull } from "drizzle-orm";
+import { eq, desc, count as sqlCount, and, isNotNull, sql } from "drizzle-orm";
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import {
   fillPdfForm,
