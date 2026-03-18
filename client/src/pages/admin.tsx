@@ -1390,7 +1390,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
   const [importText, setImportText] = useState("");
   const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[] }> } | null>(null);
-  const [importRows, setImportRows] = useState<Array<{ name: string; website: string; town: string }> | null>(null);
+  const [importRows, setImportRows] = useState<Array<{ name: string; website: string; town: string; cuisine: string }> | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
@@ -1596,12 +1596,13 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
                     const dataLines = hasHeader ? lines.slice(1) : lines;
 
                     // Parse header indices if present
-                    let nameIdx = 0, websiteIdx = 1, townIdx = 2;
+                    let nameIdx = 0, websiteIdx = 1, townIdx = 2, cuisineIdx = -1;
                     if (hasHeader) {
                       const headers = firstLower.split(",").map((h) => h.replace(/['"]/g, "").trim());
                       nameIdx = headers.findIndex((h) => /name|truck/.test(h));
                       websiteIdx = headers.findIndex((h) => /web|url|site/.test(h));
-                      townIdx = headers.findIndex((h) => /town|city|location/.test(h));
+                      townIdx = headers.findIndex((h) => /town_or_base|town|city|location|base|area|municipality/.test(h));
+                      cuisineIdx = headers.findIndex((h) => /category|cuisine|type/.test(h));
                       if (nameIdx === -1) nameIdx = 0;
                       if (websiteIdx === -1) websiteIdx = 1;
                       if (townIdx === -1) townIdx = 2;
@@ -1621,6 +1622,7 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
                         name: (cols[nameIdx] ?? "").replace(/^"|"$/g, "").trim(),
                         website: (cols[websiteIdx] ?? "").replace(/^"|"$/g, "").trim(),
                         town: (cols[townIdx] ?? "").replace(/^"|"$/g, "").trim(),
+                        cuisine: cuisineIdx >= 0 ? (cols[cuisineIdx] ?? "").replace(/^"|"$/g, "").trim() : "",
                       };
                     }).filter((r) => r.name.length > 1);
 
@@ -1642,13 +1644,14 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
           {importRows && importRows.length > 0 && (
             <div className="mt-2 max-h-32 overflow-y-auto rounded border border-border text-xs">
               <table className="w-full">
-                <thead><tr className="bg-muted/30 border-b border-border"><th className="text-left px-2 py-1 font-medium text-muted-foreground">Name</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Website</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Town</th></tr></thead>
+                <thead><tr className="bg-muted/30 border-b border-border"><th className="text-left px-2 py-1 font-medium text-muted-foreground">Name</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Website</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Town</th><th className="text-left px-2 py-1 font-medium text-muted-foreground">Cuisine</th></tr></thead>
                 <tbody>
                   {importRows.slice(0, 8).map((r, i) => (
                     <tr key={i} className="border-b border-border/50 last:border-0">
                       <td className="px-2 py-1">{r.name}</td>
-                      <td className="px-2 py-1 text-muted-foreground truncate max-w-[140px]">{r.website || "—"}</td>
+                      <td className="px-2 py-1 text-muted-foreground truncate max-w-[120px]">{r.website || "—"}</td>
                       <td className="px-2 py-1 text-muted-foreground">{r.town || "—"}</td>
+                      <td className="px-2 py-1 text-muted-foreground">{r.cuisine || "—"}</td>
                     </tr>
                   ))}
                   {importRows.length > 8 && <tr><td colSpan={3} className="px-2 py-1 text-muted-foreground">…and {importRows.length - 8} more</td></tr>}

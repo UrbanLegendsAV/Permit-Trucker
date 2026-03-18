@@ -4103,7 +4103,7 @@ For text fields that require descriptive answers about food safety practices, se
     const { text, rows: rawRows } = req.body ?? {};
 
     // Normalise input into a unified row shape
-    type InputRow = { name: string; website: string | null; town: string | null };
+    type InputRow = { name: string; website: string | null; town: string | null; cuisine: string | null };
     let inputRows: InputRow[] = [];
 
     if (Array.isArray(rawRows)) {
@@ -4112,6 +4112,7 @@ For text fields that require descriptive answers about food safety practices, se
         name: String(r.name ?? "").replace(/['"]/g, "").trim(),
         website: r.website ? String(r.website).trim() : null,
         town: r.town ? String(r.town).trim() : null,
+        cuisine: r.cuisine ? String(r.cuisine).trim() : null,
       }));
     } else if (text && typeof text === "string") {
       // Plain text — each line: "Name | https://url | Town"
@@ -4187,6 +4188,7 @@ For text fields that require descriptive answers about food safety practices, se
           name,
           website: website || null,
           towns: town ? [town] : null,
+          cuisine: cuisine || null,
           status: "unclaimed",
           outreachSent: false,
           source: "manual_import",
