@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
@@ -12,10 +14,12 @@ delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
 import {
   ArrowLeft, ExternalLink, Instagram, CheckCircle2, MapPin, Tag,
-  Phone, Mail, Globe, Share2, Utensils, Users, UtensilsCrossed,
+  Phone, Mail, Globe, Share2, Utensils, Users, UtensilsCrossed, Star, Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { TopHeader } from "@/components/top-header";
 
 // ── Type ──────────────────────────────────────────────────────────────────────
@@ -51,6 +55,15 @@ type FoodTruck = {
   cateringWebsite: string | null;
   claimedByUserId: string | null;
   verificationScore?: number | null;
+  publicProfileId?: string | null;
+};
+
+type Review = {
+  id: string;
+  rating: number;
+  text: string | null;
+  reviewerName: string | null;
+  createdAt: string | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -140,12 +153,52 @@ function BadgePip({ type }: { type: string }) {
   );
 }
 
+function StarRating({
+  rating,
+  interactive = false,
+  onRate,
+  size = "h-4 w-4",
+}: {
+  rating: number;
+  interactive?: boolean;
+  onRate?: (rating: number) => void;
+  size?: string;
+}) {
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          disabled={!interactive}
+          onClick={() => onRate?.(star)}
+          className={interactive ? "cursor-pointer transition-transform hover:scale-105" : "cursor-default"}
+        >
+          <Star className={`${size} ${star <= rating ? "fill-[#F5A623] text-[#F5A623]" : "text-white/20"}`} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function formatReviewDate(value: string | null) {
+  if (!value) return "Recently";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Recently";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TruckProfilePage() {
   const { slug } = useParams<{ slug: string }>();
   const [, navigate] = useLocation();
   const { isAuthenticated, user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [reviewName, setReviewName] = useState("");
+  const [reviewText, setReviewText] = useState("");
+  const [reviewRating, setReviewRating] = useState(0);
 
   const { data: publicBadges = [] } = useQuery<string[]>({
     queryKey: [`/api/directory/${slug}/badges`],
@@ -160,6 +213,44 @@ export default function TruckProfilePage() {
       return r.json();
     }),
     enabled: !!slug,
+  });
+
+  const { data: reviews = [] } = useQuery<Review[]>({
+    queryKey: ["/api/reviews", truck?.publicProfileId],
+    queryFn: () => fetch(`/api/reviews/${truck?.publicProfileId}`).then((r) => {
+      if (!r.ok) throw new Error("Failed to load reviews");
+      return r.json();
+    }),
+    enabled: !!truck?.publicProfileId,
+  });
+
+  const submitReviewMutation = useMutation({
+    mutationFn: async () => {
+      if (!truck?.publicProfileId) throw new Error("This listing is not ready for reviews yet.");
+      await apiRequest("POST", "/api/reviews", {
+        publicProfileId: truck.publicProfileId,
+        rating: reviewRating,
+        text: reviewText.trim() || null,
+        reviewerName: reviewName.trim() || null,
+      });
+    },
+    onSuccess: async () => {
+      setReviewName("");
+      setReviewText("");
+      setReviewRating(0);
+      await queryClient.invalidateQueries({ queryKey: ["/api/reviews", truck?.publicProfileId] });
+      toast({
+        title: "Review submitted",
+        description: "Thanks for sharing your experience with this truck.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not submit review",
+        description: error.message || "Please try again in a moment.",
+        variant: "destructive",
+      });
+    },
   });
 
   // SEO
@@ -217,6 +308,9 @@ export default function TruckProfilePage() {
   const isPendingVerification = truck.status === "pending" || truck.status === "needs_review";
   const heroBg = heroBgForCuisine(truck.cuisine);
   const isOwnListing = isAuthenticated && !!(user as any) && truck.claimedByUserId === (user as any).id;
+  const averageRating = reviews.length > 0
+    ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+    : 0;
 
   return (
     <div className="app-shell min-h-screen bg-[#0A0F1E] text-white">
@@ -374,6 +468,109 @@ export default function TruckProfilePage() {
                 <p className="text-xs text-[#8897B2]">Available for private events in these CT towns.</p>
               </section>
             )}
+
+            {/* Reviews */}
+            <section className="premium-subpanel p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#8897B2]">
+                    Community Signal
+                  </div>
+                  <h2 className="mt-3 font-display text-xl font-semibold">Reviews</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#8897B2]">
+                    Social proof matters. This section helps hungry customers and event planners understand how this truck actually shows up.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 md:min-w-[220px]">
+                  <div className="flex items-center gap-3">
+                    <StarRating rating={Math.round(averageRating)} />
+                    <div>
+                      <p className="text-2xl font-semibold text-white">
+                        {reviews.length ? averageRating.toFixed(1) : "New"}
+                      </p>
+                      <p className="text-xs text-[#8897B2]">
+                        {reviews.length === 0 ? "No reviews yet" : `${reviews.length} customer review${reviews.length === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {truck.publicProfileId ? (
+                <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="space-y-4">
+                    {reviews.length > 0 ? (
+                      reviews.slice(0, 6).map((review) => (
+                        <article key={review.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1B4FD8]/20 text-sm font-semibold text-[#AFC5FF]">
+                                {(review.reviewerName?.trim()?.[0] || "G").toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-white">{review.reviewerName || "Guest"}</p>
+                                <p className="text-xs text-[#8897B2]">{formatReviewDate(review.createdAt)}</p>
+                              </div>
+                            </div>
+                            <StarRating rating={review.rating} />
+                          </div>
+                          {review.text && (
+                            <p className="mt-3 text-sm leading-relaxed text-[#B8C4DA]">{review.text}</p>
+                          )}
+                        </article>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-5 text-sm text-[#8897B2]">
+                        No reviews yet. The first great experience shared here gives this listing immediate trust with future customers.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+                    <h3 className="font-display text-lg font-semibold text-white">Leave a review</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-[#8897B2]">
+                      Keep it honest and useful. A quick note here helps the next person decide where to eat or who to book.
+                    </p>
+                    <div className="mt-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#8897B2]">Your rating</p>
+                      <StarRating rating={reviewRating} interactive onRate={setReviewRating} size="h-5 w-5" />
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      <Input
+                        value={reviewName}
+                        onChange={(e) => setReviewName(e.target.value)}
+                        placeholder="Your name (optional)"
+                        className="border-white/10 bg-white/5 text-white placeholder:text-[#6E7C97]"
+                      />
+                      <Textarea
+                        value={reviewText}
+                        onChange={(e) => setReviewText(e.target.value)}
+                        placeholder="What stood out? Food quality, speed, communication, event experience..."
+                        className="min-h-[140px] resize-none border-white/10 bg-white/5 text-white placeholder:text-[#6E7C97]"
+                      />
+                    </div>
+                    <Button
+                      onClick={() => submitReviewMutation.mutate()}
+                      disabled={reviewRating === 0 || submitReviewMutation.isPending}
+                      className="mt-4 h-11 w-full bg-[#1B4FD8] font-semibold text-white hover:bg-[#1B4FD8]/90"
+                    >
+                      {submitReviewMutation.isPending ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Submitting review...
+                        </>
+                      ) : (
+                        "Submit review"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-5 text-sm leading-relaxed text-[#8897B2]">
+                  Reviews will open once this truck’s public profile is fully connected.
+                </div>
+              )}
+            </section>
 
             {/* Catering & Private Events */}
             {truck.offersPrivateCatering ? (

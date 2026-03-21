@@ -4203,7 +4203,12 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, req.params.slug));
       if (!truck) return res.status(404).json({ message: "Truck not found" });
-      res.json(truck);
+      let publicProfileId: string | null = null;
+      if (truck.profileId) {
+        const publicProfile = await storage.getPublicProfile(truck.profileId);
+        publicProfileId = publicProfile?.id ?? null;
+      }
+      res.json({ ...truck, publicProfileId });
     } catch (error) {
       console.error("Error fetching truck:", error);
       res.status(500).json({ message: "Failed to fetch truck" });
