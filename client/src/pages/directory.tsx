@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   Search, ExternalLink, Instagram, CheckCircle2, AlertCircle,
-  Map as MapIcon, LayoutGrid,
+  Map as MapIcon, LayoutGrid, Sparkles, ArrowRight,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -114,27 +114,65 @@ export default function DirectoryPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] text-white">
+    <div className="app-shell min-h-screen bg-[#0A0F1E] text-white">
       <TopHeader />
 
       {/* Hero */}
-      <div className="px-6 pt-12 pb-10 text-center max-w-3xl mx-auto">
-        <h1 className="font-display text-4xl font-bold mb-3">
-          Connecticut's Food Truck Hub
-        </h1>
-        <p className="text-[#8897B2] text-lg mb-8">
-          Every CT food truck. Permits handled.
-        </p>
-        <Link href="/auth">
-          <Button size="lg" className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold px-8">
-            List Your Truck Free
-          </Button>
-        </Link>
+      <div className="px-4 pt-10 pb-8 max-w-6xl mx-auto">
+        <div className="premium-panel overflow-hidden px-6 py-10 md:px-8 md:py-12">
+          <div className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Badge className="bg-white/10 text-white border-white/10">
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  Discovery network
+                </Badge>
+                <span className="section-kicker">Connecticut food trucks</span>
+              </div>
+              <h1 className="font-display text-4xl md:text-5xl font-semibold tracking-tight mb-4">
+                The most focused place to find food trucks in Connecticut.
+              </h1>
+              <p className="text-[#8897B2] text-base md:text-lg max-w-2xl mb-8">
+                Browse cuisine, location, and verified operators in one directory built specifically for food trucks and permit-ready businesses.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Link href="/auth">
+                  <Button size="lg" className="bg-[#1B4FD8] hover:bg-[#1B4FD8]/90 text-white font-semibold px-8 rounded-full">
+                    List Your Truck Free
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </Link>
+                <Button size="lg" variant="outline" className="rounded-full border-white/15 bg-white/5 text-white hover:bg-white/10" onClick={() => setView("map")}>
+                  Explore the Map
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="metric-tile bg-white/5">
+                <p className="section-kicker">Live directory</p>
+                <p className="mt-2 font-display text-3xl font-semibold text-white">{trucks.length}</p>
+                <p className="text-sm text-[#8897B2]">truck listings tracked</p>
+              </div>
+              <div className="metric-tile bg-white/5">
+                <p className="section-kicker">Verified</p>
+                <p className="mt-2 font-display text-3xl font-semibold text-white">{trucks.filter((truck) => truck.status === "verified").length}</p>
+                <p className="text-sm text-[#8897B2]">owner-confirmed operators</p>
+              </div>
+              <div className="metric-tile bg-white/5">
+                <p className="section-kicker">Town coverage</p>
+                <p className="mt-2 font-display text-3xl font-semibold text-white">
+                  {new Set(trucks.flatMap((truck) => truck.towns || [])).size}
+                </p>
+                <p className="text-sm text-[#8897B2]">places food trucks already serve</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Sticky filter bar */}
       <div className="sticky top-14 z-10 bg-[#0A0F1E]/95 backdrop-blur border-b border-white/10 px-4 py-3">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row gap-3">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8897B2]" />
             <Input
@@ -179,11 +217,11 @@ export default function DirectoryPage() {
       </div>
 
       {/* Content */}
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-5 animate-pulse space-y-3">
+              <div key={i} className="premium-subpanel bg-white/5 rounded-[24px] p-5 animate-pulse space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="h-5 bg-white/10 rounded w-3/4" />
                   <div className="h-5 bg-white/10 rounded w-16" />
@@ -237,7 +275,7 @@ function TruckCard({ truck, onClaim, isClaiming }: {
 
   return (
     <div
-      className={`rounded-xl p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] active:transition-none transition-all duration-200 ${
+      className={`premium-subpanel rounded-[24px] p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] active:transition-none transition-all duration-200 ${
         isVerified
           ? "bg-gradient-to-b from-[#0f1f26] to-[#0A0F1E] border border-[#00C896]/30 shadow-[0_0_0_1px_rgba(0,200,150,0.08)]"
           : "bg-white/5 border border-white/10 hover:bg-white/[0.08] hover:border-[#1B4FD8]/40"

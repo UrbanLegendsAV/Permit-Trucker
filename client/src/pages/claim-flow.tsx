@@ -179,7 +179,7 @@ export default function ClaimFlow() {
   const isClaimed = truck.status !== "unclaimed" && truck.status !== "rejected";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="app-shell min-h-screen bg-background flex flex-col">
       <header className="sticky top-0 z-40 h-14 bg-background/80 backdrop-blur-xl border-b border-border">
         <div className="flex items-center h-full px-4 max-w-lg mx-auto">
           <Button variant="ghost" size="icon" onClick={() => navigate(`/directory/${slug}`)}>
@@ -190,7 +190,37 @@ export default function ClaimFlow() {
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-8 max-w-lg mx-auto w-full space-y-6">
+      <main className="flex-1 px-4 py-8 max-w-3xl mx-auto w-full space-y-6">
+        <section className="premium-panel hero-wash p-6 md:p-8">
+          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-white/12 text-foreground border-white/10">
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  Claim & verification
+                </Badge>
+                <span className="section-kicker">Owner setup</span>
+              </div>
+              <h2 className="font-display text-3xl md:text-4xl font-semibold tracking-tight">
+                Bring {truck.name} into PermitPilot.
+              </h2>
+              <p className="max-w-2xl text-sm md:text-base text-muted-foreground">
+                Claim the listing, connect your documents, and unlock a permit-ready business profile built for faster filing.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 self-start md:self-auto">
+              {["Confirm", "Connect", "Launch"].map((label, index) => {
+                const active = step >= index;
+                return (
+                  <div key={label} className={`rounded-2xl border px-3 py-3 text-center ${active ? "border-primary/30 bg-primary/10" : "border-border/70 bg-background/60"}`}>
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+                    <p className="mt-1 font-display text-lg font-semibold">{index + 1}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
 
         {/* Step 0: Verify */}
         {step === 0 && (
@@ -202,7 +232,7 @@ export default function ClaimFlow() {
               </p>
             </div>
 
-            <Card className="p-5 space-y-3">
+            <Card className="premium-subpanel p-6 space-y-4">
               <p className="font-semibold text-lg">{truck.name}</p>
               {truck.cuisine && (
                 <p className="text-sm text-muted-foreground">Cuisine: {truck.cuisine}</p>
@@ -223,13 +253,13 @@ export default function ClaimFlow() {
             </Card>
 
             {isClaimed ? (
-              <Card className="p-4 border-destructive/30 bg-destructive/5">
+              <Card className="premium-subpanel p-4 border-destructive/30 bg-destructive/5">
                 <p className="text-sm text-destructive">This listing already has an active claim or verification review.</p>
               </Card>
             ) : (
               <div className="space-y-3">
                 <Button
-                  className="w-full h-12"
+                  className="w-full h-12 rounded-full"
                   onClick={() => claimMutation.mutate()}
                   disabled={claimMutation.isPending}
                 >
@@ -241,7 +271,7 @@ export default function ClaimFlow() {
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full h-12"
+                  className="w-full h-12 rounded-full"
                   onClick={() => navigate("/directory")}
                 >
                   No, wrong truck
@@ -266,7 +296,7 @@ export default function ClaimFlow() {
               </p>
             </div>
 
-            <Card className="p-5 space-y-2">
+            <Card className="premium-subpanel p-6 space-y-2">
               {[
                 { label: "Truck Name", value: truck.name },
                 { label: "Cuisine", value: truck.cuisine },
@@ -289,7 +319,7 @@ export default function ClaimFlow() {
               ))}
             </Card>
 
-            <Button className="w-full h-12" onClick={() => setStep(2)}>
+            <Button className="w-full h-12 rounded-full" onClick={() => setStep(2)}>
               Upload your documents to complete setup →
             </Button>
           </div>
@@ -310,7 +340,7 @@ export default function ClaimFlow() {
               const parsing = docParsing[zone.id];
 
               return (
-                <Card key={zone.id} className={`p-4 ${uploaded ? "border-green-500/50 bg-green-500/5" : ""}`}>
+                <Card key={zone.id} className={`premium-subpanel p-4 ${uploaded ? "border-green-500/50 bg-green-500/5" : ""}`}>
                   <div className="flex items-center gap-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
@@ -344,7 +374,7 @@ export default function ClaimFlow() {
                           variant="outline"
                           size="sm"
                           onClick={() => fileInputRefs.current[zone.id]?.click()}
-                          className="h-8 text-xs"
+                          className="h-8 rounded-full text-xs"
                         >
                           <Upload className="w-3 h-3 mr-1" />
                           Upload
@@ -381,7 +411,7 @@ export default function ClaimFlow() {
               );
             })}
 
-            <Button className="w-full h-12" onClick={handleFinishDocs}>
+            <Button className="w-full h-12 rounded-full" onClick={handleFinishDocs}>
               Continue →
             </Button>
             <button
@@ -411,13 +441,13 @@ export default function ClaimFlow() {
               </p>
             </div>
 
-            <Card className="p-4 bg-primary/5 border-primary/20 text-left">
+            <Card className="premium-subpanel p-4 bg-primary/5 border-primary/20 text-left">
               <p className="text-sm text-primary font-medium mb-1">Your listing is live at:</p>
               <p className="text-sm text-muted-foreground">permitpilot.cloud/directory/{slug}</p>
             </Card>
 
             {claimRequest && claimStatus !== "verified" && (
-              <Card className="p-4 text-left border-blue-500/20 bg-blue-500/5">
+              <Card className="premium-subpanel p-4 text-left border-blue-500/20 bg-blue-500/5">
                 <p className="text-sm font-medium mb-1">Verification status</p>
                 <p className="text-sm text-muted-foreground mb-3">
                   Score: {claimRequest.verificationScore ?? 0}/100
@@ -445,15 +475,15 @@ export default function ClaimFlow() {
             )}
 
             <div className="space-y-3">
-              <Button className="w-full h-12" onClick={() => navigate("/new-permit")}>
+              <Button className="w-full h-12 rounded-full" onClick={() => navigate("/new-permit")}>
                 File a permit →
               </Button>
               {claimStatus === "verified" && (
-                <Button variant="outline" className="w-full h-12" onClick={() => navigate(`/directory/${slug}/edit`)}>
+                <Button variant="outline" className="w-full h-12 rounded-full" onClick={() => navigate(`/directory/${slug}/edit`)}>
                   Customize my listing
                 </Button>
               )}
-              <Button variant="outline" className="w-full h-12" onClick={() => navigate("/dashboard")}>
+              <Button variant="outline" className="w-full h-12 rounded-full" onClick={() => navigate("/dashboard")}>
                 Go to dashboard
               </Button>
             </div>

@@ -57,6 +57,7 @@ import {
   ClipboardCheck,
   Lock,
   CreditCard,
+  Sparkles,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -706,79 +707,112 @@ export default function PermitDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="app-shell min-h-screen bg-background pb-20">
       <TopHeader title="Permit Details" />
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/permits")} data-testid="button-back">
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        <section className="premium-panel hero-wash overflow-hidden p-5 md:p-7">
+          <div className="flex flex-col gap-6">
+            <div className="flex items-start gap-4">
+              <Button variant="ghost" size="icon" onClick={() => setLocation("/permits")} data-testid="button-back" className="rounded-full border border-white/10 bg-white/5">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="font-display text-xl font-bold">
-                {formatPermitType(permit.permitType)}
-              </h1>
-              <Badge className={getStatusColor(permit.status || "draft")}>
-                {(permit.status || "draft").charAt(0).toUpperCase() + (permit.status || "draft").slice(1)}
-              </Badge>
-            </div>
-            <p className="text-muted-foreground">
-              {town?.townName}, {town?.state}
-            </p>
-          </div>
-          {!isEditing ? (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleEdit} data-testid="button-edit-permit">
-                <Edit2 className="w-4 h-4 mr-2" />
-                Edit
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="icon" data-testid="button-delete-permit">
-                    <Trash2 className="w-4 h-4" />
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="bg-white/12 text-foreground border-white/10">
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                    Permit workflow
+                  </Badge>
+                  <span className="section-kicker">Town filing workspace</span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="font-display text-2xl md:text-4xl font-semibold tracking-tight">
+                    {formatPermitType(permit.permitType)}
+                  </h1>
+                  <Badge className={getStatusColor(permit.status || "draft")}>
+                    {(permit.status || "draft").charAt(0).toUpperCase() + (permit.status || "draft").slice(1)}
+                  </Badge>
+                </div>
+                <p className="text-sm md:text-base text-muted-foreground">
+                  {town?.townName}, {town?.state} • {permit.eventName || "Event details still being refined"}
+                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="metric-tile">
+                    <p className="section-kicker">Town</p>
+                    <p className="mt-2 text-base font-semibold">{town?.townName || "Unassigned"}</p>
+                    <p className="text-sm text-muted-foreground">permit source of truth</p>
+                  </div>
+                  <div className="metric-tile">
+                    <p className="section-kicker">Vehicle</p>
+                    <p className="mt-2 text-base font-semibold">{profile?.vehicleName || profile?.menuType || "Profile linked"}</p>
+                    <p className="text-sm text-muted-foreground">{profile?.vehicleType ? `${profile.vehicleType} profile` : "owner profile ready"}</p>
+                  </div>
+                  <div className="metric-tile">
+                    <p className="section-kicker">Applied</p>
+                    <p className="mt-2 text-base font-semibold">
+                      {permit.appliedDate ? format(new Date(permit.appliedDate), "MMM d, yyyy") : "Draft state"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {permit.expiryDate ? `expires ${format(new Date(permit.expiryDate), "MMM d, yyyy")}` : "ready for packet generation"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {!isEditing ? (
+                <div className="flex gap-2 self-start">
+                  <Button variant="outline" onClick={handleEdit} data-testid="button-edit-permit" className="rounded-full">
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    Edit
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete Permit Application?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete this permit application and all associated data. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => deleteMutation.mutate()}
-                      disabled={deleteMutation.isPending}
-                      className="bg-destructive text-destructive-foreground"
-                    >
-                      {deleteMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleCancel} data-testid="button-cancel-edit">
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-permit">
-                {updateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                Save
-              </Button>
-            </div>
-          )}
-        </div>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="icon" data-testid="button-delete-permit" className="rounded-full">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Permit Application?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete this permit application and all associated data. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => deleteMutation.mutate()}
+                          disabled={deleteMutation.isPending}
+                          className="bg-destructive text-destructive-foreground"
+                        >
+                          {deleteMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              ) : (
+                <div className="flex gap-2 self-start">
+                  <Button variant="outline" onClick={handleCancel} data-testid="button-cancel-edit" className="rounded-full">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-permit" className="rounded-full">
+                    {updateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Save
+                  </Button>
+                </div>
+	              )}
+	            </div>
+	          </div>
+	        </section>
 
         {permitId && (
           <PermitValidation permitId={permitId} />
         )}
 
         <Tabs defaultValue="details" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-3 rounded-full bg-card/70 p-1 premium-subpanel">
             <TabsTrigger value="details" data-testid="tab-details">Event Details</TabsTrigger>
             <TabsTrigger value="forms" data-testid="tab-forms">
               {isDiscovering ? (
@@ -794,7 +828,7 @@ export default function PermitDetailPage() {
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 mt-4">
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Calendar className="w-5 h-5" />
@@ -935,7 +969,7 @@ export default function PermitDetailPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FileText className="w-5 h-5" />
@@ -969,7 +1003,7 @@ export default function PermitDetailPage() {
 
           <TabsContent value="forms" className="space-y-4 mt-4">
             {generatedPacketUrl && (
-              <div className="mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg flex items-center justify-between">
+              <div className="mb-4 premium-subpanel border-emerald-400/20 bg-emerald-500/10 p-3 flex items-center justify-between">
                 <span className="text-sm text-green-700 dark:text-green-300 font-medium">Packet generated!</span>
                 <Button size="sm" variant="outline" onClick={() => {
                   const a = document.createElement('a');
@@ -983,7 +1017,7 @@ export default function PermitDetailPage() {
               </div>
             )}
             {billingStatus && !billingStatus.hasActiveSubscription && (
-              <Card className="border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
+              <Card className="premium-subpanel border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
                 <CardContent className="pt-6">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div className="space-y-2">
@@ -1008,7 +1042,7 @@ export default function PermitDetailPage() {
                 </CardContent>
               </Card>
             )}
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg">Required Forms for {town?.townName}</CardTitle>
               </CardHeader>
@@ -1171,7 +1205,7 @@ export default function PermitDetailPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Package className="w-5 h-5" />
@@ -1179,6 +1213,23 @@ export default function PermitDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border soft-divider bg-background/70 p-4">
+                    <p className="section-kicker">PDF autofill</p>
+                    <p className="mt-2 text-sm font-semibold">Direct on fillable forms</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Best case for towns with structured PDFs.</p>
+                  </div>
+                  <div className="rounded-2xl border soft-divider bg-background/70 p-4">
+                    <p className="section-kicker">Flat municipal PDFs</p>
+                    <p className="mt-2 text-sm font-semibold">Answer sheet appended</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Still useful when towns publish non-editable packets.</p>
+                  </div>
+                  <div className="rounded-2xl border soft-divider bg-background/70 p-4">
+                    <p className="section-kicker">Portal towns</p>
+                    <p className="mt-2 text-sm font-semibold">Copy-paste assistant</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Answers stay ordered so owners can move page by page.</p>
+                  </div>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   Generate a permit-ready PDF package. Fillable PDFs are auto-filled directly, and flat municipal PDFs include a structured answer sheet appended to the packet.
                 </p>
@@ -1239,10 +1290,10 @@ export default function PermitDetailPage() {
 
             {/* Portal Assist Section */}
             {(townForms.filter((f) => isPortalForm(f)).length > 0 || town?.portalUrl) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Globe className="w-5 h-5" />
+            <Card className="premium-subpanel">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Globe className="w-5 h-5" />
                     Portal Assist
                   </CardTitle>
                 </CardHeader>
@@ -1314,7 +1365,7 @@ export default function PermitDetailPage() {
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-4 mt-4">
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Truck className="w-5 h-5" />
@@ -1357,7 +1408,7 @@ export default function PermitDetailPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="premium-subpanel">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Utensils className="w-5 h-5" />

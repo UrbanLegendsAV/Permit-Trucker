@@ -13,7 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw, Upload, AlertCircle, CheckCircle2, XCircle, PenLine } from "lucide-react";
+import { Plus, LogOut, User, Mail, Truck, Shield, HelpCircle, Settings, ChevronRight, RefreshCw, Upload, AlertCircle, CheckCircle2, XCircle, PenLine, Sparkles, FileText, Trophy } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Profile, Permit } from "@shared/schema";
 
@@ -214,21 +214,28 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="app-shell min-h-screen bg-background pb-20">
       <TopHeader title="Profile" />
       
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        <Card className="p-6">
-          <div className="flex items-center gap-4">
+        <Card className="premium-panel hero-wash p-6 md:p-8">
+          <div className="flex flex-col gap-6 md:flex-row md:items-center">
             <Avatar className="w-16 h-16">
               <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || "User"} />
               <AvatarFallback className="text-lg font-semibold bg-primary/10 text-primary">
                 {getInitials()}
               </AvatarFallback>
             </Avatar>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 space-y-3">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-white/12 text-foreground border-white/10">
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  Owner profile
+                </Badge>
+                <span className="section-kicker">Permit system identity</span>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-display text-xl font-bold truncate">
+                <h2 className="font-display text-2xl md:text-3xl font-semibold truncate">
                   {user?.firstName && user?.lastName
                     ? `${user.firstName} ${user.lastName}`
                     : "PermitPilot User"}
@@ -251,12 +258,26 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
+            <div className="grid grid-cols-3 gap-3 md:min-w-[360px]">
+              <div className="metric-tile">
+                <p className="section-kicker">Vehicles</p>
+                <p className="mt-2 font-display text-2xl font-semibold">{profiles.length}</p>
+              </div>
+              <div className="metric-tile">
+                <p className="section-kicker">Permits</p>
+                <p className="mt-2 font-display text-2xl font-semibold">{permits.length}</p>
+              </div>
+              <div className="metric-tile">
+                <p className="section-kicker">Readiness</p>
+                <p className="mt-2 font-display text-2xl font-semibold">{vaultData ? `${completenessScore}%` : "0%"}</p>
+              </div>
+            </div>
           </div>
         </Card>
 
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-xl font-semibold flex items-center gap-2">
+            <h2 className="font-display text-2xl font-semibold flex items-center gap-2">
               <Truck className="w-5 h-5 text-primary" />
               Your Vehicles
             </h2>
@@ -276,7 +297,7 @@ export default function ProfilePage() {
               <VehicleCardSkeleton count={2} />
             </div>
           ) : profiles.length === 0 ? (
-            <Card className="p-6 text-center">
+            <Card className="premium-subpanel p-6 text-center">
               <Truck className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="font-semibold mb-2">No Vehicles Yet</h3>
               <p className="text-sm text-muted-foreground mb-4">
@@ -334,7 +355,7 @@ export default function ProfilePage() {
               <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
                 Permit Data
               </h3>
-              <Card className="p-4 space-y-3">
+              <Card className="premium-subpanel p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {completenessScore >= 80 ? (
@@ -449,7 +470,7 @@ export default function ProfilePage() {
             Settings
           </h3>
           
-          <Card className="divide-y divide-border">
+          <Card className="premium-subpanel divide-y divide-border">
             {isAdmin && (
               <button
                 className="w-full flex items-center gap-3 p-4 text-left hover-elevate transition-colors"
@@ -493,7 +514,7 @@ export default function ProfilePage() {
 
         <Button
           variant="outline"
-          className="w-full h-12 text-destructive border-destructive/30 hover:bg-destructive/10"
+          className="w-full h-12 rounded-full text-destructive border-destructive/30 hover:bg-destructive/10"
           onClick={() => logout()}
           data-testid="button-logout"
         >

@@ -219,7 +219,7 @@ export default function TruckProfilePage() {
   const isOwnListing = isAuthenticated && !!(user as any) && truck.claimedByUserId === (user as any).id;
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] text-white">
+    <div className="app-shell min-h-screen bg-[#0A0F1E] text-white">
       <TopHeader />
 
       {/* Edit banner — shown to the owner */}
@@ -250,7 +250,7 @@ export default function TruckProfilePage() {
 
       {/* ── Hero ── */}
       <div
-        className="relative w-full h-48 md:h-64 overflow-hidden"
+        className="relative w-full h-56 md:h-72 overflow-hidden"
         style={truck.imageUrl ? {} : { backgroundColor: heroBg }}
       >
         {truck.imageUrl && (
@@ -269,7 +269,7 @@ export default function TruckProfilePage() {
         </div>
 
         {/* Bottom-left: name + badges + social */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-5 max-w-4xl mx-auto">
+        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 max-w-5xl mx-auto">
           {isVerified && (
             <div className="inline-flex items-center gap-2 rounded-full border border-[#00C896]/35 bg-[#00C896]/12 px-3 py-1 text-xs font-semibold text-[#9EE7D1] mb-3 backdrop-blur-sm">
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -328,14 +328,14 @@ export default function TruckProfilePage() {
       )}
 
       {/* Two-column body */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8">
 
           {/* LEFT COLUMN */}
           <div className="space-y-8">
 
             {/* About */}
-            <section>
+            <section className="premium-subpanel p-6">
               <h2 className="font-display font-semibold text-lg mb-3">About</h2>
               {truck.description ? (
                 <p className="text-[#8897B2] leading-relaxed">{truck.description}</p>
@@ -348,7 +348,7 @@ export default function TruckProfilePage() {
 
             {/* Menu */}
             {truck.menuItems && truck.menuItems.length > 0 && (
-              <section>
+              <section className="premium-subpanel p-6">
                 <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
                   <UtensilsCrossed className="h-5 w-5 text-[#8897B2]" /> Menu
                 </h2>
@@ -362,7 +362,7 @@ export default function TruckProfilePage() {
 
             {/* Where We Operate */}
             {truck.towns && truck.towns.length > 0 && (
-              <section>
+              <section className="premium-subpanel p-6">
                 <h2 className="font-display font-semibold text-lg mb-3 flex items-center gap-2">
                   <MapPin className="h-5 w-5 text-[#8897B2]" /> Where We Operate
                 </h2>
@@ -377,7 +377,7 @@ export default function TruckProfilePage() {
 
             {/* Catering & Private Events */}
             {truck.offersPrivateCatering ? (
-              <section>
+              <section className="premium-subpanel p-6">
                 <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
                   <Utensils className="h-5 w-5 text-[#00C896]" /> Catering &amp; Private Events
                 </h2>
@@ -413,7 +413,7 @@ export default function TruckProfilePage() {
                 </a>
               </section>
             ) : !isClaimed ? (
-              <section className="border border-white/10 rounded-xl p-5">
+              <section className="premium-subpanel p-5">
                 <p className="text-sm text-[#8897B2]">
                   Does this truck offer catering?{" "}
                   <button onClick={handleClaim} className="text-[#F5A623] hover:underline">Claim your listing</button>{" "}
@@ -427,7 +427,7 @@ export default function TruckProfilePage() {
           <div className="space-y-5">
 
             {/* Contact card */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-3">
+            <div className="premium-subpanel p-5 space-y-3">
               <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">Links &amp; Contact</h3>
               {truck.website && (
                 <a href={truck.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm">
@@ -467,7 +467,7 @@ export default function TruckProfilePage() {
 
             {/* Earned badges (if claimed) */}
             {isClaimed && publicBadges.length > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+              <div className="premium-subpanel p-5">
                 <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-3">Badges</h3>
                 <div className="flex gap-2 flex-wrap">
                   {publicBadges.map(b => (
@@ -478,7 +478,7 @@ export default function TruckProfilePage() {
             )}
 
             {/* Share */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+            <div className="premium-subpanel p-4">
               <button
                 onClick={() => { navigator.clipboard.writeText(window.location.href); }}
                 className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white transition-colors w-full"
@@ -488,7 +488,7 @@ export default function TruckProfilePage() {
             </div>
 
             {/* Permit status card */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+            <div className="premium-subpanel p-5">
               <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-2">Permit Status</h3>
               {isClaimed ? (
                 <p className="text-sm text-[#8897B2]">Connect your account to show active permits.</p>
