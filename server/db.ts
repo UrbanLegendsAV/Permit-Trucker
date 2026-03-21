@@ -169,6 +169,40 @@ export async function runMigrations(): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE subscription_status AS ENUM ('inactive', 'trialing', 'active', 'past_due', 'canceled', 'unpaid');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status subscription_status DEFAULT 'inactive';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(100);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_at_period_end BOOLEAN DEFAULT false;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_assist_memories (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        town_id VARCHAR REFERENCES towns(id) NOT NULL,
+        form_id VARCHAR REFERENCES town_forms(id),
+        normalized_prompt TEXT NOT NULL,
+        sample_prompt TEXT NOT NULL,
+        data_key VARCHAR(100) NOT NULL,
+        times_used INTEGER DEFAULT 1,
+        created_by_user_id TEXT,
+        last_used_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS portal_assist_memories_lookup_idx
+      ON portal_assist_memories (town_id, COALESCE(form_id, ''), normalized_prompt);
+    `);
     // Location, social, and menu fields on food_trucks
     await client.query(`
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS menu_items JSONB;

@@ -473,10 +473,13 @@ const ctTowns = [
 ];
 
 const defaultConfigs = [
-  { key: "pro_price", value: "99", description: "Pro plan monthly price in USD" },
+  { key: "pro_price", value: "29.99", description: "PermitPilot Pro monthly subscription price in USD" },
   { key: "basic_price", value: "0", description: "Basic plan monthly price in USD" },
   { key: "max_vehicles", value: "5", description: "Maximum vehicles per user" },
   { key: "pioneer_threshold", value: "60", description: "Confidence score below which users earn Pioneer badge" },
+  { key: "stripe_publishable_key", value: "", description: "Stripe publishable key placeholder" },
+  { key: "stripe_price_id_monthly", value: "", description: "Stripe monthly price ID for PermitPilot Pro" },
+  { key: "subscription_plan_name", value: "PermitPilot Pro", description: "Paid plan label shown in billing UI" },
 ];
 
 export async function seedTowns() {
@@ -492,14 +495,27 @@ export async function seedTowns() {
       console.log(`Seeded ${ctTowns.length} CT towns`);
     }
 
-    // Seed default configs
+    // Seed or update default configs
     const existingConfigs = await db.select().from(configs);
-    if (existingConfigs.length === 0) {
-      console.log("Seeding default configs...");
-      for (const config of defaultConfigs) {
+    const existingConfigMap = new Map(existingConfigs.map((config) => [config.key, config]));
+    console.log("Ensuring default configs...");
+    for (const config of defaultConfigs) {
+      const existing = existingConfigMap.get(config.key);
+      if (!existing) {
         await db.insert(configs).values(config);
+        continue;
       }
-      console.log(`Seeded ${defaultConfigs.length} default configs`);
+
+      const shouldForceUpdateValue = config.key === "pro_price";
+      if (shouldForceUpdateValue || existing.description !== config.description || existing.value === "") {
+        await db
+          .update(configs)
+          .set({
+            value: shouldForceUpdateValue ? config.value : existing.value,
+            description: config.description,
+          })
+          .where(eq(configs.key, config.key));
+      }
     }
 
     // Seed directory listings for CT food trucks (upsert-safe)

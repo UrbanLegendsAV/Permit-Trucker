@@ -1,5 +1,5 @@
 import {
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts, foodSuppliers, claimRequests, listingAuditLogs,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts, foodSuppliers, claimRequests, listingAuditLogs, portalAssistMemories,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -18,10 +18,11 @@ import {
   type FoodSupplier, type InsertFoodSupplier,
   type ClaimRequest, type InsertClaimRequest,
   type ListingAuditLog, type InsertListingAuditLog,
+  type PortalAssistMemory, type InsertPortalAssistMemory,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, sql, isNull } from "drizzle-orm";
 
 export interface IStorage {
   getProfiles(userId: string): Promise<Profile[]>;
@@ -75,7 +76,16 @@ export interface IStorage {
   // Users/Admin
   getUserRole(userId: string): Promise<string | null>;
   setUserRole(userId: string, role: "user" | "admin" | "owner"): Promise<void>;
-  getAllUsers(): Promise<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null; role: string | null }>>;
+  getAllUsers(): Promise<Array<{
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    role: string | null;
+    subscriptionStatus: string | null;
+    subscriptionPlan: string | null;
+    subscriptionCurrentPeriodEnd: Date | null;
+  }>>;
 
   // Town Forms
   getAllTownForms(): Promise<TownForm[]>;
@@ -115,6 +125,8 @@ export interface IStorage {
   createClaimRequest(request: InsertClaimRequest): Promise<ClaimRequest>;
   updateClaimRequest(id: string, data: Partial<InsertClaimRequest>): Promise<ClaimRequest | undefined>;
   createListingAuditLog(log: InsertListingAuditLog): Promise<ListingAuditLog>;
+  getPortalAssistMemories(townId: string, formId?: string | null): Promise<PortalAssistMemory[]>;
+  upsertPortalAssistMemory(memory: InsertPortalAssistMemory): Promise<PortalAssistMemory>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -408,13 +420,25 @@ export class DatabaseStorage implements IStorage {
     await db.update(users).set({ role }).where(eq(users.id, userId));
   }
 
-  async getAllUsers(): Promise<Array<{ id: string; email: string | null; firstName: string | null; lastName: string | null; role: string | null }>> {
+  async getAllUsers(): Promise<Array<{
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    role: string | null;
+    subscriptionStatus: string | null;
+    subscriptionPlan: string | null;
+    subscriptionCurrentPeriodEnd: Date | null;
+  }>> {
     return db.select({
       id: users.id,
       email: users.email,
       firstName: users.firstName,
       lastName: users.lastName,
       role: users.role,
+      subscriptionStatus: users.subscriptionStatus,
+      subscriptionPlan: users.subscriptionPlan,
+      subscriptionCurrentPeriodEnd: users.subscriptionCurrentPeriodEnd,
     }).from(users);
   }
 
@@ -660,6 +684,62 @@ export class DatabaseStorage implements IStorage {
 
   async createListingAuditLog(log: InsertListingAuditLog): Promise<ListingAuditLog> {
     const [created] = await db.insert(listingAuditLogs).values(log as any).returning();
+    return created;
+  }
+
+  async getPortalAssistMemories(townId: string, formId?: string | null): Promise<PortalAssistMemory[]> {
+    if (formId) {
+      return db
+        .select()
+        .from(portalAssistMemories)
+        .where(and(eq(portalAssistMemories.townId, townId), eq(portalAssistMemories.formId, formId)))
+        .orderBy(desc(portalAssistMemories.timesUsed), desc(portalAssistMemories.updatedAt));
+    }
+
+    return db
+      .select()
+      .from(portalAssistMemories)
+      .where(eq(portalAssistMemories.townId, townId))
+      .orderBy(desc(portalAssistMemories.timesUsed), desc(portalAssistMemories.updatedAt));
+  }
+
+  async upsertPortalAssistMemory(memory: InsertPortalAssistMemory): Promise<PortalAssistMemory> {
+    const formCondition = memory.formId ? eq(portalAssistMemories.formId, memory.formId) : isNull(portalAssistMemories.formId);
+    const [existing] = await db
+      .select()
+      .from(portalAssistMemories)
+      .where(
+        and(
+          eq(portalAssistMemories.townId, memory.townId),
+          formCondition,
+          eq(portalAssistMemories.normalizedPrompt, memory.normalizedPrompt),
+        )
+      );
+
+    if (existing) {
+      const [updated] = await db
+        .update(portalAssistMemories)
+        .set({
+          samplePrompt: memory.samplePrompt,
+          dataKey: memory.dataKey,
+          createdByUserId: memory.createdByUserId ?? existing.createdByUserId,
+          timesUsed: (existing.timesUsed ?? 0) + 1,
+          lastUsedAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(portalAssistMemories.id, existing.id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db
+      .insert(portalAssistMemories)
+      .values({
+        ...memory,
+        timesUsed: 1,
+        lastUsedAt: new Date(),
+      } as any)
+      .returning();
     return created;
   }
 

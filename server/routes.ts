@@ -26,6 +26,7 @@ import {
   townFormToTemplate,
   buildDataMapFromParsedData,
   smartMatchFieldToData,
+  resolveHeuristicFieldMatch,
   generateFieldMappingsFromNonFillablePDF,
   parsePastPermit,
   type ParsedUserData
@@ -45,6 +46,7 @@ import { enrichAllTrucks, enrichTruckFromWebsite } from "./lib/truck-enrichment-
 import { discoverNewTrucks, discoverFromSource, getLastRunTime } from "./lib/truck-discovery-service";
 import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
+import { createStripeCheckoutSession, ensurePaidPermitAccess, getBillingConfig, getUserBillingStatus, handleStripeWebhookEvent, refreshUserStripeSubscription, setUserSubscriptionStatus, verifyStripeWebhookSignature } from "./lib/billing-service";
 import multer from "multer";
 import { z } from "zod";
 import fs from "fs";
@@ -382,6 +384,32 @@ const getUserId = (req: any): string | null => {
   return null;
 };
 
+const normalizePortalPrompt = (prompt: string) =>
+  prompt
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "")
+    .trim();
+
+const requirePermitPilotPro = async (req: any, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({ message: "Unauthorized" });
+    return null;
+  }
+
+  try {
+    return await ensurePaidPermitAccess(userId);
+  } catch (error: any) {
+    const statusCode = error?.statusCode || 500;
+    res.status(statusCode).json({
+      message: error?.message || "Paid plan required",
+      code: statusCode === 402 ? "subscription_required" : "billing_error",
+    });
+    return null;
+  }
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -389,6 +417,17 @@ export async function registerRoutes(
   app.use(generalApiLimiter);
   await setupAuth(app);
   registerAuthRoutes(app);
+
+  app.post("/api/billing/webhook", async (req, res) => {
+    try {
+      const event = verifyStripeWebhookSignature(req.rawBody as Buffer | string | undefined, req.headers["stripe-signature"]);
+      const result = await handleStripeWebhookEvent(event);
+      res.json({ received: true, result });
+    } catch (error: any) {
+      console.error("Stripe webhook error:", error);
+      res.status(400).json({ message: error.message || "Invalid Stripe webhook" });
+    }
+  });
 
   // Serve uploaded images
   app.get("/api/uploads/:filename", (req, res) => {
@@ -1230,6 +1269,105 @@ ${prompt}`;
     }
   });
 
+  app.post("/api/portal-assist/analyze", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
+      const { profileId, pastedText, eventData } = req.body as {
+        profileId: string;
+        pastedText: string;
+        townId?: string;
+        formId?: string;
+        eventData?: {
+          eventName?: string;
+          eventAddress?: string;
+          eventDates?: string;
+          hoursOfOperation?: string;
+          personInCharge?: string;
+          licenseType?: "temporary" | "seasonal";
+        };
+      };
+
+      if (!profileId || !pastedText?.trim()) {
+        return res.status(400).json({ message: "profileId and pastedText are required" });
+      }
+
+      const profile = await storage.getProfile(profileId);
+      if (!profile || profile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const parsedData = profile.parsedDataLog as ParsedUserData | null;
+      const vaultData = await storage.getDataVaultByProfileId(profileId);
+      const userOverrides = profile.userOverrides as Record<string, { value: string; savedAt: string; fieldName?: string }> | null;
+      const townId = typeof req.body.townId === "string" ? req.body.townId : undefined;
+      const formId = typeof req.body.formId === "string" ? req.body.formId : undefined;
+
+      const dataMap = buildDataMapFromParsedData(
+        parsedData,
+        vaultData,
+        eventData,
+        userOverrides,
+      );
+
+      const memoryRows = townId ? await storage.getPortalAssistMemories(townId, formId ?? null) : [];
+      const memoryMap = new Map(memoryRows.map((memory) => [memory.normalizedPrompt, memory]));
+
+      const prompts = pastedText
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 60);
+
+      const learnedPatterns: string[] = [];
+
+      const answers = prompts.map((prompt, index) => {
+        const normalizedPrompt = normalizePortalPrompt(prompt);
+        const learnedMemory = memoryMap.get(normalizedPrompt);
+        const learnedAnswer = learnedMemory?.dataKey ? dataMap[learnedMemory.dataKey] : null;
+        const heuristic = resolveHeuristicFieldMatch(prompt, dataMap, eventData);
+        const matched = learnedAnswer || heuristic.value;
+        const dataKey = learnedAnswer ? learnedMemory?.dataKey || null : heuristic.dataKey;
+
+        if (townId && dataKey) {
+          void storage.upsertPortalAssistMemory({
+            townId,
+            formId: formId ?? null,
+            normalizedPrompt,
+            samplePrompt: prompt,
+            dataKey,
+            createdByUserId: userId,
+          }).catch((error) => {
+            console.error("Error storing portal assist memory:", error);
+          });
+          learnedPatterns.push(normalizedPrompt);
+        }
+
+        return {
+          id: `portal-answer-${index}`,
+          prompt,
+          answer: matched ?? "",
+          dataKey,
+          readyToCopy: Boolean(matched),
+          source: learnedAnswer ? "learned" : matched ? "heuristic" : "unmatched",
+        };
+      });
+
+      res.json({
+        promptsCount: prompts.length,
+        matchedCount: answers.filter((item) => item.readyToCopy).length,
+        learnedCount: new Set(learnedPatterns).size,
+        requiresSubscription: !entitlement.hasActiveSubscription,
+        answers,
+      });
+    } catch (error: any) {
+      console.error("Error analyzing portal prompts:", error);
+      res.status(500).json({ message: error.message || "Failed to analyze portal prompts" });
+    }
+  });
+
   app.post("/api/permits", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -1647,6 +1785,8 @@ ${prompt}`;
   // Generate PDF from database form - uses Datalab AI when fieldMappings is empty
   app.post("/api/towns/:townId/forms/:formId/generate", isAuthenticated, async (req: any, res) => {
     try {
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       console.log("=== PDF GENERATION REQUEST ===");
       const { townId, formId } = req.params;
       const { profileId, includeDocuments = true, eventData, userAnswers = {} } = req.body;
@@ -2266,6 +2406,10 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
   // Analyze form and return unanswered questions for the user to fill in
   app.post("/api/towns/:townId/forms/:formId/analyze-questions", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const { townId, formId } = req.params;
       const { profileId, eventData } = req.body;
 
@@ -2281,6 +2425,9 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
       const profile = await storage.getProfile(profileId);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
+      }
+      if (profile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
@@ -2448,6 +2595,10 @@ For text fields that require descriptive answers about food safety practices, se
 
   app.post("/api/permits/generate/:permitId", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const { permitId } = req.params;
       
       const parseResult = generatePacketSchema.safeParse(req.body);
@@ -2463,6 +2614,9 @@ For text fields that require descriptive answers about food safety practices, se
       if (!permit) {
         return res.status(404).json({ message: "Permit not found" });
       }
+      if (permit.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
 
       if (!permit.profileId) {
         return res.status(400).json({ message: "Permit has no associated profile" });
@@ -2471,6 +2625,9 @@ For text fields that require descriptive answers about food safety practices, se
       const profile = await storage.getProfile(permit.profileId);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
+      }
+      if (profile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
@@ -2513,12 +2670,19 @@ For text fields that require descriptive answers about food safety practices, se
 
   app.post("/api/profiles/:profileId/generate-packet", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const { profileId } = req.params;
       const { templateId, includeDocuments = true, eventData } = req.body;
 
       const profile = await storage.getProfile(profileId);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
+      }
+      if (profile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
@@ -2849,6 +3013,57 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  app.get("/api/billing/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const status = await getUserBillingStatus(userId);
+      res.json(status);
+    } catch (error: any) {
+      console.error("Error fetching billing status:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch billing status" });
+    }
+  });
+
+  app.post("/api/billing/refresh", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const status = await refreshUserStripeSubscription(userId);
+      res.json(status);
+    } catch (error: any) {
+      console.error("Error refreshing billing status:", error);
+      res.status(500).json({ message: error.message || "Failed to refresh billing status" });
+    }
+  });
+
+  app.post("/api/billing/checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const status = await createStripeCheckoutSession(userId, req.body?.successUrl, req.body?.cancelUrl);
+      res.json(status);
+    } catch (error: any) {
+      console.error("Error creating Stripe checkout session:", error);
+      res.status(500).json({ message: error.message || "Failed to create checkout session" });
+    }
+  });
+
+  app.get("/api/billing/config", async (_req, res) => {
+    try {
+      const config = await getBillingConfig();
+      res.json({
+        monthlyPrice: config.monthlyPrice,
+        planName: config.planName,
+        stripePublishableKeyConfigured: Boolean(config.stripePublishableKey),
+        stripeConfigured: Boolean(config.hasStripeSecretKey && config.stripePriceIdMonthly),
+      });
+    } catch (error: any) {
+      console.error("Error fetching billing config:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch billing config" });
+    }
+  });
+
   // ── Outreach Agent (admin only) ─────────────────────────────────────────
 
   // POST /api/admin/outreach — run full outreach for all unclaimed trucks
@@ -2963,6 +3178,33 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error updating user role:", error);
       res.status(500).json({ message: "Failed to update user role" });
+    }
+  });
+
+  app.patch("/api/admin/users/:userId/subscription", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { subscriptionStatus, subscriptionPlan, subscriptionCurrentPeriodEnd, subscriptionCancelAtPeriodEnd } = req.body as {
+        subscriptionStatus: "inactive" | "trialing" | "active" | "past_due" | "canceled" | "unpaid";
+        subscriptionPlan?: string;
+        subscriptionCurrentPeriodEnd?: string | null;
+        subscriptionCancelAtPeriodEnd?: boolean;
+      };
+
+      if (!["inactive", "trialing", "active", "past_due", "canceled", "unpaid"].includes(subscriptionStatus)) {
+        return res.status(400).json({ message: "Invalid subscription status" });
+      }
+
+      const updated = await setUserSubscriptionStatus(req.params.userId, {
+        subscriptionStatus,
+        subscriptionPlan: subscriptionPlan || "PermitPilot Pro",
+        subscriptionCurrentPeriodEnd: subscriptionCurrentPeriodEnd ? new Date(subscriptionCurrentPeriodEnd) : null,
+        subscriptionCancelAtPeriodEnd: Boolean(subscriptionCancelAtPeriodEnd),
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating user subscription:", error);
+      res.status(500).json({ message: error.message || "Failed to update user subscription" });
     }
   });
 
@@ -3506,6 +3748,8 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const validation = pdfFillSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -3544,6 +3788,8 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const validation = autoFillSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -3739,6 +3985,8 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const validation = portalAutomationSchema.safeParse(req.body);
       
       if (!validation.success) {
@@ -3781,6 +4029,8 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const entitlement = await requirePermitPilotPro(req, res);
+      if (!entitlement) return;
       const job = await storage.getSubmissionJob(req.params.jobId);
       
       if (!job) {

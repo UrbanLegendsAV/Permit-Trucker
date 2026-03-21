@@ -55,6 +55,8 @@ import {
   Globe,
   Copy,
   ClipboardCheck,
+  Lock,
+  CreditCard,
 } from "lucide-react";
 import type { Permit, Town, Profile, TownForm } from "@shared/schema";
 import { format } from "date-fns";
@@ -64,6 +66,15 @@ type PermitWithDetails = Permit & {
   town?: Town | null;
   profile?: Profile | null;
   forms?: TownForm[];
+};
+
+type BillingStatus = {
+  hasActiveSubscription: boolean;
+  subscriptionStatus: string;
+  planName: string;
+  monthlyPrice: number;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
 };
 
 export default function PermitDetailPage() {
@@ -90,6 +101,9 @@ export default function PermitDetailPage() {
   const [showPortalAssist, setShowPortalAssist] = useState(false);
   const [portalAssistFormId, setPortalAssistFormId] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [portalPromptText, setPortalPromptText] = useState("");
+  const [portalPromptAnswers, setPortalPromptAnswers] = useState<Array<{ id: string; prompt: string; answer: string; readyToCopy: boolean; source?: string; dataKey?: string | null }>>([]);
+  const [portalPromptLoading, setPortalPromptLoading] = useState(false);
   const [fetchingFormId, setFetchingFormId] = useState<string | null>(null);
   const [generatedPacketUrl, setGeneratedPacketUrl] = useState<string | null>(null);
   const [generatedPacketFilename, setGeneratedPacketFilename] = useState<string>("");
@@ -129,6 +143,34 @@ export default function PermitDetailPage() {
     queryKey: ["/api/profiles"],
     enabled: isAuthenticated,
   });
+
+  const { data: billingStatus, refetch: refetchBillingStatus } = useQuery<BillingStatus>({
+    queryKey: ["/api/billing/status"],
+    enabled: isAuthenticated,
+  });
+
+  useEffect(() => {
+    const billingState = new URLSearchParams(window.location.search).get("billing");
+    if (billingState === "success") {
+      fetch("/api/billing/refresh", {
+        method: "POST",
+        credentials: "include",
+      })
+        .then(() => refetchBillingStatus())
+        .then(() => {
+          toast({
+            title: "Checkout complete",
+            description: "We refreshed your PermitPilot Pro access.",
+          });
+        })
+        .catch(() => {
+          toast({
+            title: "Checkout complete",
+            description: "We couldn’t confirm billing yet, but you can refresh in a moment.",
+          });
+        });
+    }
+  }, [refetchBillingStatus, toast]);
 
   const [discoveryPollCount, setDiscoveryPollCount] = useState(0);
   const maxDiscoveryPolls = 6;
@@ -222,12 +264,13 @@ export default function PermitDetailPage() {
     setEditedPermit({});
   };
 
-  // Check if a form can be auto-filled (has fileData - Datalab can fill even flat PDFs)
+  // Check if a form can be processed into a permit package.
+  // Fillable PDFs get direct field injection; flat PDFs get a supplemental answer sheet.
   const canAutoFill = (form: TownForm): boolean => {
     return !!form.fileData;
   };
 
-  // Check if a form supports portal automation (SeamlessDocs, OpenGov, ViewPoint)
+  // Check if a form is portal-based (SeamlessDocs, OpenGov, ViewPoint)
   const isPortalForm = (form: TownForm): boolean => {
     const url = form.externalUrl || form.sourceUrl || "";
     return url.includes("seamlessdocs") || url.includes("opengov") || url.includes("viewpoint");
@@ -247,6 +290,8 @@ export default function PermitDetailPage() {
     setPortalAssistFormId(formId);
     setShowPortalAssist(true);
     setCopiedField(null);
+    setPortalPromptText("");
+    setPortalPromptAnswers([]);
   };
 
   // Check if a form uses ViewPoint specifically
@@ -255,7 +300,8 @@ export default function PermitDetailPage() {
     return url.includes("viewpoint");
   };
 
-  // ViewPoint: check credentials then run automation or show dialog
+  // ViewPoint automation remains in the codebase, but the main product flow now uses
+  // guided copy-paste assistance for all portal-based permits.
   const handleViewPointFormClick = async (formId: string) => {
     if (!permit?.townId) return;
     setViewPointFormId(formId);
@@ -344,6 +390,42 @@ export default function PermitDetailPage() {
     }
   };
 
+  const startCheckout = async () => {
+    try {
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          successUrl: `${window.location.origin}/permits/${permitId}?billing=success`,
+          cancelUrl: `${window.location.origin}/permits/${permitId}?billing=cancelled`,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Unable to start checkout");
+      }
+
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+
+      toast({
+        title: "Billing setup incomplete",
+        description: "Stripe keys still need to be added before checkout can open.",
+        variant: "destructive",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Checkout unavailable",
+        description: error.message || "Could not start Stripe checkout.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getPortalAssistData = (): Array<{ label: string; value: string; key: string }> => {
     const parsedData = profile?.parsedDataLog as Record<string, any> | null;
     const fields: Array<{ label: string; value: string; key: string }> = [];
@@ -370,6 +452,50 @@ export default function PermitDetailPage() {
     if (permit?.eventContactPhone) addField("Event Contact Phone", permit.eventContactPhone, "event_contact_phone");
 
     return fields;
+  };
+
+  const analyzePortalPrompts = async () => {
+    if (!permit?.profileId || !portalPromptText.trim()) {
+      toast({ title: "Paste portal questions first", description: "Paste the form labels/questions from the portal page so we can order your answers.", variant: "destructive" });
+      return;
+    }
+
+    setPortalPromptLoading(true);
+    try {
+      const response = await fetch("/api/portal-assist/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          profileId: permit.profileId,
+          pastedText: portalPromptText,
+          townId: permit.townId,
+          formId: portalAssistFormId,
+          eventData: getEventData(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 402) {
+          toast({
+            title: "PermitPilot Pro required",
+            description: data.message || "Portal Assist is part of the paid permit workflow.",
+          });
+          await startCheckout();
+          return;
+        }
+        throw new Error(data.message || "Failed to analyze portal prompts");
+      }
+      setPortalPromptAnswers(data.answers || []);
+      toast({
+        title: "Portal answers prepared",
+        description: `${data.matchedCount || 0} of ${data.promptsCount || 0} prompts matched to your saved data.`,
+      });
+    } catch (error: any) {
+      toast({ title: "Analysis failed", description: error.message || "Could not prepare portal answers.", variant: "destructive" });
+    } finally {
+      setPortalPromptLoading(false);
+    }
   };
 
   // Format event data helper
@@ -432,6 +558,14 @@ export default function PermitDetailPage() {
           setGeneratingTemplateId(null);
           return;
         }
+      } else if (analyzeResponse.status === 402) {
+        const billingError = await analyzeResponse.json();
+        toast({
+          title: "PermitPilot Pro required",
+          description: billingError.message || "PDF autofill is part of the paid permit workflow.",
+        });
+        await startCheckout();
+        return;
       }
       
       // No unanswered questions, proceed with generation
@@ -459,6 +593,7 @@ export default function PermitDetailPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ 
+          permitId,
           profileId: permit.profileId, 
           includeDocuments: true, 
           eventData: getEventData(),
@@ -468,6 +603,14 @@ export default function PermitDetailPage() {
 
       if (!response.ok) {
         const error = await response.json();
+        if (response.status === 402) {
+          toast({
+            title: "PermitPilot Pro required",
+            description: error.message || "PDF autofill is part of the paid permit workflow.",
+          });
+          await startCheckout();
+          return;
+        }
         throw new Error(error.message || "Failed to generate permit package");
       }
 
@@ -839,6 +982,32 @@ export default function PermitDetailPage() {
                 </Button>
               </div>
             )}
+            {billingStatus && !billingStatus.hasActiveSubscription && (
+              <Card className="border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
+                <CardContent className="pt-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-amber-600" />
+                        <p className="font-medium">
+                          {billingStatus.planName} unlocks PDF autofill and portal copy-paste assist
+                        </p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        The paid workflow covers auto-filled PDF permit packets and ordered portal answers for browser-based town applications.
+                      </p>
+                      <Badge variant="outline" className="w-fit">
+                        ${billingStatus.monthlyPrice.toFixed(2)}/month
+                      </Badge>
+                    </div>
+                    <Button onClick={startCheckout} data-testid="button-start-checkout">
+                      <CreditCard className="w-4 h-4 mr-2" />
+                      Unlock PermitPilot Pro
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Required Forms for {town?.townName}</CardTitle>
@@ -888,16 +1057,16 @@ export default function PermitDetailPage() {
                                 <Badge variant="outline" className="text-xs">Fillable Form</Badge>
                               )}
                               {form.fileData && !form.isFillable && (
-                                <Badge variant="secondary" className="text-xs">PDF Form</Badge>
+                                <Badge variant="secondary" className="text-xs">Flat PDF + Answer Sheet</Badge>
                               )}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          {form.fileData && form.isFillable && (
+                          {form.fileData && (
                             <Button
                               size="sm"
-                              disabled={generatingTemplateId !== null}
+                              disabled={generatingTemplateId !== null || Boolean(billingStatus && !billingStatus.hasActiveSubscription)}
                               onClick={() => handleGeneratePacket(form.id)}
                               data-testid={`button-generate-form-${form.id}`}
                             >
@@ -906,7 +1075,7 @@ export default function PermitDetailPage() {
                               ) : (
                                 <FileText className="w-4 h-4 mr-2" />
                               )}
-                              Generate
+                              {form.isFillable ? "Generate" : "Build Packet"}
                             </Button>
                           )}
                           {form.fileData && (
@@ -1011,7 +1180,7 @@ export default function PermitDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Generate a pre-filled permit application with your profile information and supporting documents.
+                  Generate a permit-ready PDF package. Fillable PDFs are auto-filled directly, and flat municipal PDFs include a structured answer sheet appended to the packet.
                 </p>
                 {!profile?.parsedDataLog ? (
                   <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
@@ -1051,7 +1220,9 @@ export default function PermitDetailPage() {
                             )}
                             <div className="text-left">
                               <div className="font-medium">{form.name}</div>
-                              <div className="text-xs text-muted-foreground">{form.category || "Form"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {form.category || "Form"}{form.isFillable ? "" : " • Includes answer sheet for flat PDF"}
+                              </div>
                             </div>
                           </Button>
                         ))}
@@ -1077,7 +1248,7 @@ export default function PermitDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    For ViewPoint portals we auto-fill the form for you. For others, copy your data and paste it into the town's portal.
+                    PDF permits are the only forms we auto-fill. For portal towns, paste the questions from each portal page and we’ll return your answers in the same order so you can copy and paste them fast.
                   </p>
                   {!profile?.parsedDataLog ? (
                     <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
@@ -1096,50 +1267,25 @@ export default function PermitDetailPage() {
                     <div className="space-y-3">
                       {townForms
                         .filter((form) => isPortalForm(form))
-                        .map((form) =>
-                          isViewPointForm(form) ? (
-                            <Button
-                              key={form.id}
-                              onClick={() => handleViewPointFormClick(form.id)}
-                              disabled={runningPortalAuto}
-                              variant="outline"
-                              className="justify-start h-auto py-3 w-full"
-                              data-testid={`button-portal-auto-${form.id}`}
-                            >
-                              {runningPortalAuto && viewPointFormId === form.id ? (
-                                <Loader2 className="w-4 h-4 mr-3 animate-spin" />
-                              ) : (
-                                <Globe className="w-4 h-4 mr-3 text-blue-500" />
-                              )}
-                              <div className="text-left flex-1">
-                                <div className="font-medium">{form.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {runningPortalAuto && viewPointFormId === form.id
-                                    ? "Running portal automation..."
-                                    : "Auto-fill ViewPoint portal with your data"}
-                                </div>
+                        .map((form) => (
+                          <Button
+                            key={form.id}
+                            onClick={() => handlePortalAssist(form.id)}
+                            variant="outline"
+                            disabled={Boolean(billingStatus && !billingStatus.hasActiveSubscription)}
+                            className="justify-start h-auto py-3 w-full"
+                            data-testid={`button-portal-assist-${form.id}`}
+                          >
+                            <ClipboardCheck className="w-4 h-4 mr-3" />
+                            <div className="text-left flex-1">
+                              <div className="font-medium">{form.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Paste the portal questions from {getPortalProvider(form)} and get ordered copy-ready answers
                               </div>
-                              <Badge variant="outline" className="ml-2 text-xs shrink-0">Auto-fill</Badge>
-                            </Button>
-                          ) : (
-                            <Button
-                              key={form.id}
-                              onClick={() => handlePortalAssist(form.id)}
-                              variant="outline"
-                              className="justify-start h-auto py-3 w-full"
-                              data-testid={`button-portal-assist-${form.id}`}
-                            >
-                              <ClipboardCheck className="w-4 h-4 mr-3" />
-                              <div className="text-left flex-1">
-                                <div className="font-medium">{form.name}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  Copy-paste your data into {getPortalProvider(form)} portal
-                                </div>
-                              </div>
-                              <ExternalLink className="w-4 h-4 ml-2 opacity-50" />
-                            </Button>
-                          )
-                        )}
+                            </div>
+                            <Badge variant="outline" className="ml-2 text-xs shrink-0">Assistant</Badge>
+                          </Button>
+                        ))}
                       {town?.portalUrl && townForms.filter((f) => isPortalForm(f)).length === 0 && (
                         <Button
                           onClick={() => {
@@ -1148,6 +1294,7 @@ export default function PermitDetailPage() {
                             setCopiedField(null);
                           }}
                           variant="outline"
+                          disabled={Boolean(billingStatus && !billingStatus.hasActiveSubscription)}
                           className="justify-start h-auto py-3"
                           data-testid="button-portal-assist-generic"
                         >
@@ -1431,27 +1578,57 @@ export default function PermitDetailPage() {
               Portal Assist
             </DialogTitle>
             <DialogDescription>
-              Copy each field below and paste it into the town's portal form. Tap any row to copy.
+              Paste the questions from the current portal page and we’ll return answers in the same order. This keeps portal permits fast without pretending to automate the whole site.
             </DialogDescription>
           </DialogHeader>
           
           <ScrollArea className="max-h-[50vh]">
-            <div className="space-y-2 pr-4">
-              {getPortalAssistData().map((field) => (
+            <div className="space-y-4 pr-4">
+              <div className="space-y-2">
+                <Label htmlFor="portal-prompts">Paste portal questions or labels</Label>
+                <Textarea
+                  id="portal-prompts"
+                  value={portalPromptText}
+                  onChange={(e) => setPortalPromptText(e.target.value)}
+                  placeholder={"Example:\nBusiness name\nOwner name\nMailing address\nPhone number\nEvent location"}
+                  className="min-h-[140px]"
+                />
+                <div className="flex gap-2">
+                  <Button onClick={analyzePortalPrompts} disabled={portalPromptLoading}>
+                    {portalPromptLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ClipboardCheck className="w-4 h-4 mr-2" />}
+                    Prepare ordered answers
+                  </Button>
+                  <Button variant="outline" onClick={() => { setPortalPromptText(""); setPortalPromptAnswers([]); }}>
+                    Clear
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Best practice: paste one page at a time before hitting “Next” in the town portal.
+                </p>
+              </div>
+
+              {(portalPromptAnswers.length > 0 ? portalPromptAnswers : getPortalAssistData().map((field) => ({ id: field.key, prompt: field.label, answer: field.value, readyToCopy: true }))).map((field) => (
                 <button
-                  key={field.key}
-                  onClick={() => copyToClipboard(field.value, field.key)}
+                  key={field.id}
+                  onClick={() => field.answer && copyToClipboard(field.answer, field.id)}
                   className="w-full text-left p-3 rounded-md border hover-elevate active-elevate-2 transition-colors"
-                  data-testid={`portal-assist-field-${field.key}`}
+                  data-testid={`portal-assist-field-${field.id}`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-muted-foreground">{field.label}</p>
-                      <p className="text-sm font-medium break-words">{field.value}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted-foreground">{field.prompt}</p>
+                        {"source" in field && field.source === "learned" && (
+                          <Badge variant="outline" className="text-[10px]">Learned for this town</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium break-words">{field.answer || "No saved answer yet — update your profile or answer this manually."}</p>
                     </div>
                     <div className="flex-shrink-0 mt-1">
-                      {copiedField === field.key ? (
+                      {copiedField === field.id ? (
                         <CheckCircle className="w-4 h-4 text-green-500" />
+                      ) : !field.answer ? (
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
                       ) : (
                         <Copy className="w-4 h-4 text-muted-foreground" />
                       )}
@@ -1459,7 +1636,7 @@ export default function PermitDetailPage() {
                   </div>
                 </button>
               ))}
-              {getPortalAssistData().length === 0 && (
+              {portalPromptAnswers.length === 0 && getPortalAssistData().length === 0 && (
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   No profile data available. Please upload and analyze documents first.
                 </p>

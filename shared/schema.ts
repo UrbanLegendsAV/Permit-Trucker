@@ -732,6 +732,20 @@ export const listingAuditLogs = pgTable("listing_audit_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const portalAssistMemories = pgTable("portal_assist_memories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  townId: varchar("town_id").references(() => towns.id).notNull(),
+  formId: varchar("form_id").references(() => townForms.id),
+  normalizedPrompt: text("normalized_prompt").notNull(),
+  samplePrompt: text("sample_prompt").notNull(),
+  dataKey: varchar("data_key", { length: 100 }).notNull(),
+  timesUsed: integer("times_used").default(1),
+  createdByUserId: text("created_by_user_id"),
+  lastUsedAt: timestamp("last_used_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Food suppliers — tracked per user/profile for permit applications
 export const foodSuppliers = pgTable("food_suppliers", {
   id: serial("id").primaryKey(),
@@ -775,8 +789,18 @@ export const insertClaimRequestSchema = createInsertSchema(claimRequests).omit({
   updatedAt: true,
 });
 
+export const insertPortalAssistMemorySchema = createInsertSchema(portalAssistMemories).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastUsedAt: true,
+  timesUsed: true,
+});
+
 export type InsertClaimRequest = z.infer<typeof insertClaimRequestSchema>;
 export type ClaimRequest = typeof claimRequests.$inferSelect;
+export type InsertPortalAssistMemory = z.infer<typeof insertPortalAssistMemorySchema>;
+export type PortalAssistMemory = typeof portalAssistMemories.$inferSelect;
 
 export const insertListingAuditLogSchema = createInsertSchema(listingAuditLogs).omit({
   id: true,

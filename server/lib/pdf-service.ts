@@ -1246,7 +1246,7 @@ function getFieldSection(fieldName: string): string {
  * Uses a Proxy to observe which key was read last, then validates it against the value.
  * This lets the fill loop track per-key usage for cross-section deduplication.
  */
-function resolveHeuristic(
+export function resolveHeuristicFieldMatch(
   fieldName: string,
   dataMap: Record<string, string | null>,
   eventData?: Parameters<typeof smartMatchFieldToData>[2]
@@ -1521,6 +1521,30 @@ export async function fillPdfFromDatabase(
     dataMap.generator_info = dataMap.electricity_source;
   }
 
+  const buildFallbackAnswerEntries = () => {
+    const fallbackFields: Array<{ label: string; value: string | null }> = [
+      { label: "Business name", value: dataMap.business_name },
+      { label: "Applicant / owner name", value: dataMap.applicant_name || dataMap.owner_name },
+      { label: "Mailing address", value: dataMap.mailing_address || [dataMap.address, dataMap.city_state_zip].filter(Boolean).join(", ") || null },
+      { label: "Phone", value: dataMap.phone },
+      { label: "Email", value: dataMap.email },
+      { label: "Vehicle VIN", value: dataMap.vin },
+      { label: "License plate", value: dataMap.license_plate },
+      { label: "Commissary name", value: dataMap.commissary_name },
+      { label: "Commissary address", value: dataMap.commissary_address },
+      { label: "Menu items", value: dataMap.menu_items || dataMap.food_items },
+      { label: "Water supply", value: dataMap.water_supply },
+      { label: "Waste water disposal", value: dataMap.waste_water_disposal || dataMap.waste_water },
+      { label: "Hand washing setup", value: dataMap.hand_washing_setup || dataMap.handwash_setup },
+      { label: "Event name", value: dataMap.event_name },
+      { label: "Event location", value: dataMap.event_location },
+      { label: "Event dates", value: dataMap.event_dates },
+      { label: "Hours of operation", value: dataMap.hours_of_operation },
+    ];
+
+    return fallbackFields.filter((entry) => entry.value && entry.value.trim()) as Array<{ label: string; value: string }>;
+  };
+
   if (hasAcroFields && townForm.isFillable) {
     // Use AcroForm field filling
     const fieldMappings = townForm.fieldMappings || {};
@@ -1570,7 +1594,7 @@ export async function fillPdfFromDatabase(
           }
           // PRIORITY 3: Heuristic matching with cross-section bleed protection
           else {
-            const { value: hValue, dataKey } = resolveHeuristic(fieldName, dataMap, eventData);
+            const { value: hValue, dataKey } = resolveHeuristicFieldMatch(fieldName, dataMap, eventData);
             if (hValue && dataKey) {
               const thisSection = getFieldSection(fieldName);
               const prevSection = heuristicSectionMap.get(dataKey);
@@ -1690,7 +1714,130 @@ export async function fillPdfFromDatabase(
       console.log("[PDF Service] Could not flatten form, continuing without flattening");
     }
   } else {
-    console.log(`[PDF Service] Form is not fillable or has no AcroForm fields, returning unmodified PDF`);
+    console.log(`[PDF Service] Form is not fillable or has no AcroForm fields, generating supplemental answer sheet`);
+
+    let nonFillableMappings = (townForm.fieldMappings || {}) as Record<string, string>;
+    if (Object.keys(nonFillableMappings).length === 0 && process.env.GOOGLE_API_KEY && townForm.id) {
+      try {
+        nonFillableMappings = await generateFieldMappingsFromNonFillablePDF(townForm.fileData, townForm.id);
+      } catch (error) {
+        console.error(`[PDF Service] Could not generate non-fillable mappings for ${townForm.name}:`, error);
+      }
+    }
+
+    const answerEntries = Object.entries(nonFillableMappings)
+      .map(([label, dataKey]) => {
+        const userAnswer = userAnswers?.[label];
+        const mappedValue = dataMap[dataKey];
+        const answer = userAnswer || mappedValue || null;
+        return answer ? { label, value: answer } : null;
+      })
+      .filter(Boolean) as Array<{ label: string; value: string }>;
+
+    const finalEntries = answerEntries.length > 0 ? answerEntries : buildFallbackAnswerEntries();
+
+    if (finalEntries.length > 0) {
+      const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+      const wrapText = (text: string, maxWidth: number, fontSize: number) => {
+        const words = text.split(/\s+/).filter(Boolean);
+        const lines: string[] = [];
+        let current = "";
+
+        for (const word of words) {
+          const candidate = current ? `${current} ${word}` : word;
+          const width = helvetica.widthOfTextAtSize(candidate, fontSize);
+          if (width <= maxWidth) {
+            current = candidate;
+          } else {
+            if (current) lines.push(current);
+            current = word;
+          }
+        }
+
+        if (current) lines.push(current);
+        return lines.length > 0 ? lines : [text];
+      };
+
+      const pageWidth = 612;
+      const pageHeight = 792;
+      const margin = 48;
+      const valueWidth = pageWidth - margin * 2;
+      let page = pdfDoc.addPage([pageWidth, pageHeight]);
+      let cursorY = pageHeight - margin;
+
+      const drawHeader = () => {
+        page.drawText("PermitPilot Supplemental Answer Sheet", {
+          x: margin,
+          y: cursorY,
+          size: 18,
+          font: helveticaBold,
+          color: rgb(0.1, 0.1, 0.1),
+        });
+        cursorY -= 24;
+        const subtitle = `${townForm.name} (${townForm.fileName || "flat PDF"})`;
+        page.drawText(subtitle, {
+          x: margin,
+          y: cursorY,
+          size: 11,
+          font: helvetica,
+          color: rgb(0.25, 0.25, 0.25),
+        });
+        cursorY -= 18;
+        const noteLines = wrapText(
+          "This form does not contain editable PDF fields. PermitPilot attached this answer sheet so the operator can quickly transfer verified answers into the municipality's flat PDF or submit it as supporting reference.",
+          valueWidth,
+          10,
+        );
+        for (const line of noteLines) {
+          page.drawText(line, {
+            x: margin,
+            y: cursorY,
+            size: 10,
+            font: helvetica,
+            color: rgb(0.35, 0.35, 0.35),
+          });
+          cursorY -= 13;
+        }
+        cursorY -= 10;
+      };
+
+      drawHeader();
+
+      for (const entry of finalEntries) {
+        const valueLines = wrapText(entry.value, valueWidth, 10);
+        const neededHeight = 16 + valueLines.length * 13 + 10;
+        if (cursorY - neededHeight < margin) {
+          page = pdfDoc.addPage([pageWidth, pageHeight]);
+          cursorY = pageHeight - margin;
+          drawHeader();
+        }
+
+        page.drawText(entry.label, {
+          x: margin,
+          y: cursorY,
+          size: 11,
+          font: helveticaBold,
+          color: rgb(0.14, 0.14, 0.14),
+        });
+        cursorY -= 15;
+
+        for (const line of valueLines) {
+          page.drawText(line, {
+            x: margin,
+            y: cursorY,
+            size: 10,
+            font: helvetica,
+            color: rgb(0.1, 0.1, 0.1),
+          });
+          cursorY -= 13;
+        }
+        cursorY -= 10;
+      }
+    } else {
+      console.log(`[PDF Service] No supplemental answers available for flat PDF ${townForm.name}`);
+    }
   }
 
   return pdfDoc.save();

@@ -20,6 +20,9 @@ interface UserData {
   firstName: string | null;
   lastName: string | null;
   role: string | null;
+  subscriptionStatus: string | null;
+  subscriptionPlan: string | null;
+  subscriptionCurrentPeriodEnd: string | null;
 }
 
 interface ReviewData extends Review {
@@ -219,12 +222,12 @@ function PricingTab({ configs, isLoading }: { configs: Config[]; isLoading: bool
   
   const [proPrice, setProPrice] = useState(() => {
     const config = configs.find((c) => c.key === "pro_price");
-    return config ? parseInt(config.value) : 99;
+    return config ? parseFloat(config.value) : 29.99;
   });
   
   const [basicPrice, setBasicPrice] = useState(() => {
     const config = configs.find((c) => c.key === "basic_price");
-    return config ? parseInt(config.value) : 0;
+    return config ? parseFloat(config.value) : 0;
   });
 
   const updateConfigMutation = useMutation({
@@ -261,14 +264,14 @@ function PricingTab({ configs, isLoading }: { configs: Config[]; isLoading: bool
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Label>Basic Plan</Label>
-            <span className="text-2xl font-bold">${basicPrice}/mo</span>
+            <span className="text-2xl font-bold">${basicPrice.toFixed(2)}/mo</span>
           </div>
           <Slider
             value={[basicPrice]}
             onValueChange={([val]) => setBasicPrice(val)}
             min={0}
             max={50}
-            step={1}
+            step={0.01}
             data-testid="slider-basic-price"
           />
         </div>
@@ -276,14 +279,14 @@ function PricingTab({ configs, isLoading }: { configs: Config[]; isLoading: bool
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Label>Pro Plan</Label>
-            <span className="text-2xl font-bold">${proPrice}/mo</span>
+            <span className="text-2xl font-bold">${proPrice.toFixed(2)}/mo</span>
           </div>
           <Slider
             value={[proPrice]}
             onValueChange={([val]) => setProPrice(val)}
             min={10}
             max={200}
-            step={1}
+            step={0.01}
             data-testid="slider-pro-price"
           />
         </div>
@@ -893,6 +896,28 @@ function UsersTab({ users, isLoading, isOwner }: { users: UserData[]; isLoading:
     },
   });
 
+  const updateSubscriptionMutation = useMutation({
+    mutationFn: async ({ userId, subscriptionStatus }: { userId: string; subscriptionStatus: string }) => {
+      const subscriptionCurrentPeriodEnd =
+        subscriptionStatus === "active" || subscriptionStatus === "trialing" || subscriptionStatus === "past_due"
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          : null;
+      return apiRequest("PATCH", `/api/admin/users/${userId}/subscription`, {
+        subscriptionStatus,
+        subscriptionPlan: "PermitPilot Pro",
+        subscriptionCurrentPeriodEnd,
+        subscriptionCancelAtPeriodEnd: false,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Subscription Updated" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update subscription.", variant: "destructive" });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -906,32 +931,61 @@ function UsersTab({ users, isLoading, isOwner }: { users: UserData[]; isLoading:
       <h3 className="font-semibold mb-4">User Management ({users.length})</h3>
       <div className="space-y-2 max-h-[500px] overflow-y-auto">
         {users.map((user) => (
-          <div key={user.id} className="flex items-center justify-between p-3 bg-muted/50 rounded">
-            <div>
+          <div key={user.id} className="flex items-center justify-between gap-4 p-3 bg-muted/50 rounded flex-wrap">
+            <div className="min-w-0">
               <p className="font-medium">
                 {user.firstName || user.lastName
                   ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
                   : "Unknown User"}
               </p>
               <p className="text-sm text-muted-foreground">{user.email || "No email"}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <Badge variant="outline">{user.subscriptionPlan || "PermitPilot Pro"}</Badge>
+                <Badge variant={user.subscriptionStatus === "active" ? "default" : "secondary"}>
+                  {user.subscriptionStatus || "inactive"}
+                </Badge>
+                {user.subscriptionCurrentPeriodEnd && (
+                  <span className="text-xs text-muted-foreground">
+                    Renews through {new Date(user.subscriptionCurrentPeriodEnd).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
             </div>
-            {isOwner ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              {isOwner ? (
+                <Select
+                  value={user.role || "user"}
+                  onValueChange={(role) => updateRoleMutation.mutate({ userId: user.id, role })}
+                >
+                  <SelectTrigger className="w-32" data-testid={`select-role-${user.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="owner">Owner</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Badge variant="secondary">{user.role || "user"}</Badge>
+              )}
               <Select
-                value={user.role || "user"}
-                onValueChange={(role) => updateRoleMutation.mutate({ userId: user.id, role })}
+                value={user.subscriptionStatus || "inactive"}
+                onValueChange={(subscriptionStatus) => updateSubscriptionMutation.mutate({ userId: user.id, subscriptionStatus })}
               >
-                <SelectTrigger className="w-32" data-testid={`select-role-${user.id}`}>
+                <SelectTrigger className="w-40" data-testid={`select-subscription-${user.id}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">User</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="owner">Owner</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="trialing">Trialing</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="past_due">Past Due</SelectItem>
+                  <SelectItem value="canceled">Canceled</SelectItem>
+                  <SelectItem value="unpaid">Unpaid</SelectItem>
                 </SelectContent>
               </Select>
-            ) : (
-              <Badge variant="secondary">{user.role || "user"}</Badge>
-            )}
+            </div>
           </div>
         ))}
       </div>

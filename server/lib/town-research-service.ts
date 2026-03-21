@@ -40,6 +40,11 @@ interface ResearchResult {
   needsReview?: boolean;
 }
 
+function looksOfficialMunicipalUrl(url?: string | null) {
+  if (!url) return false;
+  return /(\.gov\b|\.us\b|ct\.gov\b|municipal|health|publichealth|opengov|viewpointcloud|seamlessdocs)/i.test(url);
+}
+
 export class TownResearchService {
   private genAI: GoogleGenerativeAI | null = null;
 
@@ -145,14 +150,26 @@ Return ONLY valid JSON in this exact structure:
       }
 
       const confidenceScore = parsed.confidence_score ?? 50;
+      const sourceUrls = [parsed.health_department_url, parsed.permit_portal_url, ...(parsed.form_urls || [])]
+        .filter((value): value is string => Boolean(value))
+        .filter((value, index, arr) => arr.indexOf(value) === index);
+      const hasOfficialSource = sourceUrls.some((url) => looksOfficialMunicipalUrl(url));
+      const normalizedConfidence = hasOfficialSource ? confidenceScore : Math.min(confidenceScore, 65);
       const needsReview = confidenceScore < 70;
+      const notes = [...(parsed.notes || [])];
+      if (sourceUrls.length > 0) {
+        notes.push(`Sources reviewed: ${sourceUrls.join(" | ")}`);
+      }
+      if (!hasOfficialSource) {
+        notes.push("No clearly official municipal source URL was identified automatically. Review before trusting this town configuration.");
+      }
 
       return {
         success: true,
         healthDeptUrl: parsed.health_department_url || undefined,
         permitPortalUrl: parsed.permit_portal_url || undefined,
-        confidenceScore,
-        needsReview,
+        confidenceScore: normalizedConfidence,
+        needsReview: normalizedConfidence < 70,
         requirements: {
           permitTypes: parsed.permit_types || ["temporary"],
           fees: {
@@ -161,7 +178,7 @@ Return ONLY valid JSON in this exact structure:
             seasonal: parsed.fees?.seasonal ?? undefined,
           },
           requirements: parsed.requirements || [],
-          notes: parsed.notes || [],
+          notes,
           hasDownloadableForms: parsed.has_downloadable_forms ?? false,
           formUrls: parsed.form_urls || [],
           isPortalOnly: parsed.is_portal_only ?? false,

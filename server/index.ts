@@ -12,7 +12,7 @@ installProcessErrorHandlers();
 
 function validateEnvironment() {
   const requiredEnvVars = ["GOOGLE_API_KEY"];
-  const optionalEnvVars = ["DATALAB_API_KEY"];
+  const optionalEnvVars = ["DATALAB_API_KEY", "STRIPE_SECRET_KEY", "VITE_STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_ID_MONTHLY"];
   const missing: string[] = [];
   const missingOptional: string[] = [];
   

@@ -18,6 +18,12 @@ const registerSchema = z.object({
 
 // Register auth-specific routes
 export function registerAuthRoutes(app: Express): void {
+  const serializeUser = (user: any) => {
+    if (!user) return user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
+    return safeUser;
+  };
+
   // Get current authenticated user (supports both OIDC and email auth)
   app.get("/api/auth/user", isAuthenticatedFlexible, async (req: any, res) => {
     try {
@@ -25,7 +31,7 @@ export function registerAuthRoutes(app: Express): void {
       if (req.session?.userId) {
         const user = await authStorage.getUser(req.session.userId);
         if (user) {
-          return res.json(user);
+          return res.json(serializeUser(user));
         }
       }
       
@@ -33,7 +39,7 @@ export function registerAuthRoutes(app: Express): void {
       if (req.user?.claims?.sub) {
         const userId = req.user.claims.sub;
         const user = await authStorage.getUser(userId);
-        return res.json(user);
+        return res.json(serializeUser(user));
       }
       
       return res.status(401).json({ message: "Not authenticated" });
@@ -76,14 +82,7 @@ export function registerAuthRoutes(app: Express): void {
         
         res.json({ 
           message: "Login successful",
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImageUrl: user.profileImageUrl,
-            role: user.role,
-          }
+          user: serializeUser(user)
         });
       });
     } catch (error) {
@@ -134,13 +133,7 @@ export function registerAuthRoutes(app: Express): void {
         
         res.status(201).json({ 
           message: "Registration successful",
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            role: user.role,
-          }
+          user: serializeUser(user)
         });
       });
     } catch (error) {
