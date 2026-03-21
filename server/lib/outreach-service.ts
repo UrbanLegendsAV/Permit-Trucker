@@ -1,6 +1,7 @@
 import { db } from '../db';
 import { foodTrucks } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
+import type { MailDataRequired } from '@sendgrid/mail';
 
 // Lazy-load SendGrid so the server starts even if the package isn't yet installed
 async function getSgMail() {
@@ -10,7 +11,7 @@ async function getSgMail() {
   return sgMail;
 }
 
-function buildOutreachEmail(truckName: string, slug: string): Record<string, any> {
+function buildOutreachEmail(truckName: string, slug: string): MailDataRequired {
   const listingUrl = `https://permitpilot.cloud/directory/${slug}`;
   return {
     to: '',

@@ -20,7 +20,16 @@ export function PublicProfileSection({ vehicleProfile }: PublicProfileSectionPro
   const queryClient = useQueryClient();
 
   const { data: publicProfile, isLoading } = useQuery<PublicProfile | null>({
-    queryKey: ["/api/my-public-profile"],
+    queryKey: ["/api/my-public-profile", vehicleProfile.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/my-public-profile?profileId=${vehicleProfile.id}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to load public profile");
+      }
+      return response.json();
+    },
   });
 
   const [formData, setFormData] = useState({
@@ -60,6 +69,7 @@ export function PublicProfileSection({ vehicleProfile }: PublicProfileSectionPro
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/my-public-profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-public-profile", vehicleProfile.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/public-profiles"] });
       toast({ title: "Saved!", description: "Your public profile has been updated." });
     },

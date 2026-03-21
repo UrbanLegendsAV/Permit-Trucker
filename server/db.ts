@@ -127,8 +127,47 @@ export async function runMigrations(): Promise<void> {
     `);
     // Claim tracking on food_trucks
     await client.query(`
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS profile_id VARCHAR REFERENCES profiles(id);
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_by_user_id TEXT;
       ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS verification_score INTEGER DEFAULT 0;
+      ALTER TABLE food_trucks ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE claim_status AS ENUM ('pending', 'verified', 'rejected', 'needs_review');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS claim_requests (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        truck_slug TEXT NOT NULL,
+        food_truck_id INTEGER REFERENCES food_trucks(id),
+        user_id TEXT NOT NULL,
+        profile_id VARCHAR REFERENCES profiles(id),
+        status claim_status DEFAULT 'pending',
+        verification_score INTEGER DEFAULT 0,
+        verification_evidence JSONB,
+        decision_notes TEXT,
+        reviewed_by TEXT,
+        reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS listing_audit_logs (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        action TEXT NOT NULL,
+        actor_user_id TEXT,
+        truck_slug TEXT,
+        profile_id VARCHAR REFERENCES profiles(id),
+        claim_request_id VARCHAR REFERENCES claim_requests(id),
+        details JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
     // Location, social, and menu fields on food_trucks
     await client.query(`

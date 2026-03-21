@@ -4,6 +4,11 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedTowns } from "./seed";
 import { runMigrations } from "./db";
+import { installErrorLogCapture, patchConsoleError, installProcessErrorHandlers, logAppError, getErrorLogPath } from "./lib/error-log-service";
+
+installErrorLogCapture();
+patchConsoleError();
+installProcessErrorHandlers();
 
 function validateEnvironment() {
   const requiredEnvVars = ["GOOGLE_API_KEY"];
@@ -72,6 +77,11 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+app.use((req, _res, next) => {
+  req.headers["x-request-id"] = req.headers["x-request-id"] || crypto.randomUUID();
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -124,12 +134,23 @@ app.use((req, res, next) => {
     }
   }, 10000);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    logAppError(message, err, {
+      source: "express.middleware",
+      statusCode: status,
+      path: req.path,
+      method: req.method,
+      userId: (req.user as { id?: string } | undefined)?.id ?? null,
+      requestId: (req.headers["x-request-id"] as string | undefined) ?? null,
+      body: req.body,
+      query: req.query,
+      params: req.params,
+    });
+
     res.status(status).json({ message });
-    throw err;
   });
 
   // importantly only setup vite in development and after
@@ -155,6 +176,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      log(`error log file: ${getErrorLogPath()}`, "errors");
     },
   );
 })();

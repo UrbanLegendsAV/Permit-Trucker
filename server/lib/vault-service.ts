@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { profiles as profilesTable, dataVaults } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { DataVault, InsertDataVault, Profile } from "@shared/schema";
+import type { DataVault, InsertDataVault, Profile, FoodTruck, InsertPublicProfile } from "@shared/schema";
 
 interface ParsedDataLog {
   contact_info?: {
@@ -328,6 +328,76 @@ export async function syncProfileToVault(userId: string, profileId: string): Pro
   } else {
     return await storage.createDataVault(vaultData as InsertDataVault);
   }
+}
+
+function buildTruckMenuDescription(truck: FoodTruck): string | undefined {
+  const menuItems = truck.menuItems
+    ?.map((item) => [item.name, item.description].filter(Boolean).join(": "))
+    .filter(Boolean);
+
+  if (menuItems && menuItems.length > 0) {
+    return menuItems.join(", ");
+  }
+
+  return truck.description ?? undefined;
+}
+
+export async function syncClaimedTruckToProfileSystems(
+  userId: string,
+  profileId: string,
+  truck: FoodTruck,
+): Promise<{ vault: DataVault | null }> {
+  await storage.updateProfile(profileId, {
+    vehicleName: truck.name,
+    menuType: truck.cuisine ?? undefined,
+  } as Partial<Profile>);
+
+  const baseVault = await syncProfileToVault(userId, profileId);
+  const menuDescription = buildTruckMenuDescription(truck);
+  let vault = baseVault;
+
+  if (baseVault) {
+    vault = await storage.updateDataVault(baseVault.id, {
+      ...(truck.name && { businessName: truck.name, tradeName: truck.name }),
+      ...(truck.phone && { phone: truck.phone }),
+      ...(truck.email && { email: truck.email }),
+      ...(truck.menuItems?.length && {
+        foodItemsList: truck.menuItems.map((item) => item.name).filter(Boolean),
+      }),
+      ...(menuDescription && { menuDescription }),
+    } as Partial<InsertDataVault>) ?? baseVault;
+  }
+
+  const publicProfilePayload: Partial<InsertPublicProfile> = {
+    userId,
+    profileId,
+    isVerified: truck.status === "verified",
+    businessName: truck.name,
+    description: truck.description ?? undefined,
+    phoneNumber: truck.phone ?? undefined,
+    website: truck.website ?? undefined,
+    locationLat: truck.homeLat ?? undefined,
+    locationLng: truck.homeLng ?? undefined,
+    cuisineType: truck.cuisine ?? undefined,
+    instagramHandle: truck.instagramHandle ?? undefined,
+    claimedByUserId: userId,
+    claimedAt: new Date(),
+    source: "directory_claim",
+  };
+
+  const existingPublicProfile = await storage.getPublicProfile(profileId);
+  if (existingPublicProfile) {
+    await storage.updatePublicProfile(profileId, publicProfilePayload);
+  } else {
+    await storage.createPublicProfile({
+      profileId,
+      userId,
+      isPublic: false,
+      ...publicProfilePayload,
+    } as InsertPublicProfile);
+  }
+
+  return { vault };
 }
 
 export function getVaultDataForPdfFill(vault: DataVault): Record<string, { value: string; description: string }> {

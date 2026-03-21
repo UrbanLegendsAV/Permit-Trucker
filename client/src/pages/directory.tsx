@@ -46,6 +46,7 @@ type FoodTruck = {
   status: string | null;
   imageUrl: string | null;
   offersPrivateCatering?: boolean | null;
+  verificationScore?: number | null;
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -75,7 +76,7 @@ export default function DirectoryPage() {
   const [cuisineFilter, setCuisineFilter] = useState("All Cuisines");
   const [townFilter, setTownFilter] = useState("");
   const [view, setView] = useState<"grid" | "map">("grid");
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
 
   // parse ?view=map from URL
   useEffect(() => {
@@ -96,18 +97,6 @@ export default function DirectoryPage() {
   const { data: trucks = [], isLoading } = useQuery<FoodTruck[]>({
     queryKey: ["/api/directory"],
     queryFn: () => fetch("/api/directory").then((r) => r.json()),
-  });
-
-  const claimMutation = useMutation({
-    mutationFn: (slug: string) =>
-      apiRequest("POST", "/api/directory/claim", { slug }),
-    onSuccess: () => {
-      toast({ title: "Listing claimed!", description: "We'll be in touch to verify your truck." });
-      queryClient.invalidateQueries({ queryKey: ["/api/directory"] });
-    },
-    onError: () => {
-      toast({ title: "Sign in to claim", description: "Create a free account to claim this listing.", variant: "destructive" });
-    },
   });
 
   const filtered = trucks.filter((t) => {
@@ -220,8 +209,8 @@ export default function DirectoryPage() {
                 <TruckCard
                   key={truck.id}
                   truck={truck}
-                  onClaim={() => claimMutation.mutate(truck.slug)}
-                  isClaiming={claimMutation.isPending && claimMutation.variables === truck.slug}
+                  onClaim={() => setLocation(`/claim/${truck.slug}`)}
+                  isClaiming={false}
                 />
               ))}
             </div>
@@ -242,11 +231,17 @@ function TruckCard({ truck, onClaim, isClaiming }: {
   isClaiming: boolean;
 }) {
   const [, setLocation] = useLocation();
-  const isClaimed = truck.status === "claimed";
+  const isVerified = truck.status === "verified";
+  const isPending = truck.status === "pending" || truck.status === "needs_review";
+  const isClaimable = truck.status === "unclaimed" || truck.status === "rejected";
 
   return (
     <div
-      className="bg-white/5 border border-white/10 rounded-xl p-5 flex flex-col gap-3 cursor-pointer hover:bg-white/[0.08] hover:border-[#1B4FD8]/40 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] active:transition-none transition-all duration-200"
+      className={`rounded-xl p-5 flex flex-col gap-3 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] active:transition-none transition-all duration-200 ${
+        isVerified
+          ? "bg-gradient-to-b from-[#0f1f26] to-[#0A0F1E] border border-[#00C896]/30 shadow-[0_0_0_1px_rgba(0,200,150,0.08)]"
+          : "bg-white/5 border border-white/10 hover:bg-white/[0.08] hover:border-[#1B4FD8]/40"
+      }`}
       onClick={() => setLocation(`/directory/${truck.slug}`)}
       role="link"
       tabIndex={0}
@@ -259,9 +254,13 @@ function TruckCard({ truck, onClaim, isClaiming }: {
         >
           {truck.name}
         </h3>
-        {isClaimed ? (
+        {isVerified ? (
           <Badge className="bg-[#00C896]/15 text-[#00C896] border-[#00C896]/30 shrink-0 text-xs gap-1">
-            <CheckCircle2 className="h-3 w-3" /> Claimed
+            <CheckCircle2 className="h-3 w-3" /> Verified
+          </Badge>
+        ) : isPending ? (
+          <Badge className="bg-blue-500/15 text-blue-300 border-blue-500/30 shrink-0 text-xs gap-1">
+            <AlertCircle className="h-3 w-3" /> Pending review
           </Badge>
         ) : (
           <Badge className="bg-[#F5A623]/15 text-[#F5A623] border-[#F5A623]/30 shrink-0 text-xs gap-1">
@@ -271,6 +270,10 @@ function TruckCard({ truck, onClaim, isClaiming }: {
       </div>
 
       {truck.cuisine && <span className="text-xs text-[#8897B2] font-medium">{truck.cuisine}</span>}
+
+      {isVerified && (
+        <p className="text-xs text-[#9EE7D1] font-medium">PermitPilot Verified • trusted owner and business evidence confirmed</p>
+      )}
 
       {truck.description && (
         <p className="text-sm text-[#8897B2] line-clamp-2">{truck.description}</p>
@@ -306,7 +309,7 @@ function TruckCard({ truck, onClaim, isClaiming }: {
             <Instagram className="h-3 w-3" /> {truck.instagramHandle}
           </a>
         )}
-        {!isClaimed && (
+        {isClaimable && (
           <button
             onClick={(e) => { e.stopPropagation(); onClaim(); }}
             disabled={isClaiming}

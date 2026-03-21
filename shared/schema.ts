@@ -16,6 +16,7 @@ export const badgeTierEnum = pgEnum("badge_tier", ["bronze", "silver", "gold"]);
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "approved", "denied"]);
 export const submissionStatusEnum = pgEnum("submission_status", ["draft", "pending_review", "ready_to_submit", "submitted", "failed", "completed"]);
 export const submissionTypeEnum = pgEnum("submission_type", ["pdf_fill", "portal_automation", "manual"]);
+export const claimStatusEnum = pgEnum("claim_status", ["pending", "verified", "rejected", "needs_review"]);
 
 export const healthDistricts = pgTable("health_districts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -660,6 +661,7 @@ export type InsertPortalCredential = z.infer<typeof insertPortalCredentialSchema
 export const foodTrucks = pgTable("food_trucks", {
   id: serial("id").primaryKey(),
   slug: text("slug").unique().notNull(),
+  profileId: varchar("profile_id").references(() => profiles.id),
   name: text("name").notNull(),
   cuisine: text("cuisine"),
   towns: text("towns").array(),
@@ -688,6 +690,8 @@ export const foodTrucks = pgTable("food_trucks", {
   // Claim tracking
   claimedByUserId: text("claimed_by_user_id"),
   claimedAt: timestamp("claimed_at"),
+  verificationScore: integer("verification_score").default(0),
+  verifiedAt: timestamp("verified_at"),
   // Location & social
   menuItems: jsonb("menu_items").$type<Array<{ name: string; description: string; imageUrl: string }>>(),
   homeLat: text("home_lat"),
@@ -700,6 +704,33 @@ export const insertFoodTruckSchema = createInsertSchema(foodTrucks).omit({ id: t
 export type InsertFoodTruck = z.infer<typeof insertFoodTruckSchema>;
 export type FoodTruck = typeof foodTrucks.$inferSelect;
 export type PortalCredential = typeof portalCredentials.$inferSelect;
+
+export const claimRequests = pgTable("claim_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  truckSlug: text("truck_slug").notNull(),
+  foodTruckId: integer("food_truck_id").references(() => foodTrucks.id),
+  userId: text("user_id").notNull(),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  status: claimStatusEnum("status").default("pending"),
+  verificationScore: integer("verification_score").default(0),
+  verificationEvidence: jsonb("verification_evidence").$type<Array<{ type: string; points: number; note: string }>>(),
+  decisionNotes: text("decision_notes"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const listingAuditLogs = pgTable("listing_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  action: text("action").notNull(),
+  actorUserId: text("actor_user_id"),
+  truckSlug: text("truck_slug"),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  claimRequestId: varchar("claim_request_id").references(() => claimRequests.id),
+  details: jsonb("details").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 // Food suppliers — tracked per user/profile for permit applications
 export const foodSuppliers = pgTable("food_suppliers", {
@@ -737,6 +768,23 @@ export const inboundEmails = pgTable("inbound_emails", {
 export const insertInboundEmailSchema = createInsertSchema(inboundEmails).omit({ id: true, createdAt: true });
 export type InsertInboundEmail = z.infer<typeof insertInboundEmailSchema>;
 export type InboundEmail = typeof inboundEmails.$inferSelect;
+
+export const insertClaimRequestSchema = createInsertSchema(claimRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertClaimRequest = z.infer<typeof insertClaimRequestSchema>;
+export type ClaimRequest = typeof claimRequests.$inferSelect;
+
+export const insertListingAuditLogSchema = createInsertSchema(listingAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertListingAuditLog = z.infer<typeof insertListingAuditLogSchema>;
+export type ListingAuditLog = typeof listingAuditLogs.$inferSelect;
 
 // Agent logs — audit trail for all orchestrator / sub-agent actions
 export const agentLogs = pgTable("agent_logs", {

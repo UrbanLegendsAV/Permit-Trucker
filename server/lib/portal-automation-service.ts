@@ -1020,13 +1020,15 @@ async function fillViewPointFields(
 
       // Locate the associated input: via `for` attribute or sibling/descendant
       const forId = await label.getAttribute("for");
-      let input = forId ? await page.$(`#${cssEscape(forId)}`) : null;
+      let input = forId
+        ? await page.$(`#${cssEscape(forId)}`)
+        : null;
       if (!input) {
         // Try first input/textarea/select inside the same parent container
-        input = await label.evaluateHandle(el => {
+        input = await label.evaluateHandle((el: Element) => {
           const parent = el.parentElement;
-          return parent?.querySelector('input, textarea, select') ?? null;
-        }).then(h => h.asElement()).catch(() => null);
+          return parent?.querySelector("input, textarea, select") ?? null;
+        }).then((h) => h.asElement() as typeof input).catch(() => null);
       }
       if (!input || !(await input.isVisible().catch(() => false))) continue;
 

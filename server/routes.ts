@@ -34,10 +34,11 @@ import { townResearchService } from "./lib/town-research-service";
 import { formDiscoveryService } from "./lib/form-discovery-service";
 import { generalApiLimiter, documentParseRateLimiter, researchRateLimiter } from "./lib/rate-limiter";
 import { sanitizeHtml } from "./lib/sanitize";
-import { syncParsedDataToVault, syncProfileToVault, getVaultCompleteness, getVaultDataForPdfFill } from "./lib/vault-service";
+import { syncParsedDataToVault, syncProfileToVault, getVaultCompleteness, getVaultDataForPdfFill, syncClaimedTruckToProfileSystems } from "./lib/vault-service";
 import { createPdfFillJob, pollDatalabJob, startAutoPdfFill, fillPdfWithDatalab, checkDatalabResult } from "./lib/datalab-service";
 import { storePortalCredentials, createPortalAutomationJob, executePortalAutomation, approveAndSubmit, isEncryptionConfigured, executeFormPortalSubmission, isPortalForm, detectPortalProvider } from "./lib/portal-automation-service";
 import { validatePermitApplication, getRequiredFieldsForPermitType } from "./lib/validation-service";
+import { evaluateClaimVerification } from "./lib/claim-verification-service";
 import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
 import { enrichAllTrucks, enrichTruckFromWebsite } from "./lib/truck-enrichment-service";
@@ -987,13 +988,18 @@ ${prompt}`;
         }
 
         // Verified Operator badge: vault completeness >= 85%
-        if (vaultCompleteness && vaultCompleteness.percentage >= 85) {
+        if (vaultCompleteness && vaultCompleteness.score >= 85) {
           const hasVerified = badgesForUser.some(b => b.badgeType === "verified_operator");
           if (!hasVerified) {
             await storage.createBadge({ userId, badgeType: "verified_operator", tier: "gold" });
           }
         }
       }
+
+      const claimVerification = await evaluateClaimVerification(id).catch((error) => {
+        console.error("Claim verification scoring failed:", error);
+        return null;
+      });
 
       res.json({
         success: true,
@@ -1002,6 +1008,7 @@ ${prompt}`;
         updatedFields,
         vaultCompleteness,
         parsedData,
+        claimVerification,
       });
     } catch (error: any) {
       console.error("Error parsing single document:", error);
@@ -1119,9 +1126,14 @@ ${prompt}`;
 
   app.get("/api/permits/:id", isAuthenticated, async (req, res) => {
     try {
+      const userId = getUserId(req as any);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const permit = await storage.getPermit(req.params.id);
       if (!permit) {
         return res.status(404).json({ message: "Permit not found" });
+      }
+      if (permit.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
       }
       res.json(permit);
     } catch (error) {
@@ -1132,9 +1144,14 @@ ${prompt}`;
 
   app.get("/api/permits/:id/validate", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const permit = await storage.getPermit(req.params.id);
       if (!permit) {
         return res.status(404).json({ message: "Permit not found" });
+      }
+      if (permit.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
       }
       
       if (!permit.profileId) {
@@ -1217,6 +1234,13 @@ ${prompt}`;
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      if (req.body.profileId) {
+        const profile = await storage.getProfile(req.body.profileId);
+        if (!profile || profile.userId !== userId) {
+          return res.status(403).json({ message: "You can only create permits for your own profiles" });
+        }
+      }
       
       // Convert date strings to Date objects
       const eventDate = req.body.eventDate ? new Date(req.body.eventDate) : null;
@@ -1334,6 +1358,16 @@ ${prompt}`;
 
   app.patch("/api/permits/:id", isAuthenticated, async (req, res) => {
     try {
+      const userId = getUserId(req as any);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const existingPermit = await storage.getPermit(req.params.id);
+      if (!existingPermit) {
+        return res.status(404).json({ message: "Permit not found" });
+      }
+      if (existingPermit.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
       const updateData = { ...req.body };
       
       // Convert date strings to Date objects for timestamp columns
@@ -1351,9 +1385,6 @@ ${prompt}`;
       }
       
       const permit = await storage.updatePermit(req.params.id, updateData);
-      if (!permit) {
-        return res.status(404).json({ message: "Permit not found" });
-      }
       res.json(permit);
     } catch (error) {
       console.error("Error updating permit:", error);
@@ -1363,6 +1394,15 @@ ${prompt}`;
 
   app.delete("/api/permits/:id", isAuthenticated, async (req, res) => {
     try {
+      const userId = getUserId(req as any);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const permit = await storage.getPermit(req.params.id);
+      if (!permit) {
+        return res.status(404).json({ message: "Permit not found" });
+      }
+      if (permit.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       await storage.deletePermit(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -1597,8 +1637,6 @@ ${prompt}`;
         formsDiscovered: result.formsDiscovered,
         formsDownloaded: result.formsDownloaded,
         forms: result.forms,
-        townWebsite: result.townWebsite,
-        healthDeptWebsite: result.healthDeptWebsite,
       });
     } catch (error: any) {
       console.error("Error discovering forms:", error);
@@ -1651,6 +1689,20 @@ ${prompt}`;
       const profile = await storage.getProfile(profileId);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
+      }
+      if (profile.userId !== (req.user as any).id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const permitIdForStorage = req.body.permitId as string | undefined;
+      if (permitIdForStorage) {
+        const permit = await storage.getPermit(permitIdForStorage);
+        if (!permit || permit.userId !== (req.user as any).id) {
+          return res.status(403).json({ message: "Permit not found or access denied" });
+        }
+        if (permit.profileId !== profileId || permit.townId !== townId) {
+          return res.status(400).json({ message: "Permit does not match the selected town/profile" });
+        }
       }
 
       const parsedData = profile.parsedDataLog as ParsedUserData | null;
@@ -2151,7 +2203,6 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
       const filename = `PermitPilot-${(town?.townName || 'permit').replace(/\s+/g, '-')}-${form.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
 
       // Store generated PDF in submission_jobs for re-download later
-      const permitIdForStorage = req.body.permitId;
       if (permitIdForStorage) {
         try {
           const pdfBase64 = Buffer.from(pdfBytes).toString('base64');
@@ -2186,7 +2237,14 @@ IMPORTANT: Return the SEMANTIC MEANING of each checkbox, not whether to check it
   app.get("/api/permits/:permitId/download", isAuthenticated, async (req: any, res) => {
     try {
       const { permitId } = req.params;
-      const jobs = await storage.getSubmissionJobsByPermitId(permitId);
+      const permit = await storage.getPermit(permitId);
+      if (!permit) {
+        return res.status(404).json({ message: "Permit not found" });
+      }
+      if (permit.userId !== (req.user as any).id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const jobs = await storage.getSubmissionJobsByPermit(permitId);
       const job = (jobs as any[]).find((j: any) => j.filledPdfData && j.status === 'completed');
       if (!job?.filledPdfData) {
         return res.status(404).json({ message: "Packet not yet generated — please generate first" });
@@ -2587,7 +2645,17 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const profile = await storage.getPublicProfileByUser(userId);
+      const profileId = req.query.profileId as string | undefined;
+      let profile;
+      if (profileId) {
+        const vehicleProfile = await storage.getProfile(profileId);
+        if (!vehicleProfile || vehicleProfile.userId !== userId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        profile = await storage.getPublicProfile(profileId);
+      } else {
+        profile = await storage.getPublicProfileByUser(userId);
+      }
       res.json(profile || null);
     } catch (error) {
       console.error("Error fetching public profile:", error);
@@ -2600,10 +2668,31 @@ For text fields that require descriptive answers about food safety practices, se
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
-      const existing = await storage.getPublicProfileByUser(userId);
+      const profileId = req.body.profileId as string | undefined;
+      if (!profileId) {
+        return res.status(400).json({ message: "profileId is required" });
+      }
+      const vehicleProfile = await storage.getProfile(profileId);
+      if (!vehicleProfile || vehicleProfile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const linkedClaim = await storage.getClaimRequestByProfileId(profileId);
+      const userRole = await storage.getUserRole(userId);
+      const isAdminUser = userRole === "admin" || userRole === "owner";
+      if (linkedClaim && linkedClaim.status !== "verified" && !isAdminUser) {
+        return res.status(403).json({ message: "Your listing is pending verification. Public edits unlock after review." });
+      }
+
+      const existing = await storage.getPublicProfile(profileId);
       
       if (existing) {
         const updated = await storage.updatePublicProfile(existing.profileId, req.body);
+        await storage.createListingAuditLog({
+          action: "public_profile_updated",
+          actorUserId: userId,
+          profileId,
+          details: req.body,
+        });
         return res.json(updated);
       }
       
@@ -2615,6 +2704,12 @@ For text fields that require descriptive answers about food safety practices, se
       }
       
       const profile = await storage.createPublicProfile(parsed.data);
+      await storage.createListingAuditLog({
+        action: "public_profile_created",
+        actorUserId: userId,
+        profileId,
+        details: req.body,
+      });
       res.status(201).json(profile);
     } catch (error) {
       console.error("Error creating/updating public profile:", error);
@@ -2625,10 +2720,28 @@ For text fields that require descriptive answers about food safety practices, se
   // Update public profile by profileId
   app.patch("/api/public-profiles/:profileId", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const vehicleProfile = await storage.getProfile(req.params.profileId);
+      if (!vehicleProfile || vehicleProfile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const linkedClaim = await storage.getClaimRequestByProfileId(req.params.profileId);
+      const userRole = await storage.getUserRole(userId);
+      const isAdminUser = userRole === "admin" || userRole === "owner";
+      if (linkedClaim && linkedClaim.status !== "verified" && !isAdminUser) {
+        return res.status(403).json({ message: "Your listing is pending verification. Public edits unlock after review." });
+      }
       const profile = await storage.updatePublicProfile(req.params.profileId, req.body);
       if (!profile) {
         return res.status(404).json({ message: "Public profile not found" });
       }
+      await storage.createListingAuditLog({
+        action: "public_profile_updated",
+        actorUserId: userId,
+        profileId: req.params.profileId,
+        details: req.body,
+      });
       res.json(profile);
     } catch (error) {
       console.error("Error updating public profile:", error);
@@ -2850,6 +2963,63 @@ For text fields that require descriptive answers about food safety practices, se
     } catch (error) {
       console.error("Error updating user role:", error);
       res.status(500).json({ message: "Failed to update user role" });
+    }
+  });
+
+  app.get("/api/admin/claim-requests", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const requests = await storage.getClaimRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching claim requests:", error);
+      res.status(500).json({ message: "Failed to fetch claim requests" });
+    }
+  });
+
+  app.patch("/api/admin/claim-requests/:id", isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { status, decisionNotes } = req.body as { status: string; decisionNotes?: string };
+      if (!["pending", "verified", "rejected", "needs_review"].includes(status)) {
+        return res.status(400).json({ message: "Invalid claim status" });
+      }
+      const claimRequest = await storage.getClaimRequest(req.params.id);
+      if (!claimRequest) {
+        return res.status(404).json({ message: "Claim request not found" });
+      }
+      const reviewerId = getUserId(req);
+      const updated = await storage.updateClaimRequest(req.params.id, {
+        status: status as "pending" | "verified" | "rejected" | "needs_review",
+        decisionNotes,
+        reviewedBy: reviewerId || undefined,
+        reviewedAt: new Date(),
+      });
+      const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, claimRequest.truckSlug)).limit(1);
+      if (truck) {
+        await db.update(foodTrucks).set({
+          status,
+          ...(status === "verified" ? { verifiedAt: new Date() } : {}),
+        }).where(eq(foodTrucks.id, truck.id));
+      }
+      if (claimRequest.profileId) {
+        const publicProfile = await storage.getPublicProfile(claimRequest.profileId);
+        if (publicProfile) {
+          await storage.updatePublicProfile(claimRequest.profileId, {
+            isVerified: status === "verified",
+          });
+        }
+      }
+      await storage.createListingAuditLog({
+        action: "claim_review_decision",
+        actorUserId: reviewerId || null,
+        truckSlug: claimRequest.truckSlug,
+        profileId: claimRequest.profileId ?? null,
+        claimRequestId: claimRequest.id,
+        details: { status, decisionNotes },
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating claim request:", error);
+      res.status(500).json({ message: "Failed to update claim request" });
     }
   });
 
@@ -3761,6 +3931,15 @@ For text fields that require descriptive answers about food safety practices, se
         if (cuisine && t.cuisine?.toLowerCase() !== cuisine.toLowerCase()) return false;
         if (town && !t.towns?.some((tw) => tw.toLowerCase().includes(town.toLowerCase()))) return false;
         return true;
+      }).sort((a, b) => {
+        const rank = (status: string | null) => {
+          if (status === "verified") return 0;
+          if (status === "needs_review") return 1;
+          if (status === "pending") return 2;
+          if (status === "claimed") return 3;
+          return 4;
+        };
+        return rank(a.status) - rank(b.status);
       });
       res.json(filtered);
     } catch (error) {
@@ -3788,9 +3967,10 @@ For text fields that require descriptive answers about food safety practices, se
       if (!slug) return res.status(400).json({ message: "slug is required" });
       const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug));
       if (!truck) return res.status(404).json({ message: "Truck not found" });
-      if (truck.status === "claimed") return res.status(409).json({ message: "Listing already claimed" });
-      await db.update(foodTrucks).set({ status: "claimed" }).where(eq(foodTrucks.slug, slug));
-      res.json({ success: true, message: "Listing claimed successfully" });
+      if (truck.status && truck.status !== "unclaimed" && truck.status !== "rejected") {
+        return res.status(409).json({ message: "Listing already has an active claim" });
+      }
+      res.json({ success: true, next: `/claim/${slug}` });
     } catch (error) {
       console.error("Error claiming truck:", error);
       res.status(500).json({ message: "Failed to claim listing" });
@@ -3819,14 +3999,13 @@ For text fields that require descriptive answers about food safety practices, se
       const { slug } = req.params;
       const [truck] = await db.select().from(foodTrucks).where(eq(foodTrucks.slug, slug));
       if (!truck) return res.status(404).json({ message: "Truck not found" });
-      if (truck.status === "claimed") return res.status(409).json({ message: "Listing already claimed" });
-
-      // Mark truck as claimed
-      await db.update(foodTrucks).set({
-        status: "claimed",
-        claimedByUserId: userId,
-        claimedAt: new Date(),
-      }).where(eq(foodTrucks.slug, slug));
+      if (truck.status && truck.status !== "unclaimed" && truck.status !== "rejected") {
+        return res.status(409).json({ message: "Listing already has an active claim" });
+      }
+      const existingClaim = await storage.getClaimRequestByTruckSlug(slug);
+      if (existingClaim && existingClaim.status !== "rejected") {
+        return res.status(409).json({ message: "A claim request is already in progress for this listing" });
+      }
 
       // Create vehicle profile from truck data
       const profile = await storage.createProfile({
@@ -3836,21 +4015,53 @@ For text fields that require descriptive answers about food safety practices, se
         menuType: truck.cuisine ?? undefined,
       } as any);
 
-      // Sync profile to vault (gets vehicleName/cuisine at minimum)
-      const vault = await syncProfileToVault(userId, profile.id);
+      // Mark truck as claimed and link it to the created profile
+      await db.update(foodTrucks).set({
+        status: "pending",
+        profileId: profile.id,
+        claimedByUserId: userId,
+        claimedAt: new Date(),
+      }).where(eq(foodTrucks.slug, slug));
 
-      // Seed extra fields directly into vault
-      if (vault && (truck.email || truck.description)) {
-        await storage.updateDataVault(vault.id, {
-          ...(truck.email && { email: truck.email }),
-          ...(truck.name && { businessName: truck.name }),
-        } as any);
-      }
+      await syncClaimedTruckToProfileSystems(userId, profile.id, { ...truck, profileId: profile.id });
+      const claimRequest = await storage.createClaimRequest({
+        truckSlug: slug,
+        foodTruckId: truck.id,
+        userId,
+        profileId: profile.id,
+        status: "pending",
+        verificationScore: 0,
+        verificationEvidence: [],
+      });
+      await storage.createListingAuditLog({
+        action: "claim_requested",
+        actorUserId: userId,
+        truckSlug: slug,
+        profileId: profile.id,
+        claimRequestId: claimRequest.id,
+        details: { status: "pending" },
+      });
 
-      res.json({ success: true, profileId: profile.id, truckData: truck });
+      res.json({ success: true, profileId: profile.id, truckData: { ...truck, status: "pending" }, claimStatus: "pending" });
     } catch (error) {
       console.error("Error claiming truck (authenticated):", error);
       res.status(500).json({ message: "Failed to claim listing" });
+    }
+  });
+
+  app.get("/api/claims/profile/:profileId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const profile = await storage.getProfile(req.params.profileId);
+      if (!profile || profile.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const claimRequest = await storage.getClaimRequestByProfileId(req.params.profileId);
+      res.json(claimRequest || null);
+    } catch (error) {
+      console.error("Error fetching claim request:", error);
+      res.status(500).json({ message: "Failed to fetch claim request" });
     }
   });
 
@@ -3868,12 +4079,27 @@ For text fields that require descriptive answers about food safety practices, se
       const isAdminUser = userRole === "admin" || userRole === "owner";
       const isTruckOwner = existing.claimedByUserId === userId;
       if (!isAdminUser && !isTruckOwner) return res.status(403).json({ message: "Forbidden" });
+      if (!isAdminUser && existing.status !== "verified") {
+        return res.status(403).json({ message: "Your listing is pending verification. Public edits unlock after review." });
+      }
 
       // Strip immutable fields; admins can also set status
       const { id: _id, slug: _slug, createdAt: _ca, claimedByUserId: _cu, claimedAt: _cat, ...safeBody } = req.body as any;
       if (!isAdminUser) delete safeBody.status;
 
       const [updated] = await db.update(foodTrucks).set(safeBody).where(eq(foodTrucks.slug, slug)).returning();
+
+      if (updated.claimedByUserId && updated.profileId) {
+        await syncClaimedTruckToProfileSystems(updated.claimedByUserId, updated.profileId, updated);
+      }
+      await storage.createListingAuditLog({
+        action: "directory_listing_updated",
+        actorUserId: userId,
+        truckSlug: slug,
+        profileId: updated.profileId ?? null,
+        details: safeBody,
+      });
+
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4137,7 +4363,7 @@ For text fields that require descriptive answers about food safety practices, se
           name = line;
         }
 
-        inputRows.push({ name: name.replace(/['"]/g, "").trim(), website, town });
+        inputRows.push({ name: name.replace(/['"]/g, "").trim(), website, town, cuisine: null });
       }
     } else {
       return res.status(400).json({ message: "Provide either text or rows" });

@@ -22,6 +22,15 @@ type FoodTruck = {
   description: string | null;
   status: string | null;
   instagramHandle: string | null;
+  verificationScore?: number | null;
+};
+
+type ClaimRequestSummary = {
+  id: string;
+  status: "pending" | "verified" | "rejected" | "needs_review";
+  verificationScore: number | null;
+  verificationEvidence: Array<{ type: string; points: number; note: string }> | null;
+  decisionNotes: string | null;
 };
 
 const DOC_ZONES = [
@@ -45,6 +54,8 @@ export default function ClaimFlow() {
   const [truckLoading, setTruckLoading] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [vaultScore, setVaultScore] = useState<number | null>(null);
+  const [claimStatus, setClaimStatus] = useState<string | null>(null);
+  const [claimRequest, setClaimRequest] = useState<ClaimRequestSummary | null>(null);
   const [docParsing, setDocParsing] = useState<Record<string, boolean>>({});
   const [uploadedDocs, setUploadedDocs] = useState<Array<{ name: string; type: string; url: string; folder: string }>>([]);
 
@@ -77,6 +88,7 @@ export default function ClaimFlow() {
     },
     onSuccess: (data) => {
       setProfileId(data.profileId);
+      setClaimStatus(data.claimStatus || "pending");
       setStep(1);
     },
     onError: (err: Error) => {
@@ -120,6 +132,9 @@ export default function ClaimFlow() {
       if (parseData.vaultCompleteness) {
         setVaultScore(parseData.vaultCompleteness.score ?? null);
       }
+      if (parseData.claimVerification?.status) {
+        setClaimStatus(parseData.claimVerification.status);
+      }
     } catch {
       // non-fatal
     } finally {
@@ -138,6 +153,16 @@ export default function ClaimFlow() {
         }
       } catch { /* non-fatal */ }
     }
+    if (profileId) {
+      try {
+        const res = await apiRequest("GET", `/api/claims/profile/${profileId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setClaimStatus(data?.status ?? claimStatus);
+          setClaimRequest(data);
+        }
+      } catch { /* non-fatal */ }
+    }
     setStep(3);
   };
 
@@ -151,7 +176,7 @@ export default function ClaimFlow() {
 
   if (!truck) return null;
 
-  const isClaimed = truck.status === "claimed";
+  const isClaimed = truck.status !== "unclaimed" && truck.status !== "rejected";
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -199,7 +224,7 @@ export default function ClaimFlow() {
 
             {isClaimed ? (
               <Card className="p-4 border-destructive/30 bg-destructive/5">
-                <p className="text-sm text-destructive">This listing has already been claimed.</p>
+                <p className="text-sm text-destructive">This listing already has an active claim or verification review.</p>
               </Card>
             ) : (
               <div className="space-y-3">
@@ -378,9 +403,11 @@ export default function ClaimFlow() {
               </div>
               <h2 className="font-display text-2xl font-bold mb-2">Your listing is live!</h2>
               <p className="text-muted-foreground text-sm">
-                {vaultScore !== null
-                  ? `Your permit data vault is ${vaultScore}% complete.`
-                  : "Your listing is connected to your account."}
+                {claimStatus === "verified"
+                  ? (vaultScore !== null
+                    ? `Your listing is verified and your permit vault is ${vaultScore}% complete.`
+                    : "Your listing is verified and connected to your account.")
+                  : "Your claim is pending verification. We’ll unlock public editing after your documents are reviewed."}
               </p>
             </div>
 
@@ -389,10 +416,43 @@ export default function ClaimFlow() {
               <p className="text-sm text-muted-foreground">permitpilot.cloud/directory/{slug}</p>
             </Card>
 
+            {claimRequest && claimStatus !== "verified" && (
+              <Card className="p-4 text-left border-blue-500/20 bg-blue-500/5">
+                <p className="text-sm font-medium mb-1">Verification status</p>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Score: {claimRequest.verificationScore ?? 0}/100
+                </p>
+                {claimRequest.verificationEvidence && claimRequest.verificationEvidence.length > 0 ? (
+                  <div className="space-y-2">
+                    {claimRequest.verificationEvidence.map((item, index) => (
+                      <div key={`${item.type}-${index}`} className="text-sm text-muted-foreground">
+                        +{item.points} {item.note}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Upload a granted permit, commissary agreement, COI, or prior permit application to increase trust and move faster toward verification.
+                  </p>
+                )}
+                {claimRequest.decisionNotes && (
+                  <p className="text-sm text-muted-foreground mt-3">{claimRequest.decisionNotes}</p>
+                )}
+                <p className="text-xs text-muted-foreground mt-3">
+                  Full access to modify your public profile and listing unlocks after verification.
+                </p>
+              </Card>
+            )}
+
             <div className="space-y-3">
               <Button className="w-full h-12" onClick={() => navigate("/new-permit")}>
                 File a permit →
               </Button>
+              {claimStatus === "verified" && (
+                <Button variant="outline" className="w-full h-12" onClick={() => navigate(`/directory/${slug}/edit`)}>
+                  Customize my listing
+                </Button>
+              )}
               <Button variant="outline" className="w-full h-12" onClick={() => navigate("/dashboard")}>
                 Go to dashboard
               </Button>

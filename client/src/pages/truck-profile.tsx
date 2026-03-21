@@ -50,6 +50,7 @@ type FoodTruck = {
   cateringContactPhone: string | null;
   cateringWebsite: string | null;
   claimedByUserId: string | null;
+  verificationScore?: number | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -211,7 +212,9 @@ export default function TruckProfilePage() {
     );
   }
 
-  const isClaimed = truck.status === "claimed";
+  const isVerified = truck.status === "verified";
+  const isClaimed = truck.status !== "unclaimed" && truck.status !== "rejected";
+  const isPendingVerification = truck.status === "pending" || truck.status === "needs_review";
   const heroBg = heroBgForCuisine(truck.cuisine);
   const isOwnListing = isAuthenticated && !!(user as any) && truck.claimedByUserId === (user as any).id;
 
@@ -267,6 +270,12 @@ export default function TruckProfilePage() {
 
         {/* Bottom-left: name + badges + social */}
         <div className="absolute bottom-0 left-0 right-0 px-6 pb-5 max-w-4xl mx-auto">
+          {isVerified && (
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#00C896]/35 bg-[#00C896]/12 px-3 py-1 text-xs font-semibold text-[#9EE7D1] mb-3 backdrop-blur-sm">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              PermitPilot Verified
+            </div>
+          )}
           <h1 className="font-display text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{truck.name}</h1>
           <div className="flex flex-wrap items-center gap-2 mb-2">
             {truck.cuisine && (
@@ -274,10 +283,12 @@ export default function TruckProfilePage() {
                 <Tag className="h-3 w-3 mr-1" />{truck.cuisine}
               </Badge>
             )}
-            {isClaimed ? (
+            {isVerified ? (
               <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1 text-xs">
-                <CheckCircle2 className="h-3 w-3" /> Claimed
+                <CheckCircle2 className="h-3 w-3" /> Verified
               </Badge>
+            ) : isPendingVerification ? (
+              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">Pending Review</Badge>
             ) : (
               <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30 text-xs">Unclaimed</Badge>
             )}
@@ -307,6 +318,14 @@ export default function TruckProfilePage() {
           </div>
         </div>
       </div>
+
+      {isVerified && (
+        <div className="border-b border-[#00C896]/20 bg-gradient-to-r from-[#00C896]/8 via-transparent to-[#00C896]/8">
+          <div className="max-w-4xl mx-auto px-4 py-3 text-sm text-[#9EE7D1]">
+            Verified listing: ownership and business evidence have been reviewed for this truck.
+          </div>
+        </div>
+      )}
 
       {/* Two-column body */}
       <div className="max-w-4xl mx-auto px-4 py-8">

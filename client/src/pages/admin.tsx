@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send, Bot, Inbox, Activity, ChevronLeft, ChevronRight as ChevronRightIcon, Globe2 } from "lucide-react";
+import { Shield, Users, MapPin, Settings, DollarSign, Loader2, Save, Trash2, Plus, ArrowLeft, MessageSquare, CheckCircle, XCircle, Star, FileText, Upload, Award, Download, Mail, AlertTriangle, Send, Bot, Inbox, Activity, ChevronLeft, ChevronRight as ChevronRightIcon, Globe2, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,33 @@ interface UserData {
 
 interface ReviewData extends Review {
   businessName: string | null;
+}
+
+interface ClaimRequestData {
+  id: string;
+  truckSlug: string;
+  foodTruckId: number | null;
+  userId: string;
+  profileId: string | null;
+  status: "pending" | "verified" | "rejected" | "needs_review";
+  verificationScore: number | null;
+  verificationEvidence: Array<{ type: string; points: number; note: string }> | null;
+  decisionNotes: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string | null;
+}
+
+interface DirectoryTruckSummary {
+  id: number;
+  slug: string;
+  name: string;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string | null;
+  profileId?: string | null;
+  claimedByUserId?: string | null;
 }
 
 export default function Admin() {
@@ -56,6 +83,16 @@ export default function Admin() {
 
   const { data: townForms = [], isLoading: formsLoading } = useQuery<(TownForm & { townName?: string })[]>({
     queryKey: ["/api/admin/forms"],
+    enabled: roleData?.role === "admin" || roleData?.role === "owner",
+  });
+
+  const { data: claimRequests = [], isLoading: claimsLoading } = useQuery<ClaimRequestData[]>({
+    queryKey: ["/api/admin/claim-requests"],
+    enabled: roleData?.role === "admin" || roleData?.role === "owner",
+  });
+
+  const { data: trucks = [] } = useQuery<DirectoryTruckSummary[]>({
+    queryKey: ["/api/directory"],
     enabled: roleData?.role === "admin" || roleData?.role === "owner",
   });
 
@@ -117,6 +154,10 @@ export default function Admin() {
               <Users className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
+            <TabsTrigger value="claims" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-claims">
+              <BadgeCheck className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Claims</span>
+            </TabsTrigger>
             <TabsTrigger value="outreach" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-outreach">
               <Mail className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Outreach</span>
@@ -149,6 +190,10 @@ export default function Admin() {
 
           <TabsContent value="users">
             <UsersTab users={users} isLoading={usersLoading} isOwner={isOwner} />
+          </TabsContent>
+
+          <TabsContent value="claims">
+            <ClaimsTab claimRequests={claimRequests} users={users} trucks={trucks} isLoading={claimsLoading} />
           </TabsContent>
 
           <TabsContent value="outreach">
@@ -891,6 +936,192 @@ function UsersTab({ users, isLoading, isOwner }: { users: UserData[]; isLoading:
         ))}
       </div>
     </Card>
+  );
+}
+
+function ClaimsTab({
+  claimRequests,
+  users,
+  trucks,
+  isLoading,
+}: {
+  claimRequests: ClaimRequestData[];
+  users: UserData[];
+  trucks: DirectoryTruckSummary[];
+  isLoading: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
+
+  const updateClaimMutation = useMutation({
+    mutationFn: async ({ id, status, decisionNotes }: { id: string; status: ClaimRequestData["status"]; decisionNotes?: string }) => {
+      return apiRequest("PATCH", `/api/admin/claim-requests/${id}`, { status, decisionNotes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/claim-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/directory"] });
+      toast({ title: "Claim updated", description: "Verification decision saved." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to update claim.", variant: "destructive" });
+    },
+  });
+
+  const statusCounts = {
+    pending: claimRequests.filter((claim) => claim.status === "pending").length,
+    needsReview: claimRequests.filter((claim) => claim.status === "needs_review").length,
+    verified: claimRequests.filter((claim) => claim.status === "verified").length,
+  };
+
+  const getStatusBadge = (status: ClaimRequestData["status"]) => {
+    if (status === "verified") return <Badge className="bg-[#00C896]/15 text-[#00C896] border-[#00C896]/30">Verified</Badge>;
+    if (status === "needs_review") return <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30">Needs Review</Badge>;
+    if (status === "rejected") return <Badge variant="destructive">Rejected</Badge>;
+    return <Badge className="bg-blue-500/15 text-blue-600 border-blue-500/30">Pending</Badge>;
+  };
+
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const truckBySlug = new Map(trucks.map((truck) => [truck.slug, truck]));
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">Pending</p>
+          <p className="text-2xl font-bold">{statusCounts.pending}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">Needs Review</p>
+          <p className="text-2xl font-bold text-amber-600">{statusCounts.needsReview}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">Verified</p>
+          <p className="text-2xl font-bold text-[#00C896]">{statusCounts.verified}</p>
+        </Card>
+      </div>
+
+      <Card className="p-6">
+        <h3 className="font-semibold mb-4">Claim Review Queue ({claimRequests.length})</h3>
+        {claimRequests.length === 0 ? (
+          <p className="text-muted-foreground text-center py-8">No claim requests yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {claimRequests.map((claim) => (
+              <div key={claim.id} className="border rounded-lg p-4 space-y-4">
+                {(() => {
+                  const truck = truckBySlug.get(claim.truckSlug);
+                  const owner = userById.get(claim.userId);
+                  return (
+                    <>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-medium">{truck?.name || claim.truckSlug}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Score: {claim.verificationScore ?? 0} • Requested {claim.createdAt ? new Date(claim.createdAt).toLocaleString() : "Unknown"}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            Owner account: {owner?.email || claim.userId}
+                          </p>
+                          {claim.profileId && (
+                            <p className="text-xs text-muted-foreground">Profile ID: {claim.profileId}</p>
+                          )}
+                        </div>
+                        {getStatusBadge(claim.status)}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <p className="font-medium mb-1">Truck context</p>
+                          <p className="text-muted-foreground">Slug: {claim.truckSlug}</p>
+                          <p className="text-muted-foreground">Website: {truck?.website || "None"}</p>
+                          <p className="text-muted-foreground">Phone: {truck?.phone || "None"}</p>
+                          <p className="text-muted-foreground">Email: {truck?.email || "None"}</p>
+                        </div>
+                        <div className="rounded-lg bg-[#0B1720] border border-[#00C896]/15 p-3">
+                          <p className="font-medium text-[#9EE7D1] mb-1">Verification rule</p>
+                          <p className="text-sm text-[#9EE7D1]/80">
+                            Full access to modify the public listing and profile unlocks only after verification.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setLocation(`/directory/${claim.truckSlug}`)}>
+                          Open Listing
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setLocation(`/directory/${claim.truckSlug}/edit`)}>
+                          Open Listing Editor
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setLocation("/profile")}>
+                          Open Owner Profile
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                <div className="flex flex-wrap gap-2">
+                  {(claim.verificationEvidence || []).map((item, index) => (
+                    <Badge key={`${claim.id}-${index}`} variant="secondary" className="text-xs">
+                      +{item.points} {item.note}
+                    </Badge>
+                  ))}
+                  {(claim.verificationEvidence || []).length === 0 && (
+                    <span className="text-sm text-muted-foreground">No verification evidence yet. Ask the owner to upload permit or legal documents.</span>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`claim-note-${claim.id}`}>Review Notes</Label>
+                  <Input
+                    id={`claim-note-${claim.id}`}
+                    value={decisionNotes[claim.id] ?? claim.decisionNotes ?? ""}
+                    onChange={(e) => setDecisionNotes((prev) => ({ ...prev, [claim.id]: e.target.value }))}
+                    placeholder="Optional note. Example: Full access unlocks after verification."
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => updateClaimMutation.mutate({ id: claim.id, status: "verified", decisionNotes: decisionNotes[claim.id] })}
+                    disabled={updateClaimMutation.isPending}
+                  >
+                    Verify
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateClaimMutation.mutate({ id: claim.id, status: "needs_review", decisionNotes: decisionNotes[claim.id] })}
+                    disabled={updateClaimMutation.isPending}
+                  >
+                    Needs Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => updateClaimMutation.mutate({ id: claim.id, status: "rejected", decisionNotes: decisionNotes[claim.id] })}
+                    disabled={updateClaimMutation.isPending}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 

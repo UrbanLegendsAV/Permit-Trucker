@@ -1,5 +1,5 @@
 import {
-  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts, foodSuppliers,
+  profiles, permits, towns, badges, portalMappings, publicProfiles, reviews, configs, townForms, townRequests, researchJobs, dataVaults, submissionJobs, portalCredentials, healthDistricts, foodSuppliers, claimRequests, listingAuditLogs,
   type Profile, type InsertProfile,
   type Permit, type InsertPermit,
   type Town, type InsertTown,
@@ -16,6 +16,8 @@ import {
   type PortalCredential, type InsertPortalCredential,
   type HealthDistrict,
   type FoodSupplier, type InsertFoodSupplier,
+  type ClaimRequest, type InsertClaimRequest,
+  type ListingAuditLog, type InsertListingAuditLog,
 } from "@shared/schema";
 import { users } from "@shared/models/auth";
 import { db } from "./db";
@@ -105,6 +107,14 @@ export interface IStorage {
   getHealthDistricts(): Promise<HealthDistrict[]>;
   getHealthDistrict(id: string): Promise<HealthDistrict | undefined>;
   getTownsByDistrict(districtId: string): Promise<Town[]>;
+
+  getClaimRequests(): Promise<ClaimRequest[]>;
+  getClaimRequest(id: string): Promise<ClaimRequest | undefined>;
+  getClaimRequestByProfileId(profileId: string): Promise<ClaimRequest | undefined>;
+  getClaimRequestByTruckSlug(truckSlug: string): Promise<ClaimRequest | undefined>;
+  createClaimRequest(request: InsertClaimRequest): Promise<ClaimRequest>;
+  updateClaimRequest(id: string, data: Partial<InsertClaimRequest>): Promise<ClaimRequest | undefined>;
+  createListingAuditLog(log: InsertListingAuditLog): Promise<ListingAuditLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -434,14 +444,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTownForm(form: InsertTownForm): Promise<TownForm> {
-    const [newForm] = await db.insert(townForms).values(form).returning();
+    const [newForm] = await db.insert(townForms).values(form as any).returning();
     return newForm;
   }
 
   async updateTownForm(id: string, form: Partial<InsertTownForm>): Promise<TownForm | undefined> {
     const [updated] = await db
       .update(townForms)
-      .set({ ...form, updatedAt: new Date() })
+      .set({ ...form, updatedAt: new Date() } as any)
       .where(eq(townForms.id, id))
       .returning();
     return updated;
@@ -613,6 +623,44 @@ export class DatabaseStorage implements IStorage {
 
   async getTownsByDistrict(districtId: string): Promise<Town[]> {
     return db.select().from(towns).where(eq(towns.healthDistrictId, districtId)).orderBy(towns.townName);
+  }
+
+  async getClaimRequests(): Promise<ClaimRequest[]> {
+    return db.select().from(claimRequests).orderBy(desc(claimRequests.createdAt));
+  }
+
+  async getClaimRequest(id: string): Promise<ClaimRequest | undefined> {
+    const [request] = await db.select().from(claimRequests).where(eq(claimRequests.id, id));
+    return request;
+  }
+
+  async getClaimRequestByProfileId(profileId: string): Promise<ClaimRequest | undefined> {
+    const [request] = await db.select().from(claimRequests).where(eq(claimRequests.profileId, profileId)).orderBy(desc(claimRequests.createdAt));
+    return request;
+  }
+
+  async getClaimRequestByTruckSlug(truckSlug: string): Promise<ClaimRequest | undefined> {
+    const [request] = await db.select().from(claimRequests).where(eq(claimRequests.truckSlug, truckSlug)).orderBy(desc(claimRequests.createdAt));
+    return request;
+  }
+
+  async createClaimRequest(request: InsertClaimRequest): Promise<ClaimRequest> {
+    const [created] = await db.insert(claimRequests).values(request as any).returning();
+    return created;
+  }
+
+  async updateClaimRequest(id: string, data: Partial<InsertClaimRequest>): Promise<ClaimRequest | undefined> {
+    const [updated] = await db
+      .update(claimRequests)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(claimRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createListingAuditLog(log: InsertListingAuditLog): Promise<ListingAuditLog> {
+    const [created] = await db.insert(listingAuditLogs).values(log as any).returning();
+    return created;
   }
 
   // Food Suppliers methods

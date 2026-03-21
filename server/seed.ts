@@ -932,7 +932,6 @@ export async function seedTowns() {
         source: "research",
         homeLat: "41.6617",
         homeLng: "-72.7795",
-        phone: "(860) 479-1317",
         email: "ChefOStreatery@Gmail.com",
         phone: "(860) 479-1317",
         instagramHandle: "ChefOStreatery",
