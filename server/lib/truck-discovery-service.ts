@@ -26,6 +26,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../db";
 import { foodTrucks, agentLogs, configs } from "../../shared/schema";
 import { eq, ilike, or, sql } from "drizzle-orm";
+import { enrichTruckFromWebsite } from "./truck-enrichment-service";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -575,18 +576,42 @@ Return ONLY valid JSON array, no explanation text.`;
 
 // ── Deduplication check ───────────────────────────────────────────────────────
 
-async function isDuplicate(truck: ExtractedTruck): Promise<boolean> {
+async function findExistingTruck(truck: ExtractedTruck): Promise<{
+  id: number;
+  slug: string;
+  website: string | null;
+  cuisine: string | null;
+  description: string | null;
+  instagramHandle: string | null;
+  towns: string[] | null;
+} | null> {
   // 1. Exact slug match
-  const bySlug = await db
-    .select({ id: foodTrucks.id })
+  const [bySlug] = await db
+    .select({
+      id: foodTrucks.id,
+      slug: foodTrucks.slug,
+      website: foodTrucks.website,
+      cuisine: foodTrucks.cuisine,
+      description: foodTrucks.description,
+      instagramHandle: foodTrucks.instagramHandle,
+      towns: foodTrucks.towns,
+    })
     .from(foodTrucks)
     .where(eq(foodTrucks.slug, truck.slug))
     .limit(1);
-  if (bySlug.length > 0) return true;
+  if (bySlug) return bySlug;
 
   // 2. Fuzzy name match
-  const byName = await db
-    .select({ id: foodTrucks.id })
+  const [byName] = await db
+    .select({
+      id: foodTrucks.id,
+      slug: foodTrucks.slug,
+      website: foodTrucks.website,
+      cuisine: foodTrucks.cuisine,
+      description: foodTrucks.description,
+      instagramHandle: foodTrucks.instagramHandle,
+      towns: foodTrucks.towns,
+    })
     .from(foodTrucks)
     .where(
       or(
@@ -595,7 +620,7 @@ async function isDuplicate(truck: ExtractedTruck): Promise<boolean> {
       ),
     )
     .limit(1);
-  if (byName.length > 0) return true;
+  if (byName) return byName;
 
   // 3. Website domain match
   if (truck.website) {
@@ -608,12 +633,59 @@ async function isDuplicate(truck: ExtractedTruck): Promise<boolean> {
         .limit(500);
 
       for (const row of existing) {
-        if (row.website && extractDomain(row.website) === domain) return true;
+        if (row.website && extractDomain(row.website) === domain) {
+          const [match] = await db
+            .select({
+              id: foodTrucks.id,
+              slug: foodTrucks.slug,
+              website: foodTrucks.website,
+              cuisine: foodTrucks.cuisine,
+              description: foodTrucks.description,
+              instagramHandle: foodTrucks.instagramHandle,
+              towns: foodTrucks.towns,
+            })
+            .from(foodTrucks)
+            .where(eq(foodTrucks.id, row.id))
+            .limit(1);
+          return match ?? null;
+        }
       }
     }
   }
 
-  return false;
+  return null;
+}
+
+function mergeStringArrays(existing: string[] | null, incoming: string[]): string[] | null {
+  const merged = Array.from(new Set([...(existing ?? []), ...incoming].filter(Boolean)));
+  return merged.length > 0 ? merged : null;
+}
+
+async function mergeDiscoveryDataIntoExistingTruck(
+  existing: NonNullable<Awaited<ReturnType<typeof findExistingTruck>>>,
+  truck: ExtractedTruck,
+): Promise<void> {
+  const updates: Record<string, unknown> = {};
+
+  if (!existing.website && truck.website) updates.website = truck.website;
+  if (!existing.cuisine && truck.cuisine) updates.cuisine = truck.cuisine;
+  if (!existing.description && truck.description) updates.description = truck.description;
+  if (!existing.instagramHandle && truck.instagramHandle) updates.instagramHandle = truck.instagramHandle;
+
+  const mergedTowns = mergeStringArrays(existing.towns, truck.towns);
+  if (mergedTowns && mergedTowns.length !== (existing.towns?.length ?? 0)) {
+    updates.towns = mergedTowns;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await db.update(foodTrucks).set(updates as any).where(eq(foodTrucks.id, existing.id));
+  }
+
+  if ((updates.website || existing.website) && (truck.website || existing.website)) {
+    enrichTruckFromWebsite(existing.slug).catch((err) => {
+      console.error(`[Discovery] Enrichment failed for ${existing.slug}:`, err.message);
+    });
+  }
 }
 
 // ── Insert helper ─────────────────────────────────────────────────────────────
@@ -622,8 +694,11 @@ async function insertTruck(
   truck: ExtractedTruck,
 ): Promise<"added" | "duplicate" | "error"> {
   try {
-    const dup = await isDuplicate(truck);
-    if (dup) return "duplicate";
+    const existing = await findExistingTruck(truck);
+    if (existing) {
+      await mergeDiscoveryDataIntoExistingTruck(existing, truck);
+      return "duplicate";
+    }
 
     // Ensure unique slug
     let slug = truck.slug;
@@ -654,6 +729,12 @@ async function insertTruck(
         source: "auto_discovered",
       })
       .onConflictDoNothing();
+
+    if (truck.website) {
+      enrichTruckFromWebsite(slug).catch((err) => {
+        console.error(`[Discovery] Enrichment failed for ${slug}:`, err.message);
+      });
+    }
 
     return "added";
   } catch (err: any) {

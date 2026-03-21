@@ -4624,7 +4624,7 @@ For text fields that require descriptive answers about food safety practices, se
       return res.status(400).json({ message: "Provide either text or rows" });
     }
 
-    const results: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; enriched: string[]; error?: string }> = [];
+    const results: Array<{ name: string; slug: string; status: "added" | "updated" | "duplicate" | "error"; enriched: string[]; error?: string }> = [];
     let added = 0, duplicates = 0, errors = 0;
 
     for (const row of inputRows) {
@@ -4647,13 +4647,55 @@ For text fields that require descriptive answers about food safety practices, se
       const slug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
 
       // Dedup by slug
-      const bySlug = await db.select({ id: foodTrucks.id }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
-      if (bySlug.length > 0) { results.push({ name, slug, status: "duplicate", enriched: [] }); duplicates++; continue; }
+      const [bySlug] = await db.select({
+        id: foodTrucks.id,
+        slug: foodTrucks.slug,
+        website: foodTrucks.website,
+        towns: foodTrucks.towns,
+        cuisine: foodTrucks.cuisine,
+      }).from(foodTrucks).where(eq(foodTrucks.slug, slug)).limit(1);
+      if (bySlug) {
+        const mergedTowns = Array.from(new Set([...(bySlug.towns ?? []), ...(town ? [town] : [])]));
+        const updates: Record<string, unknown> = {};
+        if (!bySlug.website && website) updates.website = website;
+        if (!bySlug.cuisine && cuisine) updates.cuisine = cuisine;
+        if (mergedTowns.length > (bySlug.towns?.length ?? 0)) updates.towns = mergedTowns;
+        if (Object.keys(updates).length > 0) {
+          await db.update(foodTrucks).set(updates as any).where(eq(foodTrucks.id, bySlug.id));
+          if (website || bySlug.website) enrichTruckFromWebsite(bySlug.slug).catch(() => { /* best-effort */ });
+          results.push({ name, slug: bySlug.slug, status: "updated", enriched: [] });
+        } else {
+          results.push({ name, slug: bySlug.slug, status: "duplicate", enriched: [] });
+        }
+        duplicates++;
+        continue;
+      }
 
       // Dedup by name fuzzy
-      const byName = await db.select({ id: foodTrucks.id }).from(foodTrucks)
+      const [byName] = await db.select({
+        id: foodTrucks.id,
+        slug: foodTrucks.slug,
+        website: foodTrucks.website,
+        towns: foodTrucks.towns,
+        cuisine: foodTrucks.cuisine,
+      }).from(foodTrucks)
         .where(sql`LOWER(name) LIKE LOWER(${"%" + name + "%"})`).limit(1);
-      if (byName.length > 0) { results.push({ name, slug, status: "duplicate", enriched: [] }); duplicates++; continue; }
+      if (byName) {
+        const mergedTowns = Array.from(new Set([...(byName.towns ?? []), ...(town ? [town] : [])]));
+        const updates: Record<string, unknown> = {};
+        if (!byName.website && website) updates.website = website;
+        if (!byName.cuisine && cuisine) updates.cuisine = cuisine;
+        if (mergedTowns.length > (byName.towns?.length ?? 0)) updates.towns = mergedTowns;
+        if (Object.keys(updates).length > 0) {
+          await db.update(foodTrucks).set(updates as any).where(eq(foodTrucks.id, byName.id));
+          if (website || byName.website) enrichTruckFromWebsite(byName.slug).catch(() => { /* best-effort */ });
+          results.push({ name, slug: byName.slug, status: "updated", enriched: [] });
+        } else {
+          results.push({ name, slug: byName.slug, status: "duplicate", enriched: [] });
+        }
+        duplicates++;
+        continue;
+      }
 
       // Unique slug
       let finalSlug = slug, attempt = 1;
