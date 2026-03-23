@@ -29,12 +29,19 @@ export interface DiscoveryResult {
   forms: Array<{ name: string; url: string; downloaded: boolean }>;
   error?: string;
   searchedUrls?: string[];
+  portalCandidates?: string[];
 }
 
 interface CrawledPdf {
   url: string;
   linkText: string;
   sourcePage: string;
+}
+
+interface CrawlResult {
+  pdfUrls: CrawledPdf[];
+  subpageUrls: string[];
+  portalUrls: string[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -92,6 +99,18 @@ function unwrapDdgUrl(href: string): string | null {
   }
   if (href.startsWith("//")) return "https:" + href;
   return href;
+}
+
+function isPortalCandidate(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes("viewpointcloud.com") ||
+    lower.includes("opengov.com") ||
+    lower.includes("opengov") ||
+    lower.includes("seamlessdocs.com") ||
+    lower.includes("seamlessdocs") ||
+    lower.includes("accela.com") ||
+    lower.includes("citysquared") ||
+    lower.includes("cityview");
 }
 
 // ─── FormDiscoveryService ─────────────────────────────────────────────────────
@@ -217,9 +236,10 @@ export class FormDiscoveryService {
    * Crawl a page with fetch + cheerio (fast, no browser overhead).
    * Returns PDF link objects and sub-links worth following.
    */
-  private async crawlPageWithFetch(url: string): Promise<{ pdfUrls: CrawledPdf[]; subpageUrls: string[] }> {
+  private async crawlPageWithFetch(url: string): Promise<CrawlResult> {
     const pdfUrls: CrawledPdf[] = [];
     const subpageUrls: string[] = [];
+    const portalUrls: string[] = [];
 
     try {
       console.log(`[FormDiscovery] Fetch-crawl: ${url}`);
@@ -232,10 +252,10 @@ export class FormDiscoveryService {
         signal: AbortSignal.timeout(CRAWL_TIMEOUT_MS),
       });
 
-      if (!response.ok) return { pdfUrls, subpageUrls };
+      if (!response.ok) return { pdfUrls, subpageUrls, portalUrls };
 
       const ct = response.headers.get("content-type") || "";
-      if (!ct.includes("text/html") && !ct.includes("application/xhtml")) return { pdfUrls, subpageUrls };
+      if (!ct.includes("text/html") && !ct.includes("application/xhtml")) return { pdfUrls, subpageUrls, portalUrls };
 
       const html = await response.text();
       const $ = cheerio.load(html);
@@ -251,6 +271,10 @@ export class FormDiscoveryService {
         if (lower.endsWith(".pdf") || lower.includes(".pdf?") || lower.includes("/pdf/")) {
           pdfUrls.push({ url: resolved, linkText: text, sourcePage: url });
           return;
+        }
+
+        if (isPortalCandidate(resolved)) {
+          portalUrls.push(resolved);
         }
 
         // Collect sub-links that look food/permit related
@@ -270,7 +294,7 @@ export class FormDiscoveryService {
       console.warn(`[FormDiscovery] Fetch-crawl failed (${label}): ${url}`);
     }
 
-    return { pdfUrls, subpageUrls };
+    return { pdfUrls, subpageUrls, portalUrls };
   }
 
   /**
@@ -279,9 +303,10 @@ export class FormDiscoveryService {
   private async crawlPageWithPlaywright(
     page: Page,
     url: string
-  ): Promise<{ pdfUrls: CrawledPdf[]; subpageUrls: string[] }> {
+  ): Promise<CrawlResult> {
     const pdfUrls: CrawledPdf[] = [];
     const subpageUrls: string[] = [];
+    const portalUrls: string[] = [];
 
     try {
       console.log(`[FormDiscovery] Playwright-crawl: ${url}`);
@@ -304,6 +329,10 @@ export class FormDiscoveryService {
           continue;
         }
 
+        if (isPortalCandidate(href)) {
+          portalUrls.push(href);
+        }
+
         const combined = (text + " " + href).toLowerCase();
         const relevant = ["food", "permit", "mobile", "vendor", "truck", "temporary",
                           "application", "form", "license", "vending", "health"];
@@ -317,7 +346,7 @@ export class FormDiscoveryService {
       console.warn(`[FormDiscovery] Playwright-crawl failed: ${err.message}`);
     }
 
-    return { pdfUrls, subpageUrls };
+    return { pdfUrls, subpageUrls, portalUrls };
   }
 
   // ── PDF helpers ────────────────────────────────────────────────────────────
@@ -513,7 +542,7 @@ export class FormDiscoveryService {
       if (govUrls.length === 0) {
         console.log(`[FormDiscovery] No .gov URLs found via search for ${town.townName}`);
         return {
-          success: true, formsDiscovered: 0, formsDownloaded: 0, forms: [],
+          success: true, formsDiscovered: 0, formsDownloaded: 0, forms: [], portalCandidates: [],
           searchedUrls: [],
           error: "No .gov pages found in search results",
         };
@@ -522,20 +551,24 @@ export class FormDiscoveryService {
       // ── Step 2: Crawl each .gov page for PDF links ───────────────────────
 
       const allPdfs = new Map<string, CrawledPdf>(); // url → CrawledPdf
+      const portalCandidates = new Set<string>();
       const visitedUrls = new Set<string>(govUrls);
       const crawlPage = await browser.newPage();
 
       for (const govUrl of govUrls) {
         // Try fast fetch first
-        let { pdfUrls, subpageUrls } = await this.crawlPageWithFetch(govUrl);
+        let { pdfUrls, subpageUrls, portalUrls } = await this.crawlPageWithFetch(govUrl);
 
         // If fetch returned nothing (JS-rendered or blocked), try Playwright
-        if (pdfUrls.length === 0 && subpageUrls.length === 0) {
-          ({ pdfUrls, subpageUrls } = await this.crawlPageWithPlaywright(crawlPage, govUrl));
+        if (pdfUrls.length === 0 && subpageUrls.length === 0 && portalUrls.length === 0) {
+          ({ pdfUrls, subpageUrls, portalUrls } = await this.crawlPageWithPlaywright(crawlPage, govUrl));
         }
 
         for (const p of pdfUrls) {
           if (!allPdfs.has(p.url)) allPdfs.set(p.url, p);
+        }
+        for (const portalUrl of portalUrls) {
+          portalCandidates.add(portalUrl);
         }
 
         // Follow relevant sub-links one level deep (limit per gov page)
@@ -545,9 +578,12 @@ export class FormDiscoveryService {
 
         for (const sub of subpagesToFollow) {
           visitedUrls.add(sub);
-          const { pdfUrls: subPdfs } = await this.crawlPageWithFetch(sub);
+          const { pdfUrls: subPdfs, portalUrls: subPortals } = await this.crawlPageWithFetch(sub);
           for (const p of subPdfs) {
             if (!allPdfs.has(p.url)) allPdfs.set(p.url, p);
+          }
+          for (const portalUrl of subPortals) {
+            portalCandidates.add(portalUrl);
           }
         }
       }
@@ -565,6 +601,7 @@ export class FormDiscoveryService {
         return {
           success: true, formsDiscovered: 0, formsDownloaded: 0, forms: [],
           searchedUrls: govUrls,
+          portalCandidates: Array.from(portalCandidates),
         };
       }
 
@@ -576,6 +613,7 @@ export class FormDiscoveryService {
         formsDownloaded: 0,
         forms: [],
         searchedUrls: govUrls,
+        portalCandidates: Array.from(portalCandidates),
       };
 
       for (const formInfo of filtered) {

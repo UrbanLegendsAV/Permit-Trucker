@@ -141,6 +141,20 @@ export async function runMigrations(): Promise<void> {
       END $$;
     `);
     await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE town_coverage_status AS ENUM ('unprocessed', 'processing', 'classified', 'needs_review', 'not_found');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE application_mode AS ENUM ('unknown', 'pdf_only', 'portal_only', 'mixed', 'mail_in');
+      EXCEPTION
+        WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
       CREATE TABLE IF NOT EXISTS claim_requests (
         id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
         truck_slug TEXT NOT NULL,
@@ -168,6 +182,17 @@ export async function runMigrations(): Promise<void> {
         details JSONB,
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `);
+    await client.query(`
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_status town_coverage_status DEFAULT 'unprocessed';
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS application_mode application_mode DEFAULT 'unknown';
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_confidence INTEGER DEFAULT 0;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_notes JSONB;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_source_urls JSONB;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_evidence JSONB;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_last_checked_at TIMESTAMP;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_completed_at TIMESTAMP;
+      ALTER TABLE towns ADD COLUMN IF NOT EXISTS coverage_attempts INTEGER DEFAULT 0;
     `);
     await client.query(`
       DO $$ BEGIN

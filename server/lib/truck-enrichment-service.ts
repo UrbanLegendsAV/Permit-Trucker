@@ -24,6 +24,58 @@ function normalizeWebsite(url: string): string {
   return `https://${trimmed}`;
 }
 
+async function fetchHtml(targetUrl: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const res = await fetch(normalizeWebsite(targetUrl), {
+      signal: controller.signal,
+      headers: { "User-Agent": "PermitPilot-Bot/1.0 (permit data enrichment)" },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+function extractCandidateSubpages($: cheerio.CheerioAPI, website: string): string[] {
+  const keywords = ["menu", "contact", "about", "catering", "truck"];
+  const subpages = new Set<string>();
+
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href")?.trim();
+    if (!href) return;
+    try {
+      const resolved = new URL(href, website).toString();
+      const resolvedUrl = new URL(resolved);
+      const rootUrl = new URL(website);
+      if (resolvedUrl.hostname !== rootUrl.hostname) return;
+      const combined = `${resolved} ${$(el).text().trim()}`.toLowerCase();
+      if (keywords.some((keyword) => combined.includes(keyword))) {
+        subpages.add(resolved);
+      }
+    } catch {
+      // Ignore malformed URLs
+    }
+  });
+
+  return Array.from(subpages).slice(0, 4);
+}
+
+function extractSocialMatches(html: string) {
+  const igMatches = html.match(/instagram\.com\/([a-zA-Z0-9_.]{1,40})/gi) ?? [];
+  const ttMatches = html.match(/tiktok\.com\/@([a-zA-Z0-9_.]{1,40})/gi) ?? [];
+  const fbMatches = html.match(/facebook\.com\/([a-zA-Z0-9_.]{1,80})/gi) ?? [];
+
+  return {
+    instagramHandle: igMatches[0]?.replace(/.*instagram\.com\//i, "").split("?")[0] ?? null,
+    tiktokHandle: ttMatches[0]?.replace(/.*tiktok\.com\/@/i, "").split("?")[0] ?? null,
+    facebookHandle: fbMatches[0]?.replace(/.*facebook\.com\//i, "").split("?")[0] ?? null,
+  };
+}
+
 function extractMenuItems($: cheerio.CheerioAPI): Array<{ name: string; description: string; imageUrl: string }> {
   const menuItems: Array<{ name: string; description: string; imageUrl: string }> = [];
   const seen = new Set<string>();
@@ -97,44 +149,34 @@ export async function enrichTruckFromWebsite(slug: string): Promise<EnrichResult
   if (!truck) return { updated: false, fields: [], error: "truck not found" };
   if (!truck.website) return { updated: false, fields: [], error: "no website" };
 
-  let html: string;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    const res = await fetch(truck.website, {
-      signal: controller.signal,
-      headers: { "User-Agent": "PermitPilot-Bot/1.0 (permit data enrichment)" },
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return { updated: false, fields: [], error: `HTTP ${res.status}` };
-    html = await res.text();
-  } catch (err: any) {
-    return { updated: false, fields: [], error: err.message };
+  const rootWebsite = normalizeWebsite(truck.website);
+  const rootHtml = await fetchHtml(rootWebsite);
+  if (!rootHtml) {
+    return { updated: false, fields: [], error: "website fetch failed" };
   }
 
-  const $ = cheerio.load(html);
-  const text = $.text();
+  const $ = cheerio.load(rootHtml);
+  const subpageUrls = extractCandidateSubpages($, rootWebsite);
+  const subpageHtml = (await Promise.all(subpageUrls.map((url) => fetchHtml(url)))).filter(Boolean) as string[];
+  const combinedHtml = [rootHtml, ...subpageHtml].join("\n");
+  const combined$ = cheerio.load(combinedHtml);
+  const text = combined$.text();
 
   // Extract fields via regex
   const phoneMatches = text.match(/(\(?\d{3}\)?[\s\-\.]?\d{3}[\s\-\.]?\d{4})/g) ?? [];
   const emailMatches = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) ?? [];
-  const igMatches = html.match(/instagram\.com\/([a-zA-Z0-9_.]{1,40})/g) ?? [];
-  const ttMatches = html.match(/tiktok\.com\/@([a-zA-Z0-9_.]{1,40})/g) ?? [];
-  const fbMatches = html.match(/facebook\.com\/([a-zA-Z0-9_.]{1,80})/g) ?? [];
+  const socialMatches = extractSocialMatches(combinedHtml);
 
   const phone = extractFirst(phoneMatches);
   const email = extractFirst(emailMatches.filter(e => !e.endsWith(".png") && !e.endsWith(".jpg")));
-  const igHandle = igMatches[0]?.replace("instagram.com/", "").split("?")[0] ?? null;
-  const ttHandle = ttMatches[0]?.replace("tiktok.com/@", "").split("?")[0] ?? null;
-  const fbHandle = fbMatches[0]?.replace("facebook.com/", "").split("?")[0] ?? null;
   const serviceTowns = await extractServiceTowns(text);
-  const menuItems = extractMenuItems($);
+  const menuItems = extractMenuItems(combined$);
 
   // Description: meta description first, then first long <p>
   let description: string | null = $('meta[name="description"]').attr("content") ?? null;
   if (!description) {
-    $("p").each((_, el) => {
-      const t = $(el).text().trim();
+    combined$("p").each((_, el) => {
+      const t = combined$(el).text().trim();
       if (t.length > 50 && !description) description = t.slice(0, 300);
     });
   }
@@ -145,9 +187,9 @@ export async function enrichTruckFromWebsite(slug: string): Promise<EnrichResult
 
   if (phone && !truck.phone) { updates.phone = phone; updatedFields.push("phone"); }
   if (email && !truck.email) { updates.email = email; updatedFields.push("email"); }
-  if (igHandle && !truck.instagramHandle) { updates.instagramHandle = igHandle; updatedFields.push("instagram"); }
-  if (ttHandle && !truck.tiktokHandle) { updates.tiktokHandle = ttHandle; updatedFields.push("tiktok"); }
-  if (fbHandle && !truck.facebookHandle) { updates.facebookHandle = fbHandle; updatedFields.push("facebook"); }
+  if (socialMatches.instagramHandle && !truck.instagramHandle) { updates.instagramHandle = socialMatches.instagramHandle; updatedFields.push("instagram"); }
+  if (socialMatches.tiktokHandle && !truck.tiktokHandle) { updates.tiktokHandle = socialMatches.tiktokHandle; updatedFields.push("tiktok"); }
+  if (socialMatches.facebookHandle && !truck.facebookHandle) { updates.facebookHandle = socialMatches.facebookHandle; updatedFields.push("facebook"); }
   if (description && !truck.description) { updates.description = description; updatedFields.push("description"); }
   if (menuItems.length > 0 && (!truck.menuItems || truck.menuItems.length === 0)) {
     updates.menuItems = menuItems as any;

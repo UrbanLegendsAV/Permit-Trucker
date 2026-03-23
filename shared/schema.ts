@@ -9,6 +9,8 @@ export const vehicleTypeEnum = pgEnum("vehicle_type", ["truck", "trailer"]);
 export const permitTypeEnum = pgEnum("permit_type", ["yearly", "temporary", "seasonal"]);
 export const permitStatusEnum = pgEnum("permit_status", ["draft", "pending", "approved", "expired", "rejected"]);
 export const formTypeEnum = pgEnum("form_type", ["online_portal", "pdf_download", "mail_in"]);
+export const townCoverageStatusEnum = pgEnum("town_coverage_status", ["unprocessed", "processing", "classified", "needs_review", "not_found"]);
+export const applicationModeEnum = pgEnum("application_mode", ["unknown", "pdf_only", "portal_only", "mixed", "mail_in"]);
 export const submissionMethodEnum = pgEnum("submission_method", ["online_only", "email_dropoff", "mail_dropoff", "in_person", "drop_box"]);
 export const portalProviderEnum = pgEnum("portal_provider", ["viewpoint_opengov", "citysquared", "accela", "cityview", "manual_pdf", "other"]);
 export const badgeTypeEnum = pgEnum("badge_type", ["pioneer", "explorer", "food_type", "first_permit", "multi_town", "speed_demon", "helper", "health_inspection", "verified_operator"]);
@@ -92,6 +94,23 @@ export const towns = pgTable("towns", {
   }>(),
   lastVerified: timestamp("last_verified"),
   confidenceScore: integer("confidence_score").default(50),
+  coverageStatus: townCoverageStatusEnum("coverage_status").default("unprocessed"),
+  applicationMode: applicationModeEnum("application_mode").default("unknown"),
+  coverageConfidence: integer("coverage_confidence").default(0),
+  coverageNotes: jsonb("coverage_notes").$type<string[]>(),
+  coverageSourceUrls: jsonb("coverage_source_urls").$type<string[]>(),
+  coverageEvidence: jsonb("coverage_evidence").$type<{
+    searchedUrls?: string[];
+    sourceUrls?: string[];
+    portalCandidates?: string[];
+    pdfFormsFound?: number;
+    fillableFormsFound?: number;
+    portalProvider?: string | null;
+    lastClassificationReason?: string;
+  }>(),
+  coverageLastCheckedAt: timestamp("coverage_last_checked_at"),
+  coverageCompletedAt: timestamp("coverage_completed_at"),
+  coverageAttempts: integer("coverage_attempts").default(0),
 });
 
 export const permits = pgTable("permits", {

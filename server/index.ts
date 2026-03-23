@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { seedTowns } from "./seed";
 import { runMigrations } from "./db";
 import { installErrorLogCapture, patchConsoleError, installProcessErrorHandlers, logAppError, getErrorLogPath } from "./lib/error-log-service";
+import { startBackgroundJobs } from "./lib/background-jobs-service";
 
 installErrorLogCapture();
 patchConsoleError();
@@ -121,18 +122,7 @@ app.use((req, res, next) => {
   await runMigrations();
   await registerRoutes(httpServer, app);
   await seedTowns();
-
-  // Background enrichment — runs 10s after startup
-  setTimeout(async () => {
-    try {
-      console.log('[Enrichment] Starting background run...');
-      const { enrichAllTrucks } = await import('./lib/truck-enrichment-service');
-      await enrichAllTrucks();
-      console.log('[Enrichment] Complete');
-    } catch (err) {
-      console.error('[Enrichment] Failed:', err);
-    }
-  }, 10000);
+  startBackgroundJobs();
 
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

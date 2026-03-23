@@ -44,9 +44,11 @@ import { PermitType } from "../shared/validation-rules";
 import { runOutreachAgent, sendTestOutreachEmail } from "./lib/outreach-service";
 import { enrichAllTrucks, enrichTruckFromWebsite } from "./lib/truck-enrichment-service";
 import { discoverNewTrucks, discoverFromSource, getLastRunTime } from "./lib/truck-discovery-service";
+import { findStarterCsvPath, importStarterCsvIfAvailable } from "./lib/truck-starter-import-service";
 import { processInboundEmail, classifyEmailDryRun } from "./lib/orchestrator";
 import { inboundEmails, agentLogs } from "@shared/schema";
 import { createStripeCheckoutSession, ensurePaidPermitAccess, getBillingConfig, getUserBillingStatus, handleStripeWebhookEvent, refreshUserStripeSubscription, setUserSubscriptionStatus, verifyStripeWebhookSignature } from "./lib/billing-service";
+import { getTownCoverageSummary, runTownCoverageBatch } from "./lib/town-coverage-service";
 import multer from "multer";
 import { z } from "zod";
 import fs from "fs";
@@ -4464,6 +4466,53 @@ For text fields that require descriptive answers about food safety practices, se
     }
   });
 
+  app.get("/api/admin/town-coverage/status", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const summary = await getTownCoverageSummary("CT");
+      const ctTowns = (await storage.getTowns("CT"))
+        .map((town) => ({
+          id: town.id,
+          townName: town.townName,
+          county: town.county,
+          coverageStatus: town.coverageStatus,
+          applicationMode: town.applicationMode,
+          coverageConfidence: town.coverageConfidence,
+          coverageLastCheckedAt: town.coverageLastCheckedAt,
+          coverageCompletedAt: town.coverageCompletedAt,
+          coverageAttempts: town.coverageAttempts,
+          portalUrl: town.portalUrl,
+        }))
+        .sort((a, b) => {
+          const aRank = a.coverageStatus === "unprocessed" ? 0 : a.coverageStatus === "processing" ? 1 : 2;
+          const bRank = b.coverageStatus === "unprocessed" ? 0 : b.coverageStatus === "processing" ? 1 : 2;
+          if (aRank !== bRank) return aRank - bRank;
+          return a.townName.localeCompare(b.townName);
+        });
+
+      res.json({
+        summary,
+        nextUp: ctTowns.filter((town) => town.coverageStatus === "unprocessed" || town.coverageStatus === "processing").slice(0, 15),
+        recentlyCompleted: ctTowns
+          .filter((town) => town.coverageStatus === "classified" || town.coverageStatus === "needs_review" || town.coverageStatus === "not_found")
+          .sort((a, b) => (b.coverageCompletedAt?.getTime() ?? 0) - (a.coverageCompletedAt?.getTime() ?? 0))
+          .slice(0, 20),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/town-coverage/run-sync", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.body?.limit) || 1, 1), 10);
+      const force = req.body?.force === true;
+      const result = await runTownCoverageBatch(limit, { force, state: "CT" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/admin/discover-trucks — async background run
   app.post("/api/admin/discover-trucks", isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -4732,6 +4781,25 @@ For text fields that require descriptive answers about food safety practices, se
     }
 
     res.json({ added, duplicates, errors, trucks: results });
+  });
+
+  app.get("/api/admin/import-trucks/starter-status", isAuthenticated, isAdmin, async (_req, res) => {
+    const starterPath = findStarterCsvPath();
+    res.json({ found: !!starterPath, filePath: starterPath });
+  });
+
+  app.post("/api/admin/import-trucks/starter", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const result = await importStarterCsvIfAvailable();
+      if (!result.found) {
+        return res.status(404).json({
+          message: "No starter CSV file was found. Add one at data/ct-food-trucks-starter.csv or set TRUCK_STARTER_CSV_PATH.",
+        });
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to import starter CSV" });
+    }
   });
 
   /*
