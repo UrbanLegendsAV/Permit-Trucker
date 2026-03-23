@@ -270,6 +270,44 @@
     @apply premium-subpanel p-4;
   }
 
+  .workflow-shell {
+    @apply app-shell min-h-screen bg-[#0A0F1E] text-white;
+  }
+
+  .workflow-header {
+    @apply sticky top-0 z-40 border-b border-white/10 bg-[#0A0F1E]/85 backdrop-blur-xl;
+  }
+
+  .workflow-hero {
+    @apply premium-panel hero-wash overflow-hidden;
+    background:
+      radial-gradient(circle at top right, rgba(255, 255, 255, 0.12), transparent 28%),
+      radial-gradient(circle at bottom left, rgba(27, 79, 216, 0.18), transparent 40%),
+      linear-gradient(135deg, rgba(10, 15, 30, 0.96), rgba(15, 27, 52, 0.88));
+  }
+
+  .workflow-step-frame {
+    @apply premium-subpanel p-5 md:p-6;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)),
+      rgba(10, 15, 30, 0.78);
+  }
+
+  .ops-shell {
+    @apply app-shell min-h-screen bg-[#0A0F1E] text-white;
+  }
+
+  .ops-tablist {
+    @apply flex w-full gap-1 overflow-x-auto rounded-[22px] border border-white/10 bg-white/5 p-1 scrollbar-none;
+  }
+
+  .ops-kpi {
+    @apply rounded-[22px] border border-white/10 bg-white/[0.04] p-4;
+    box-shadow:
+      0 16px 34px -28px rgba(15, 23, 42, 0.45),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+
   .soft-divider {
     border-color: hsl(var(--border) / 0.55);
   }

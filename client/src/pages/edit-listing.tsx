@@ -164,8 +164,8 @@ function TownTagInput({ value, onChange }: { value: string[]; onChange: (v: stri
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
-      <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">{title}</h3>
+    <div className="workflow-step-frame space-y-4">
+      <p className="section-kicker">{title}</p>
       {children}
     </div>
   );
@@ -335,12 +335,12 @@ export default function EditListingPage() {
   if (!truck) return null;
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] text-white">
+    <div className="workflow-shell">
       <TopHeader />
 
       {/* Sticky action bar */}
       <div className="sticky top-14 z-10 bg-[#0A0F1E]/95 backdrop-blur border-b border-white/10 px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link href={`/directory/${slug}`}>
               <button className="flex items-center gap-1.5 text-sm text-[#8897B2] hover:text-white transition-colors">
@@ -363,9 +363,40 @@ export default function EditListingPage() {
       </div>
 
       {/* Body */}
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <div className="workflow-hero px-6 py-7 md:px-8 md:py-9">
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <p className="section-kicker text-white/60">Owner studio</p>
+              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                Shape how {truck.name} looks to customers.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#B6C3DA] md:text-base">
+                This is the page that powers discovery, trust, and conversion. Strong photos, clean contact info, a real menu, and better service-area detail all make your truck easier to find and easier to book.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="ops-kpi">
+                <p className="section-kicker">Visibility</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{towns.length || 0}</p>
+                <p className="text-sm text-[#8897B2]">towns currently listed</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Menu</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{menuItems.filter((item) => item.name.trim()).length}</p>
+                <p className="text-sm text-[#8897B2]">menu items on profile</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Status</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{offersCatering ? "Bookable" : "Profile"}</p>
+                <p className="text-sm text-[#8897B2]">{offersCatering ? "catering inquiries enabled" : "public listing focus"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <Tabs defaultValue="profile">
-          <TabsList className="bg-white/5 border border-white/10 mb-6 w-full justify-start">
+          <TabsList className="mb-6 w-full justify-start rounded-[22px] border border-white/10 bg-white/5 p-1">
             <TabsTrigger value="profile" className="data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white gap-1.5">
               <Globe className="h-4 w-4" /> Profile
             </TabsTrigger>
@@ -449,10 +480,10 @@ export default function EditListingPage() {
 
           {/* ── Menu Tab ── */}
           <TabsContent value="menu" className="space-y-5">
-            <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
+            <div className="workflow-step-frame space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">Menu Items</h3>
+                  <p className="section-kicker">Menu items</p>
                   <p className="text-xs text-[#8897B2] mt-1">
                     Add your signature dishes. Each item shows as a photo card on your profile.
                   </p>

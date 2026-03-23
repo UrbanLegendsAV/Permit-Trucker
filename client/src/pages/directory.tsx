@@ -167,6 +167,20 @@ export default function DirectoryPage() {
               </div>
             </div>
           </div>
+          <div className="mt-8 grid gap-3 md:grid-cols-3">
+            <div className="ops-kpi">
+              <p className="section-kicker">What you can do here</p>
+              <p className="mt-2 text-sm leading-relaxed text-[#B6C3DA]">Browse like a customer, vet trucks like an event planner, and discover which operators are verified or claimable.</p>
+            </div>
+            <div className="ops-kpi">
+              <p className="section-kicker">Powered by</p>
+              <p className="mt-2 text-sm leading-relaxed text-[#B6C3DA]">Manual imports, autonomous discovery, and website enrichment working together as one Connecticut-focused truck graph.</p>
+            </div>
+            <div className="ops-kpi">
+              <p className="section-kicker">Best use</p>
+              <p className="mt-2 text-sm leading-relaxed text-[#B6C3DA]">Start with a cuisine or town, then open the richer truck profile pages to check menus, reviews, service areas, and booking fit.</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -199,7 +213,7 @@ export default function DirectoryPage() {
             className="w-full sm:w-36 bg-white/5 border-white/10 text-white placeholder:text-[#8897B2] focus-visible:ring-[#1B4FD8]"
           />
           {/* View toggle */}
-          <div className="flex rounded-lg border border-white/10 overflow-hidden shrink-0">
+          <div className="flex rounded-full border border-white/10 overflow-hidden shrink-0 bg-white/5">
             <button
               onClick={() => setView("grid")}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${view === "grid" ? "bg-[#1B4FD8] text-white" : "text-[#8897B2] hover:text-white"}`}
@@ -240,7 +254,11 @@ export default function DirectoryPage() {
           </div>
         ) : view === "grid" ? (
           filtered.length === 0 ? (
-            <p className="text-center text-[#8897B2] py-20">No trucks match your search.</p>
+            <div className="premium-panel px-6 py-16 text-center">
+              <p className="section-kicker">No matches</p>
+              <p className="mt-3 font-display text-2xl font-semibold text-white">No trucks match your current filters.</p>
+              <p className="mt-2 text-sm text-[#8897B2]">Try a broader town, a different cuisine, or switch to the map to explore the full Connecticut network.</p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((truck) => (
@@ -286,12 +304,18 @@ function TruckCard({ truck, onClaim, isClaiming }: {
       onKeyDown={(e) => e.key === "Enter" && setLocation(`/directory/${truck.slug}`)}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3
-          className="font-display font-semibold text-white hover:text-[#1B4FD8] transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {truck.name}
-        </h3>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-[#8897B2]">Truck profile</span>
+            {truck.cuisine && <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-[#8897B2]">{truck.cuisine}</span>}
+          </div>
+          <h3
+            className="font-display font-semibold text-white hover:text-[#1B4FD8] transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {truck.name}
+          </h3>
+        </div>
         {isVerified ? (
           <Badge className="bg-[#00C896]/15 text-[#00C896] border-[#00C896]/30 shrink-0 text-xs gap-1">
             <CheckCircle2 className="h-3 w-3" /> Verified
@@ -307,8 +331,6 @@ function TruckCard({ truck, onClaim, isClaiming }: {
         )}
       </div>
 
-      {truck.cuisine && <span className="text-xs text-[#8897B2] font-medium">{truck.cuisine}</span>}
-
       {isVerified && (
         <p className="text-xs text-[#9EE7D1] font-medium">PermitPilot Verified • trusted owner and business evidence confirmed</p>
       )}
@@ -319,11 +341,16 @@ function TruckCard({ truck, onClaim, isClaiming }: {
 
       {truck.towns && truck.towns.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {truck.towns.map((town) => (
+          {truck.towns.slice(0, 5).map((town) => (
             <span key={town} className="text-xs bg-white/5 border border-white/10 rounded-full px-2 py-0.5 text-[#8897B2]">
               {town}
             </span>
           ))}
+          {truck.towns.length > 5 && (
+            <span className="text-xs rounded-full border border-white/10 px-2 py-0.5 text-[#8897B2]">
+              +{truck.towns.length - 5} more
+            </span>
+          )}
         </div>
       )}
 
@@ -418,9 +445,9 @@ function DirectoryMap() {
   }, [withLocation]);
 
   return (
-    <Card className="overflow-hidden border border-white/10">
+    <Card className="overflow-hidden border border-white/10 bg-white/[0.03]">
       <div ref={containerRef} className="h-[520px] w-full" style={{ zIndex: 0 }} />
-      <div className="flex items-center gap-4 text-xs text-[#8897B2] p-3 border-t border-white/10">
+      <div className="flex flex-wrap items-center gap-4 border-t border-white/10 p-4 text-xs text-[#8897B2]">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-white" style={{ background: COLOR_VERIFIED }} />
           Verified on PermitPilot

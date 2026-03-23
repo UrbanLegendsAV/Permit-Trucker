@@ -198,13 +198,13 @@ export default function NewPermit() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="sticky top-0 z-40 h-14 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="flex items-center h-full px-4 max-w-lg mx-auto">
-          <Button variant="ghost" size="icon" onClick={handleBack} data-testid="button-back">
+    <div className="workflow-shell flex flex-col">
+      <header className="workflow-header h-14">
+        <div className="flex items-center h-full px-4 max-w-5xl mx-auto">
+          <Button variant="ghost" size="icon" onClick={handleBack} data-testid="button-back" className="text-white hover:bg-white/5 hover:text-white">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <h1 className="flex-1 text-center font-display font-semibold">
+          <h1 className="flex-1 text-center font-display font-semibold text-white">
             New Permit
           </h1>
           <Button 
@@ -215,17 +215,49 @@ export default function NewPermit() {
               setLocation("/permits");
             }} 
             data-testid="button-close-permit"
+            className="text-white hover:bg-white/5 hover:text-white"
           >
             <X className="w-5 h-5" />
           </Button>
         </div>
       </header>
 
-      <div className="p-4 max-w-lg mx-auto w-full">
-        <ProgressStepper steps={steps} currentStep={permitStep} className="mb-8" />
+      <div className="p-4 max-w-5xl mx-auto w-full space-y-6">
+        <div className="workflow-hero px-6 py-7 md:px-8">
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <p className="section-kicker text-white/60">Permit workspace</p>
+              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                Turn one truck profile into a submission-ready permit packet.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#B6C3DA] md:text-base">
+                Pick the town, match the permit type, and let PermitPilot guide the requirements, portal path, and packet generation without losing your saved business context.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="ops-kpi">
+                <p className="section-kicker">Selected truck</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{currentProfile?.vehicleName || "Choose one"}</p>
+                <p className="text-sm text-[#8897B2]">profile powering this permit</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Step</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{currentStepName}</p>
+                <p className="text-sm text-[#8897B2]">{permitStep + 1} of {steps.length}</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Town</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{newPermit.town?.townName || "Not selected"}</p>
+                <p className="text-sm text-[#8897B2]">municipality target</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <ProgressStepper steps={steps} currentStep={permitStep} className="mb-2" />
       </div>
 
-      <main className="flex-1 px-4 pb-32 max-w-lg mx-auto w-full">
+      <main className="flex-1 px-4 pb-32 max-w-5xl mx-auto w-full">
+        <div className="workflow-step-frame">
         {currentStepName === "Type" && (
           <div className="space-y-6">
             <div className="text-center mb-8">
@@ -596,15 +628,16 @@ export default function NewPermit() {
             </Button>
           </div>
         )}
+        </div>
       </main>
 
       {permitStep < steps.length - 1 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border safe-area-inset-bottom">
-          <div className="flex gap-4 max-w-lg mx-auto">
+        <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0A0F1E]/88 p-4 backdrop-blur-xl safe-area-inset-bottom">
+          <div className="flex gap-4 max-w-5xl mx-auto">
             <Button
               variant="outline"
               onClick={handleBack}
-              className="h-12 flex-1"
+              className="h-12 flex-1 border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
               data-testid="button-step-back"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -613,7 +646,7 @@ export default function NewPermit() {
             <Button
               onClick={handleNext}
               disabled={!canProceed()}
-              className="h-12 flex-1"
+              className="h-12 flex-1 bg-[#1B4FD8] text-white hover:bg-[#1B4FD8]/90"
               data-testid="button-step-next"
             >
               Next

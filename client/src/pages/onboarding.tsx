@@ -259,30 +259,63 @@ export default function Onboarding() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="sticky top-0 z-40 h-14 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="flex items-center h-full px-4 max-w-lg mx-auto">
-          <Button variant="ghost" size="icon" onClick={handleBack} data-testid="button-back">
+    <div className="workflow-shell flex flex-col">
+      <header className="workflow-header h-14">
+        <div className="flex items-center h-full px-4 max-w-5xl mx-auto">
+          <Button variant="ghost" size="icon" onClick={handleBack} data-testid="button-back" className="text-white hover:bg-white/5 hover:text-white">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <h1 className="flex-1 text-center font-display font-semibold">Add Your Vehicle</h1>
+          <h1 className="flex-1 text-center font-display font-semibold text-white">Add Your Vehicle</h1>
           <div className="w-9" />
         </div>
       </header>
 
       {/* Thin progress bar */}
-      <div className="w-full h-0.5 bg-muted">
+      <div className="w-full h-0.5 bg-white/10">
         <div
-          className="h-0.5 bg-primary transition-all duration-500 ease-out"
+          className="h-0.5 bg-[#1B4FD8] transition-all duration-500 ease-out"
           style={{ width: `${Math.round((currentStep / (steps.length - 1)) * 100)}%` }}
         />
       </div>
-      <div className="px-4 pt-3 pb-1 max-w-lg mx-auto w-full flex items-center justify-between">
-        <p className="text-xs font-medium text-muted-foreground">{steps[currentStep]}</p>
-        <p className="text-xs text-muted-foreground">{currentStep + 1} / {steps.length}</p>
+      <div className="max-w-5xl mx-auto w-full px-4 pt-6">
+        <div className="workflow-hero px-6 py-7 md:px-8">
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <p className="section-kicker text-white/60">Owner setup</p>
+              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                Build the permit-ready profile once, then reuse it town after town.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#B6C3DA] md:text-base">
+                This setup turns your business into a reusable permit machine. We’ll pull what we can from your documents, flag the gaps, and get you ready for autofill.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="ops-kpi">
+                <p className="section-kicker">Current step</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{steps[currentStep]}</p>
+                <p className="text-sm text-[#8897B2]">guided workflow</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Progress</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{currentStep + 1}/{steps.length}</p>
+                <p className="text-sm text-[#8897B2]">stages completed</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Vault score</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{vaultScore ?? 0}%</p>
+                <p className="text-sm text-[#8897B2]">permit data readiness</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 pt-3 pb-1 max-w-5xl mx-auto w-full flex items-center justify-between">
+        <p className="text-xs font-medium text-[#8897B2]">{steps[currentStep]}</p>
+        <p className="text-xs text-[#8897B2]">{currentStep + 1} / {steps.length}</p>
       </div>
 
-      <main className="flex-1 px-4 pb-32 max-w-lg mx-auto w-full">
+      <main className="flex-1 px-4 pb-32 max-w-5xl mx-auto w-full">
+        <div className="workflow-step-frame">
 
         {/* ── Step 0: Vehicle Type ─────────────────────────────────────────── */}
         {currentStep === 0 && (
@@ -833,18 +866,19 @@ export default function Onboarding() {
             </Card>
           </div>
         )}
+        </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border safe-area-inset-bottom">
-        <div className="flex gap-4 max-w-lg mx-auto">
-          <Button variant="outline" onClick={handleBack} className="h-12 flex-1" data-testid="button-step-back">
+      <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0A0F1E]/88 p-4 backdrop-blur-xl safe-area-inset-bottom">
+        <div className="flex gap-4 max-w-5xl mx-auto">
+          <Button variant="outline" onClick={handleBack} className="h-12 flex-1 border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white" data-testid="button-step-back">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>
           <Button
             onClick={handleNext}
             disabled={!canProceed() || isPending}
-            className="h-12 flex-1"
+            className="h-12 flex-1 bg-[#1B4FD8] text-white hover:bg-[#1B4FD8]/90"
             data-testid="button-step-next"
           >
             {isPending ? (

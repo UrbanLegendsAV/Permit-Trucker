@@ -120,56 +120,87 @@ export default function Admin() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 h-14 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="flex items-center h-full px-4 max-w-4xl mx-auto gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back">
+    <div className="ops-shell">
+      <header className="workflow-header z-50 h-14">
+        <div className="flex items-center h-full px-4 max-w-6xl mx-auto gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back" className="text-white hover:bg-white/5 hover:text-white">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <h1 className="font-display font-semibold">Admin Dashboard</h1>
-          <Badge variant="secondary" className="ml-auto">
+          <h1 className="font-display font-semibold text-white">Admin Dashboard</h1>
+          <Badge variant="secondary" className="ml-auto border-white/10 bg-white/5 text-white">
             <Shield className="w-3 h-3 mr-1" />
             {roleData?.role}
           </Badge>
         </div>
       </header>
 
-      <main className="p-4 max-w-4xl mx-auto pb-20">
+      <main className="p-4 max-w-6xl mx-auto pb-20 space-y-6">
+        <div className="workflow-hero px-6 py-7 md:px-8">
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <p className="section-kicker text-white/60">Operations center</p>
+              <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                Run the product systems behind PermitPilot from one cleaner command layer.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#B6C3DA] md:text-base">
+                Pricing, claims, towns, forms, discovery, outreach, and review moderation all live here. The goal is less raw admin surface and more calm operational clarity.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="ops-kpi">
+                <p className="section-kicker">Users</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{users.length}</p>
+                <p className="text-sm text-[#8897B2]">accounts in system</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Claims</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{claimRequests.filter((claim) => claim.status === "pending" || claim.status === "needs_review").length}</p>
+                <p className="text-sm text-[#8897B2]">awaiting review</p>
+              </div>
+              <div className="ops-kpi">
+                <p className="section-kicker">Directory</p>
+                <p className="mt-2 font-display text-2xl font-semibold text-white">{trucks.length}</p>
+                <p className="text-sm text-[#8897B2]">public truck listings</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <Tabs defaultValue="pricing" className="space-y-6">
-          <TabsList className="flex w-full overflow-x-auto gap-1 h-auto p-1 scrollbar-none">
-            <TabsTrigger value="pricing" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-pricing">
+          <TabsList className="ops-tablist h-auto">
+            <TabsTrigger value="pricing" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-pricing">
               <DollarSign className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Pricing</span>
             </TabsTrigger>
-            <TabsTrigger value="towns" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-towns">
+            <TabsTrigger value="towns" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-towns">
               <MapPin className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Towns</span>
             </TabsTrigger>
-            <TabsTrigger value="forms" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-forms">
+            <TabsTrigger value="forms" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-forms">
               <FileText className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Forms</span>
             </TabsTrigger>
-            <TabsTrigger value="reviews" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-reviews">
+            <TabsTrigger value="reviews" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-reviews">
               <MessageSquare className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Reviews</span>
             </TabsTrigger>
-            <TabsTrigger value="users" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-users">
+            <TabsTrigger value="users" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-users">
               <Users className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
-            <TabsTrigger value="claims" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-claims">
+            <TabsTrigger value="claims" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-claims">
               <BadgeCheck className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Claims</span>
             </TabsTrigger>
-            <TabsTrigger value="outreach" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-outreach">
+            <TabsTrigger value="outreach" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-outreach">
               <Mail className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Outreach</span>
             </TabsTrigger>
-            <TabsTrigger value="orchestrator" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-orchestrator">
+            <TabsTrigger value="orchestrator" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-orchestrator">
               <Bot className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Orchestrator</span>
             </TabsTrigger>
-            <TabsTrigger value="crawler" className="flex-shrink-0 text-xs px-3 py-2 h-9" data-testid="tab-crawler">
+            <TabsTrigger value="crawler" className="flex-shrink-0 text-xs px-3 py-2 h-9 text-white/75 data-[state=active]:bg-[#1B4FD8] data-[state=active]:text-white" data-testid="tab-crawler">
               <Globe2 className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Crawler</span>
             </TabsTrigger>
