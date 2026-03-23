@@ -117,13 +117,25 @@ function MiniMap({ lat, lng, name }: { lat: string; lng: string; name: string })
 
 function MenuItemCard({ item }: { item: { name: string; description: string; imageUrl: string } }) {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+    <div className="group overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-3 transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.08]">
       {item.imageUrl && (
-        <img src={item.imageUrl} alt={item.name} className="w-full h-28 object-cover rounded-md mb-2" loading="lazy" />
+        <div className="overflow-hidden rounded-[18px]">
+          <img
+            src={item.imageUrl}
+            alt={item.name}
+            className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            loading="lazy"
+          />
+        </div>
       )}
-      <p className="font-medium text-sm text-white">{item.name}</p>
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <p className="font-display text-base font-semibold text-white">{item.name}</p>
+        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8897B2]">
+          Menu
+        </span>
+      </div>
       {item.description && (
-        <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
+        <p className="mt-2 text-sm leading-relaxed text-[#A8B4CB]">{item.description}</p>
       )}
     </div>
   );
@@ -186,6 +198,16 @@ function formatReviewDate(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function buildSignatureTraits(truck: FoodTruck, reviews: Review[]): string[] {
+  const traits: string[] = [];
+  if (truck.cuisine) traits.push(`${truck.cuisine} specialist`);
+  if (truck.offersPrivateCatering) traits.push("Private-event ready");
+  if ((truck.towns?.length ?? 0) >= 3) traits.push("Multi-town operator");
+  if (reviews.length >= 3) traits.push("Customer-tested favorite");
+  if (truck.menuItems && truck.menuItems.length >= 4) traits.push("Defined menu lineup");
+  return traits.slice(0, 4);
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -311,6 +333,9 @@ export default function TruckProfilePage() {
   const averageRating = reviews.length > 0
     ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
     : 0;
+  const featuredReview = reviews.find((review) => !!review.text) ?? reviews[0] ?? null;
+  const signatureTraits = buildSignatureTraits(truck, reviews);
+  const primaryTown = truck.towns?.[0] ?? "Connecticut";
 
   return (
     <div className="app-shell min-h-screen bg-[#0A0F1E] text-white">
@@ -344,14 +369,14 @@ export default function TruckProfilePage() {
 
       {/* ── Hero ── */}
       <div
-        className="relative w-full h-56 md:h-72 overflow-hidden"
+        className="relative w-full min-h-[460px] overflow-hidden md:min-h-[560px]"
         style={truck.imageUrl ? {} : { backgroundColor: heroBg }}
       >
         {truck.imageUrl && (
           <img src={truck.imageUrl} alt={truck.name} className="absolute inset-0 w-full h-full object-cover" />
         )}
         {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_24%),linear-gradient(to_top,rgba(3,8,20,0.96),rgba(3,8,20,0.38),transparent)]" />
 
         {/* Back link */}
         <div className="absolute top-4 left-4 max-w-4xl">
@@ -362,53 +387,125 @@ export default function TruckProfilePage() {
           </Link>
         </div>
 
-        {/* Bottom-left: name + badges + social */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-6 max-w-5xl mx-auto">
-          {isVerified && (
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#00C896]/35 bg-[#00C896]/12 px-3 py-1 text-xs font-semibold text-[#9EE7D1] mb-3 backdrop-blur-sm">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              PermitPilot Verified
+        <div className="absolute inset-x-0 bottom-0 px-4 pb-6 md:px-6 md:pb-8">
+          <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-end">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                {isVerified && (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-[#00C896]/35 bg-[#00C896]/12 px-3 py-1 text-xs font-semibold text-[#9EE7D1] backdrop-blur-sm">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    PermitPilot Verified
+                  </div>
+                )}
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-white/70 backdrop-blur-sm">
+                  Featured in {primaryTown}
+                </div>
+              </div>
+              <h1 className="mt-5 max-w-3xl font-display text-4xl font-bold leading-[0.96] text-white md:text-6xl">
+                {truck.name}
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/74 md:text-lg">
+                {truck.description
+                  ? truck.description
+                  : `${truck.name} is part of Connecticut's growing food truck scene${truck.cuisine ? ` with a focus on ${truck.cuisine}` : ""}.`}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                {truck.cuisine && (
+                  <Badge className="bg-white/10 backdrop-blur-sm text-white border-white/20 text-xs">
+                    <Tag className="mr-1 h-3 w-3" />{truck.cuisine}
+                  </Badge>
+                )}
+                {isVerified ? (
+                  <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1 text-xs">
+                    <CheckCircle2 className="h-3 w-3" /> Verified
+                  </Badge>
+                ) : isPendingVerification ? (
+                  <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">Pending Review</Badge>
+                ) : (
+                  <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30 text-xs">Unclaimed</Badge>
+                )}
+                {truck.offersPrivateCatering && (
+                  <Badge className="bg-white/10 text-white border-white/20 gap-1 text-xs">
+                    <Utensils className="h-3 w-3" /> Available for catering
+                  </Badge>
+                )}
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                {truck.website && (
+                  <a
+                    href={truck.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15"
+                  >
+                    <Globe className="h-4 w-4" />
+                    Visit website
+                  </a>
+                )}
+                <button
+                  onClick={() => { navigator.clipboard.writeText(window.location.href); }}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/15 px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:text-white"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share this truck
+                </button>
+              </div>
             </div>
-          )}
-          <h1 className="font-display text-3xl md:text-4xl font-bold text-white mb-2 leading-tight">{truck.name}</h1>
-          <div className="flex flex-wrap items-center gap-2 mb-2">
-            {truck.cuisine && (
-              <Badge className="bg-white/10 backdrop-blur-sm text-white border-white/20 text-xs">
-                <Tag className="h-3 w-3 mr-1" />{truck.cuisine}
-              </Badge>
-            )}
-            {isVerified ? (
-              <Badge className="bg-[#00C896]/20 text-[#00C896] border-[#00C896]/30 gap-1 text-xs">
-                <CheckCircle2 className="h-3 w-3" /> Verified
-              </Badge>
-            ) : isPendingVerification ? (
-              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">Pending Review</Badge>
-            ) : (
-              <Badge className="bg-[#F5A623]/20 text-[#F5A623] border-[#F5A623]/30 text-xs">Unclaimed</Badge>
-            )}
-            {truck.offersPrivateCatering && (
-              <Badge className="bg-white/10 text-white border-white/20 gap-1 text-xs">
-                <Utensils className="h-3 w-3" /> Available for catering
-              </Badge>
-            )}
-          </div>
-          {/* Social icons */}
-          <div className="flex items-center gap-3">
-            {truck.instagramHandle && (
-              <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Instagram">
-                <Instagram className="w-5 h-5" />
-              </a>
-            )}
-            {truck.tiktokHandle && (
-              <a href={`https://tiktok.com/@${truck.tiktokHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="TikTok">
-                <ExternalLink className="w-5 h-5" />
-              </a>
-            )}
-            {truck.website && (
-              <a href={truck.website} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Website">
-                <Globe className="w-5 h-5" />
-              </a>
-            )}
+
+            <div className="premium-panel hero-wash p-5 md:p-6">
+              <p className="section-kicker">At a glance</p>
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8897B2]">Rating</p>
+                  <p className="mt-2 font-display text-3xl font-semibold text-white">
+                    {reviews.length ? averageRating.toFixed(1) : "New"}
+                  </p>
+                  <div className="mt-2"><StarRating rating={Math.round(averageRating)} /></div>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8897B2]">Towns</p>
+                  <p className="mt-2 font-display text-3xl font-semibold text-white">{truck.towns?.length ?? 0}</p>
+                  <p className="mt-2 text-xs text-[#8897B2]">service areas tracked</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8897B2]">Mode</p>
+                  <p className="mt-2 font-display text-xl font-semibold text-white">
+                    {truck.offersPrivateCatering ? "Bookable" : "Street"}
+                  </p>
+                  <p className="mt-2 text-xs text-[#8897B2]">
+                    {truck.offersPrivateCatering ? "private events and catering" : "public-facing listing"}
+                  </p>
+                </div>
+              </div>
+
+              {signatureTraits.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {signatureTraits.map((trait) => (
+                    <span key={trait} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-[#DCE6F7]">
+                      {trait}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-5 flex items-center gap-3">
+                {truck.instagramHandle && (
+                  <a href={`https://instagram.com/${truck.instagramHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Instagram">
+                    <Instagram className="w-5 h-5" />
+                  </a>
+                )}
+                {truck.tiktokHandle && (
+                  <a href={`https://tiktok.com/@${truck.tiktokHandle.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="TikTok">
+                    <ExternalLink className="w-5 h-5" />
+                  </a>
+                )}
+                {truck.website && (
+                  <a href={truck.website} target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors" title="Website">
+                    <Globe className="w-5 h-5" />
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -422,15 +519,43 @@ export default function TruckProfilePage() {
       )}
 
       {/* Two-column body */}
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8">
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
 
           {/* LEFT COLUMN */}
           <div className="space-y-8">
 
+            <section className="premium-panel hero-wash p-6 md:p-7">
+              <div className="grid gap-6 md:grid-cols-[1.15fr_0.85fr]">
+                <div>
+                  <p className="section-kicker">Why this truck stands out</p>
+                  <h2 className="mt-3 font-display text-2xl font-semibold text-white">A sharper profile for customers, planners, and future regulars.</h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#AFC0D9]">
+                    PermitPilot is turning food truck pages into richer public profiles, not just business records. This listing is designed to help people discover what this truck serves, where it operates, and whether it feels worth following, booking, or trying next.
+                  </p>
+                </div>
+                <div className="rounded-[26px] border border-white/10 bg-black/20 p-5">
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8897B2]">Editorial note</p>
+                  {featuredReview?.text ? (
+                    <>
+                      <p className="mt-3 text-lg leading-relaxed text-white">“{featuredReview.text}”</p>
+                      <p className="mt-4 text-sm text-[#8897B2]">
+                        {featuredReview.reviewerName || "Guest"} • {formatReviewDate(featuredReview.createdAt)}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-3 text-sm leading-relaxed text-[#8897B2]">
+                      Once reviews start coming in, this space becomes the quickest way to understand the truck’s reputation at a glance.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+
             {/* About */}
             <section className="premium-subpanel p-6">
-              <h2 className="font-display font-semibold text-lg mb-3">About</h2>
+              <p className="section-kicker">Story</p>
+              <h2 className="mb-3 mt-2 font-display text-2xl font-semibold">About</h2>
               {truck.description ? (
                 <p className="text-[#8897B2] leading-relaxed">{truck.description}</p>
               ) : (
@@ -443,7 +568,8 @@ export default function TruckProfilePage() {
             {/* Menu */}
             {truck.menuItems && truck.menuItems.length > 0 && (
               <section className="premium-subpanel p-6">
-                <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
+                <p className="section-kicker">What they serve</p>
+                <h2 className="mb-4 mt-2 flex items-center gap-2 font-display text-2xl font-semibold">
                   <UtensilsCrossed className="h-5 w-5 text-[#8897B2]" /> Menu
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -457,7 +583,8 @@ export default function TruckProfilePage() {
             {/* Where We Operate */}
             {truck.towns && truck.towns.length > 0 && (
               <section className="premium-subpanel p-6">
-                <h2 className="font-display font-semibold text-lg mb-3 flex items-center gap-2">
+                <p className="section-kicker">Coverage</p>
+                <h2 className="mb-3 mt-2 flex items-center gap-2 font-display text-2xl font-semibold">
                   <MapPin className="h-5 w-5 text-[#8897B2]" /> Where We Operate
                 </h2>
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -471,12 +598,10 @@ export default function TruckProfilePage() {
 
             {/* Reviews */}
             <section className="premium-subpanel p-6">
+              <p className="section-kicker">Social proof</p>
               <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#8897B2]">
-                    Community Signal
-                  </div>
-                  <h2 className="mt-3 font-display text-xl font-semibold">Reviews</h2>
+                  <h2 className="mt-2 font-display text-2xl font-semibold">Reviews</h2>
                   <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#8897B2]">
                     Social proof matters. This section helps hungry customers and event planners understand how this truck actually shows up.
                   </p>
@@ -621,13 +746,14 @@ export default function TruckProfilePage() {
           </div>
 
           {/* RIGHT COLUMN */}
-          <div className="space-y-5">
+          <div className="space-y-5 lg:sticky lg:top-24 lg:self-start">
 
             {/* Contact card */}
-            <div className="premium-subpanel p-5 space-y-3">
-              <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide">Links &amp; Contact</h3>
+            <div className="premium-panel hero-wash p-5 space-y-4">
+              <p className="section-kicker">Connect</p>
+              <h3 className="font-display text-xl font-semibold text-white">Links &amp; contact</h3>
               {truck.website && (
-                <a href={truck.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#1B4FD8] hover:underline text-sm">
+                <a href={truck.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[#AFC5FF] hover:underline text-sm">
                   <Globe className="h-4 w-4 shrink-0" />
                   <span className="truncate">{truck.website.replace(/^https?:\/\/(www\.)?/, "")}</span>
                 </a>
@@ -652,6 +778,24 @@ export default function TruckProfilePage() {
                   <Mail className="h-4 w-4 shrink-0" /> {truck.email}
                 </a>
               )}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                {truck.website && (
+                  <a
+                    href={truck.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-full bg-[#1B4FD8] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1B4FD8]/90"
+                  >
+                    Visit site
+                  </a>
+                )}
+                <button
+                  onClick={() => { navigator.clipboard.writeText(window.location.href); }}
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/80 transition-colors hover:text-white"
+                >
+                  Share
+                </button>
+              </div>
               {!truck.website && !truck.instagramHandle && !truck.phone && !truck.email && (
                 <p className="text-[#8897B2] text-sm">No contact info yet.{!isClaimed && " Claim this listing to add yours."}</p>
               )}
@@ -665,7 +809,8 @@ export default function TruckProfilePage() {
             {/* Earned badges (if claimed) */}
             {isClaimed && publicBadges.length > 0 && (
               <div className="premium-subpanel p-5">
-                <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-3">Badges</h3>
+                <p className="section-kicker">Trust markers</p>
+                <h3 className="mb-3 mt-2 font-display text-lg font-semibold text-white">Badges</h3>
                 <div className="flex gap-2 flex-wrap">
                   {publicBadges.map(b => (
                     <BadgePip key={b} type={b} />
@@ -674,19 +819,10 @@ export default function TruckProfilePage() {
               </div>
             )}
 
-            {/* Share */}
-            <div className="premium-subpanel p-4">
-              <button
-                onClick={() => { navigator.clipboard.writeText(window.location.href); }}
-                className="flex items-center gap-2 text-sm text-[#8897B2] hover:text-white transition-colors w-full"
-              >
-                <Share2 className="h-4 w-4" /> Copy link to share
-              </button>
-            </div>
-
             {/* Permit status card */}
             <div className="premium-subpanel p-5">
-              <h3 className="font-semibold text-sm text-[#8897B2] uppercase tracking-wide mb-2">Permit Status</h3>
+              <p className="section-kicker">Operator status</p>
+              <h3 className="mb-2 mt-2 font-display text-lg font-semibold text-white">Permit status</h3>
               {isClaimed ? (
                 <p className="text-sm text-[#8897B2]">Connect your account to show active permits.</p>
               ) : (
