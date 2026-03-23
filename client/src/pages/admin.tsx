@@ -1694,6 +1694,55 @@ type DiscoveryResult = {
   trucks: Array<{ name: string; slug: string; status: "added" | "duplicate" | "error"; source: string }>;
 };
 
+type TownCoverageSummary = {
+  total: number;
+  unprocessed: number;
+  processing: number;
+  classified: number;
+  needsReview: number;
+  notFound: number;
+  remaining: number;
+};
+
+type TownCoverageRow = {
+  id: string;
+  townName: string;
+  county: string;
+  coverageStatus: "unprocessed" | "processing" | "classified" | "needs_review" | "not_found";
+  applicationMode: "unknown" | "pdf_only" | "portal_only" | "mixed" | "mail_in";
+  coverageConfidence: number | null;
+  coverageLastCheckedAt: string | null;
+  coverageCompletedAt: string | null;
+  coverageAttempts: number | null;
+  portalUrl: string | null;
+};
+
+type TownCoverageStatusResponse = {
+  summary: TownCoverageSummary;
+  nextUp: TownCoverageRow[];
+  recentlyCompleted: TownCoverageRow[];
+};
+
+type TownCoverageRunResponse = {
+  processed: number;
+  classified: number;
+  needsReview: number;
+  notFound: number;
+  remaining: number;
+  completed: boolean;
+  towns: Array<{
+    townId: string;
+    townName: string;
+    status: "classified" | "needs_review" | "not_found" | "processing" | "unprocessed";
+    applicationMode: "unknown" | "pdf_only" | "portal_only" | "mixed" | "mail_in";
+    confidence: number;
+    pdfFormsFound: number;
+    fillableFormsFound: number;
+    portalUrl: string | null;
+    notes: string[];
+  }>;
+};
+
 function CrawlerTab({ towns }: { towns: Town[] }) {
   const { toast } = useToast();
   const [selectedTownId, setSelectedTownId] = useState("");
@@ -1708,10 +1757,16 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
   const [importResult, setImportResult] = useState<{ added: number; duplicates: number; errors: number; trucks: Array<{ name: string; slug: string; status: string; enriched: string[]; error?: string }> } | null>(null);
   const [importRows, setImportRows] = useState<Array<{ name: string; website: string; town: string; cuisine: string }> | null>(null);
   const [csvFileName, setCsvFileName] = useState("");
+  const [coverageResult, setCoverageResult] = useState<TownCoverageRunResponse | null>(null);
 
   const { data: stats, refetch: refetchStats } = useQuery<CrawlerStats>({
     queryKey: ["/api/admin/crawler/stats"],
     queryFn: () => fetch("/api/admin/crawler/stats", { credentials: "include" }).then((r) => r.json()),
+  });
+
+  const { data: coverageStatus, refetch: refetchCoverageStatus } = useQuery<TownCoverageStatusResponse>({
+    queryKey: ["/api/admin/town-coverage/status"],
+    queryFn: () => fetch("/api/admin/town-coverage/status", { credentials: "include" }).then((r) => r.json()),
   });
 
   const crawlMutation = useMutation({
@@ -1805,8 +1860,226 @@ function CrawlerTab({ towns }: { towns: Town[] }) {
     },
   });
 
+  const coverageMutation = useMutation({
+    mutationFn: ({ limit, force }: { limit: number; force: boolean }) =>
+      fetch("/api/admin/town-coverage/run-sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit, force }),
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.message || "Town coverage run failed");
+        return data as TownCoverageRunResponse;
+      }),
+    onSuccess: (data) => {
+      setCoverageResult(data);
+      refetchCoverageStatus();
+      refetchStats();
+      toast({
+        title: data.completed ? "Coverage complete" : "Coverage batch complete",
+        description: `${data.processed} town${data.processed === 1 ? "" : "s"} processed, ${data.remaining} remaining.`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Coverage run failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const coverageSummary = coverageStatus?.summary;
+
+  const coverageBadgeClass = (status: TownCoverageRow["coverageStatus"]) => {
+    switch (status) {
+      case "classified":
+        return "bg-green-500/10 text-green-600 dark:text-green-400";
+      case "needs_review":
+        return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+      case "not_found":
+        return "bg-red-500/10 text-red-600 dark:text-red-400";
+      case "processing":
+        return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
+  };
+
+  const formatApplicationMode = (mode: TownCoverageRow["applicationMode"]) => {
+    switch (mode) {
+      case "pdf_only":
+        return "PDF Ready";
+      case "portal_only":
+        return "Portal Ready";
+      case "mixed":
+        return "Mixed";
+      case "mail_in":
+        return "Mail / Offline";
+      default:
+        return "Unknown";
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <Card className="p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="font-display font-semibold text-lg mb-1 flex items-center gap-2">
+              <Activity className="w-5 h-5 text-primary" />
+              Connecticut Coverage Queue
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-3xl">
+              This is the finite statewide mapping campaign. The system processes towns until Connecticut is classified into PDF, portal, mixed, mail/offline, or needs review so users do not hit unknown permit paths at apply time.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => refetchCoverageStatus()}
+              disabled={coverageMutation.isPending}
+            >
+              Refresh
+            </Button>
+            <Button
+              onClick={() => {
+                setCoverageResult(null);
+                coverageMutation.mutate({ limit: 3, force: false });
+              }}
+              disabled={coverageMutation.isPending}
+            >
+              {coverageMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Running Batch...</>
+              ) : (
+                "Run 3 Towns Now"
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold">{coverageSummary?.total ?? "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">CT Towns</p>
+          </div>
+          <div className="bg-green-500/10 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{coverageSummary?.classified ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Classified</p>
+          </div>
+          <div className="bg-blue-500/10 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{coverageSummary?.processing ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Processing</p>
+          </div>
+          <div className="bg-amber-500/10 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{coverageSummary?.needsReview ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Needs Review</p>
+          </div>
+          <div className="bg-muted/50 rounded-lg p-4 text-center">
+            <p className="text-2xl font-bold">{coverageSummary?.remaining ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Remaining Queue</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-border bg-muted/20 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Next Up</h3>
+              <Badge variant="outline">{coverageStatus?.nextUp.length ?? 0}</Badge>
+            </div>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {coverageStatus?.nextUp?.length ? coverageStatus.nextUp.map((town) => (
+                <div key={town.id} className="rounded-xl border border-border/70 bg-background/70 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{town.townName}</p>
+                      <p className="text-xs text-muted-foreground">{town.county} County</p>
+                    </div>
+                    <Badge className={coverageBadgeClass(town.coverageStatus)}>{town.coverageStatus.replace("_", " ")}</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>{formatApplicationMode(town.applicationMode)}</span>
+                    <span>Attempts: {town.coverageAttempts ?? 0}</span>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                  Connecticut coverage queue is empty. The finite scheduler should stop once all towns are classified.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-muted/20 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Recently Classified</h3>
+              <Badge variant="outline">{coverageStatus?.recentlyCompleted.length ?? 0}</Badge>
+            </div>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {coverageStatus?.recentlyCompleted?.length ? coverageStatus.recentlyCompleted.map((town) => (
+                <div key={town.id} className="rounded-xl border border-border/70 bg-background/70 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{town.townName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatApplicationMode(town.applicationMode)} · Confidence {town.coverageConfidence ?? 0}
+                      </p>
+                    </div>
+                    <Badge className={coverageBadgeClass(town.coverageStatus)}>{town.coverageStatus.replace("_", " ")}</Badge>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {town.portalUrl ? `Portal: ${town.portalUrl}` : "No portal URL saved"}
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                  No completed coverage runs yet.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {coverageResult && (
+          <div className="mt-5 rounded-2xl border border-border bg-background/70 p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="font-semibold">Latest Coverage Batch</h3>
+                <p className="text-sm text-muted-foreground">
+                  {coverageResult.processed} processed, {coverageResult.remaining} still in queue.
+                </p>
+              </div>
+              <Badge variant={coverageResult.completed ? "default" : "secondary"}>
+                {coverageResult.completed ? "Connecticut complete" : "Queue still running"}
+              </Badge>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {coverageResult.towns.map((town) => (
+                <div key={town.townId} className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{town.townName}</p>
+                      <p className="text-xs text-muted-foreground">{formatApplicationMode(town.applicationMode)}</p>
+                    </div>
+                    <Badge className={coverageBadgeClass(town.status)}>{town.status.replace("_", " ")}</Badge>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <p>PDF forms: {town.pdfFormsFound}</p>
+                    <p>Fillable PDFs: {town.fillableFormsFound}</p>
+                    <p>Confidence: {town.confidence}</p>
+                  </div>
+                  {town.notes?.[0] && (
+                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                      {town.notes[0]}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Portal-based towns are classified from stored town data plus portal evidence captured during discovery. A town may still need manual review to confirm the exact food-truck application path inside that portal.
+            </p>
+          </div>
+        )}
+      </Card>
+
       {/* Stats row */}
       <Card className="p-6">
         <h2 className="font-display font-semibold text-lg mb-4 flex items-center gap-2">
